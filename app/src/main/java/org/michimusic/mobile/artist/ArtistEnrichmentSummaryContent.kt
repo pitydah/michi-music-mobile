@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -78,12 +79,14 @@ fun ArtistEnrichmentSummaryContent(
                     artistName = uiState.artistName,
                     onChoose = onChoosePhoto,
                     modifier = Modifier.weight(1f),
+                    compact = true,
                 )
                 ArtworkSlotCard(
                     slot = uiState.card,
                     artistName = uiState.artistName,
                     onChoose = onChoosePhoto,
                     modifier = Modifier.weight(1f),
+                    compact = true,
                 )
             }
         } else {
@@ -136,6 +139,10 @@ fun ArtistSummaryHeader(
 /**
  * One photograph slot: the image when it really exists, a neutral monogram when it
  * does not, and the single word that says which of the five situations applies.
+ *
+ * [compact] is set when the card shares a row with its sibling. There the text column is
+ * only ~85 dp wide at 390 dp, so the action moves under the row and owns the full card
+ * width instead of breaking "fotografía" mid-word (§9.9).
  */
 @Composable
 fun ArtworkSlotCard(
@@ -143,6 +150,7 @@ fun ArtworkSlotCard(
     artistName: String,
     onChoose: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -156,50 +164,83 @@ fun ArtworkSlotCard(
             slot.title.uppercase(),
             color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ArtistSlotThumbnail(slot = slot, artistName = artistName)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+        if (compact) {
+            // Beside a sibling the text column would be ~85 dp at 390 dp: the status wrapped
+            // onto four lines and the license ellipsized. Stacked, the photo keeps the card
+            // width and the words keep the whole width under it (§9.9).
+            ArtistSlotThumbnail(
+                slot = slot,
+                artistName = artistName,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            )
+            ArtistSlotDetailText(slot)
+            ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = true)
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    slot.statusLabel,
-                    color = if (slot.isSatisfied) TertiaryCyan else PureWhite,
-                    fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.testTag("artist_artwork_slot_state_${slot.slot.name}"),
-                )
-                slot.detail?.let { reason ->
-                    Text(
-                        reason,
-                        color = TextSecondary, fontSize = 11.sp, maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                // Provenance of a real image only; it never substitutes the image.
-                if (slot.hasThumbnail) {
-                    val provenance = listOfNotNull(slot.attribution, slot.license)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · ")
-                    if (provenance.isNotBlank()) {
-                        Text(provenance, color = TextSecondary, fontSize = 10.sp,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                if (!slot.isSatisfied) {
-                    TextButton(
-                        onClick = onChoose,
-                        modifier = Modifier.heightIn(min = 48.dp)
-                            .testTag("artist_artwork_slot_action_${slot.slot.name}"),
-                    ) {
-                        Text("Elegir fotografía", color = SecondaryPurple, fontSize = 12.sp)
-                    }
+                ArtistSlotThumbnail(slot = slot, artistName = artistName)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    ArtistSlotDetailText(slot)
+                    ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = false)
                 }
             }
         }
+    }
+}
+
+/**
+ * The words of a slot: its state, the real reason when it is blocked, and the provenance
+ * of an image that actually exists. Provenance never stands in for the image.
+ */
+@Composable
+private fun ArtistSlotDetailText(slot: ArtistPhotoSlot) {
+    Text(
+        slot.statusLabel,
+        color = if (slot.isSatisfied) TertiaryCyan else PureWhite,
+        fontSize = 12.sp, fontWeight = FontWeight.Medium,
+        modifier = Modifier.testTag("artist_artwork_slot_state_${slot.slot.name}"),
+    )
+    slot.detail?.let { reason ->
+        Text(
+            reason,
+            color = TextSecondary, fontSize = 11.sp, maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    if (slot.hasThumbnail) {
+        val provenance = listOfNotNull(slot.attribution, slot.license)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+        if (provenance.isNotBlank()) {
+            Text(
+                provenance, color = TextSecondary, fontSize = 10.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** The one explicit choice this slot offers while it is still missing. */
+@Composable
+private fun ArtistSlotChooseAction(
+    slot: ArtistPhotoSlot,
+    onChoose: () -> Unit,
+    fillWidth: Boolean,
+) {
+    if (slot.isSatisfied) return
+    TextButton(
+        onClick = onChoose,
+        modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+            .heightIn(min = 48.dp)
+            .testTag("artist_artwork_slot_action_${slot.slot.name}"),
+    ) {
+        Text("Elegir fotografía", color = SecondaryPurple, fontSize = 12.sp)
     }
 }
 
@@ -211,6 +252,7 @@ fun ArtworkSlotCard(
 private fun ArtistSlotThumbnail(
     slot: ArtistPhotoSlot,
     artistName: String,
+    modifier: Modifier = Modifier.size(SlotThumbnailSize),
 ) {
     val shape = RoundedCornerShape(12.dp)
     val describe = if (slot.hasThumbnail) {
@@ -223,15 +265,13 @@ private fun ArtistSlotThumbnail(
             model = File(requireNotNull(slot.imagePath)),
             contentDescription = describe,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(SlotThumbnailSize)
+            modifier = modifier
                 .clip(shape)
                 .testTag("artist_artwork_thumbnail_${slot.slot.name}"),
         )
     } else {
         Box(
-            modifier = Modifier
-                .size(SlotThumbnailSize)
+            modifier = modifier
                 .clip(shape)
                 .background(PureWhite.copy(alpha = 0.08f))
                 .semantics { contentDescription = describe }
