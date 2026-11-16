@@ -25,6 +25,7 @@ import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.PairedDevice
 import org.michimusic.link.PairedDeviceRegistry
+import org.michimusic.link.port.PinnedOriginalFileSource
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -51,6 +52,30 @@ class AirCatContractTest {
     private val authorityId = michiIdOf(authorityPublic)
     private val tlsPin = "sha256/" + Base64.getEncoder().encodeToString(ByteArray(32) { 7 })
     private val pinnedBaseUrl = "https://source.example"
+
+
+    /**
+     * A27: the Home anchor is provisioned by enrollment. The provider mirrors that
+     * anchor for every source id the test declares, so the contract under test is
+     * always the recovery/transfer rule, never a missing enrollment.
+     */
+    private val homeAnchor: AirCatHomeAnchor
+        get() = AirCatHomeAnchor(
+            homeId = authorityId,
+            authorityMichiId = authorityId,
+            authorityPublicKeyBase64Url = encoder.encodeToString(authorityPublic),
+            sourceMichiId = "",
+            tlsSpkiSha256 = tlsPin,
+            pinnedBaseUrl = pinnedBaseUrl,
+        )
+
+    private val grantSecurity = AirCatSignedGrantSecurity(object : AirCatHomeAuthorityProvider {
+        override fun anchorFor(homeId: String): AirCatHomeAnchor? =
+            homeAnchor.takeIf { it.homeId == homeId }
+
+        override fun anchorForSource(sourceMichiId: String): AirCatHomeAnchor? =
+            homeAnchor.copy(sourceMichiId = sourceMichiId)
+    })
 
     @Before
     fun setUp() {
@@ -80,30 +105,15 @@ class AirCatContractTest {
         pairedRegistry = mockk(relaxed = true)
         libraryRepo = mockk(relaxed = true)
 
-        // A27: the Home anchor is provisioned by enrollment. The provider below
-        // only mirrors that anchor for every source the test declares.
-        val anchor = AirCatHomeAnchor(
-            homeId = authorityId,
-            authorityMichiId = authorityId,
-            authorityPublicKeyBase64Url = encoder.encodeToString(authorityPublic),
-            sourceMichiId = "",
-            tlsSpkiSha256 = tlsPin,
-            pinnedBaseUrl = pinnedBaseUrl,
-        )
-        val authorities = object : AirCatHomeAuthorityProvider {
-            override fun anchorFor(homeId: String): AirCatHomeAnchor? =
-                anchor.takeIf { it.homeId == homeId }
-
-            override fun anchorForSource(sourceMichiId: String): AirCatHomeAnchor? =
-                anchor.copy(sourceMichiId = sourceMichiId)
-        }
+        // A27: the Home anchor is provisioned by enrollment; `homeAnchor` and
+        // `grantSecurity` are shared by every client built in this class.
 
         aircatClient = DefaultAirCatTransferClient(
             transferManager = transferManager,
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = durableCheckpoints,
-            signedGrantSecurity = AirCatSignedGrantSecurity(authorities),
+            signedGrantSecurity = grantSecurity,
         )
     }
 
@@ -119,6 +129,23 @@ class AirCatContractTest {
     }
 
     /** Grants reject any identity that is not a canonical 43-char Link id. */
+    /** A well-formed SHA-256 so a fixture manifest can be canonically hashed. */
+    private val sampleItemSha = "0".repeat(64)
+
+    /**
+     * A67: a manifest that cannot be canonically hashed, a grant bound to another
+     * transfer or an expired window is refused by the signed-grant boundary before
+     * any business validation runs. That order is the contract, so these cases
+     * assert the refusal reason rather than a downstream exception class.
+     */
+    private fun assertGrantRefused(reason: String, result: Result<*>) {
+        val refused = result.exceptionOrNull() as? AirCatException.ProtocolError
+        assertTrue(
+            "expected AIRC_HOME_GRANT_REFUSED: $reason but was ${result.exceptionOrNull()}",
+            refused?.message?.startsWith("AIRC_HOME_GRANT_REFUSED: $reason") == true,
+        )
+    }
+
     private fun mid(tag: String): String = tag.padEnd(43, 'x').take(43)
 
     /** Mints the Home-signed grant this intent needs to reach the transfer contract. */
@@ -158,8 +185,32 @@ class AirCatContractTest {
     }
 
     /** A28: the pinned endpoint is the only origin a grant may be presented to. */
+
+    /**
+     * A27/A67: the client now obtains its byte source through
+     * [LinkClient.pinnedOriginalFileSource], which refuses an unpinned endpoint.
+     * The double keeps the pinned-transport contract while delegating the actual
+     * range read to the client the test already stubbed.
+     */
+    private fun pinnedSourceOf(client: LinkClient) = object : PinnedOriginalFileSource {
+        override val servesOriginalBytes: Boolean get() = true
+        override val verifiedTransport: Boolean get() = true
+        override fun close() = Unit
+        override suspend fun streamTrackRange(
+            trackId: String,
+            outputStream: java.io.OutputStream,
+            startBytes: Long,
+            expectedEtag: String?,
+            bufferSize: Int,
+            onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+        ) = client.streamTrackRange(trackId, outputStream, startBytes, expectedEtag, bufferSize, onProgress)
+    }
+
     private fun pinnedLink(client: LinkClient): LinkClient {
         every { client.baseUrl } returns pinnedBaseUrl
+        // A67: the transfer client hands out a pinned original source, so every
+        // client used by these contracts must answer that call as well.
+        every { client.pinnedOriginalFileSource(any(), any()) } returns pinnedSourceOf(client)
         return client
     }
 
@@ -203,7 +254,7 @@ class AirCatContractTest {
             totalTracks = 1,
             totalBytes = 1000L,
             items = listOf(
-                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, sampleItemSha)
             )
         )
 
@@ -248,7 +299,7 @@ class AirCatContractTest {
         )
 
         assertTrue("Manifest version mismatch must be rejected", result.isFailure)
-        assertTrue("expected AirCatException.ManifestVersionMismatch but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.ManifestVersionMismatch)
+        assertGrantRefused("AIRC_GRANT_VERSION", result)
     }
 
     @Test
@@ -269,6 +320,9 @@ class AirCatContractTest {
             sourceDeviceId = sourceId,
             totalTracks = 1,
             totalBytes = 500L * 1024 * 1024, // 500 MB
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 500L * 1024 * 1024, sampleItemSha)
+            ),
         )
 
         // Only 150 MB available -> does not satisfy 500 MB + 100 MB margin
@@ -410,7 +464,7 @@ class AirCatContractTest {
             totalTracks = 1,
             totalBytes = 1000L,
             items = listOf(
-                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, sampleItemSha)
             )
         )
 
@@ -432,7 +486,8 @@ class AirCatContractTest {
             transferManager = transferManager,
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
-            clock = { currentTime }
+            clock = { currentTime },
+            signedGrantSecurity = grantSecurity,
         )
 
         val sourceId = mid("trusted_peer_exp")
@@ -465,7 +520,7 @@ class AirCatContractTest {
         )
 
         assertTrue("Expired transfer must fail", result.isFailure)
-        assertTrue("expected AirCatException.TransferExpired but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.TransferExpired)
+        assertGrantRefused("AIRC_GRANT_EXPIRED", result)
     }
 
     @Test
@@ -499,7 +554,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.TransferIdMismatch but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.TransferIdMismatch)
+        assertGrantRefused("AIRC_GRANT_TRANSFER", result)
     }
 
     @Test
@@ -534,7 +589,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -593,6 +648,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
         val intent = TransferIntent(
@@ -669,6 +725,7 @@ class AirCatContractTest {
 
         // Mock linkClient streaming remaining part
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
         every { mockClient.deviceToken } returns "token"
         io.mockk.every {
             kotlinx.coroutines.runBlocking {
@@ -702,9 +759,10 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
-        val recoveryResult = client.recoverIncompleteTransfers(sourceId, mockClient)
+        val recoveryResult = client.recoverIncompleteTransfers(sourceId, pinnedLink(mockClient))
         assertTrue("Expected recovery to succeed, but was: ${recoveryResult.exceptionOrNull()}", recoveryResult.isSuccess)
         val files = recoveryResult.getOrThrow()
         assertEquals(1, files.size)
@@ -717,6 +775,7 @@ class AirCatContractTest {
     fun aircatRecoverIncompleteTransfersFailsWhenPeerIsRevoked() = runBlocking {
         val revokedDeviceId = mid("revoked_node_123")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
 
         val revokedDevice = PairedDevice(
             deviceId = revokedDeviceId,
@@ -733,9 +792,10 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
-        val result = client.recoverIncompleteTransfers(revokedDeviceId, mockClient)
+        val result = client.recoverIncompleteTransfers(revokedDeviceId, pinnedLink(mockClient))
         assertTrue(result.isFailure)
         assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
     }
@@ -744,6 +804,7 @@ class AirCatContractTest {
     fun aircatRecoverIncompleteTransfersFailsWhenTokenMismatches() = runBlocking {
         val deviceId = mid("mismatch_node_123")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
         every { mockClient.deviceToken } returns "token_spoofed_or_stale"
 
         val device = PairedDevice(
@@ -761,9 +822,10 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
-        val result = client.recoverIncompleteTransfers(deviceId, mockClient)
+        val result = client.recoverIncompleteTransfers(deviceId, pinnedLink(mockClient))
         assertTrue(result.isFailure)
         assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
     }
@@ -772,6 +834,7 @@ class AirCatContractTest {
     fun aircatRecoverIncompleteTransfersAbortsWhenPeerRevokedMidTransfer() = runBlocking {
         val deviceId = mid("dynamic_revocation_node")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
         every { mockClient.deviceToken } returns "valid_token"
 
         var isRevokedFlag = false
@@ -834,9 +897,10 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
-        val result = client.recoverIncompleteTransfers(deviceId, mockClient)
+        val result = client.recoverIncompleteTransfers(deviceId, pinnedLink(mockClient))
         assertTrue(result.isFailure)
         assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
         // Only 1 download track call was made before revocation aborted recovery
@@ -905,6 +969,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = failingLibraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
         val manifestItem = AirCatManifestItem(
@@ -947,6 +1012,7 @@ class AirCatContractTest {
     fun aircatRecoverIncompleteTransfers_strictCompositeCriteria_matchesDestinationLibraryAndHash() = runBlocking {
         val deviceId = mid("node_composite_strict")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
         every { mockClient.deviceToken } returns "token_strict"
         every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
             deviceId = deviceId,
@@ -1009,6 +1075,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
         // Only authorize track_strict_1 destined for lib_target_1
@@ -1044,6 +1111,7 @@ class AirCatContractTest {
     fun aircatRecoverIncompleteTransfers_strictHashMatching_rejectsEmptyOrMismatchingHashWhenHashIsExpected() = runBlocking {
         val deviceId = mid("node_hash_matching_strict")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        pinnedLink(mockClient)
         every { mockClient.deviceToken } returns "token_strict"
         every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
             deviceId = deviceId,
@@ -1129,6 +1197,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
         val criteria = listOf(
@@ -1198,6 +1267,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+                   signedGrantSecurity = grantSecurity,
         )
 
         // Authorized criteria specifies plan_B
@@ -1282,6 +1352,7 @@ class AirCatContractTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = null,
             checkpointRepository = mockk(relaxed = true),
+                   signedGrantSecurity = grantSecurity,
         )
 
         val intent = TransferIntent(
@@ -1415,7 +1486,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -1487,7 +1558,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -1525,7 +1596,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -1566,7 +1637,7 @@ class AirCatContractTest {
         )
 
         assertTrue("Managed AirCat without SHA-256 must fail before I/O", result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
         assertEquals(AirCatTransferState.FAILED, updates.lastOrNull()?.state)
         assertTrue("No managed file can be committed unverified", checkpointRows.isEmpty())
     }
@@ -1637,7 +1708,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -1669,7 +1740,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
@@ -1703,7 +1774,7 @@ class AirCatContractTest {
         )
 
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertGrantRefused("AIRC_GRANT_MANIFEST", result)
     }
 
     @Test
