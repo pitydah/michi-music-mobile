@@ -127,8 +127,11 @@ internal fun MichiAtlasGenreScreen(
             }
         }
     }
-    val playableTracks = playbackState?.tracks.orEmpty()
-    val playbackReady = playbackState != null && playbackState.genreId == currentId
+    // Kotlin cannot smart-cast a Compose delegated property. Capture a stable,
+    // page-identity-checked snapshot before exposing any queue to the UI.
+    val readySnapshot = playbackState?.takeIf { it.genreId == currentId }
+    val playableTracks = readySnapshot?.tracks.orEmpty()
+    val playbackReady = readySnapshot != null
     val activeTitle = currentSnapshot?.title ?: editorial?.displayName ?: originSnapshot.title
     val activePoster = if (isOrigin) poster else currentScopedGenre?.let {
         editorialPosterForTitle(it.title, editorialAssets)
