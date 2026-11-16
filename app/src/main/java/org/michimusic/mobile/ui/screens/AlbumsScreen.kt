@@ -94,8 +94,8 @@ import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentStack
 import org.michimusic.mobile.ui.components.aeroSegmentStacking
-import org.michimusic.mobile.artist.ArtistCreditOccurrence
-import org.michimusic.mobile.artist.planArtistPresentation
+import org.michimusic.mobile.artist.ArtistMembershipOccurrence
+import org.michimusic.mobile.artist.planArtistMemberships
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.ui.components.ArtistVariantNotice
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
@@ -1106,26 +1106,35 @@ fun AlbumsScreen(
                                 libraries = availableLibraries,
                                 repository = musicLibraryRepo,
                             )
-                            // Credits stay separate unless a verified identity backs a merge;
-                            // possible variants are surfaced for review instead of collapsing.
+                            // K48-R01: presentation is built from real memberships. Every
+                            // album and every distinct track identity is conserved; grouping
+                            // by literal credit can never drop a later album that repeats a
+                            // credit (three A-ha albums stay three albums, thirty tracks).
+                            // Identity resolution stays separate: a merge needs corroborated
+                            // MusicBrainz evidence, which this screen never invents.
                             val presentation = remember(scoped.albums, scoped.identityLibraryId) {
-                                // K48-S5: the album model keeps one credit, yet a file can
-                                // disagree with it (A-ha vs a-ha inside the same MediaStore
-                                // album). Occurrences therefore come from track credits, so
-                                // the variant notice can surface without merging anything.
-                                planArtistPresentation(
+                                planArtistMemberships(
                                     scoped.albums.flatMap { album ->
                                         val albumCredit = album.album.artist
-                                        album.tracks
-                                            .groupBy { it.artist.ifBlank { albumCredit } }
-                                            .map { (credit, tracks) ->
-                                                ArtistCreditOccurrence(
-                                                    credit = credit,
+                                        if (album.tracks.isEmpty()) {
+                                            listOf(
+                                                ArtistMembershipOccurrence(
                                                     libraryId = scoped.identityLibraryId,
-                                                    albumIds = listOf(album.album.id),
-                                                    trackCount = tracks.size,
+                                                    albumId = album.album.id,
+                                                    literalCredit = albumCredit,
+                                                    trackIdentity = "${album.album.id}#album",
+                                                ),
+                                            )
+                                        } else {
+                                            album.tracks.map { track ->
+                                                ArtistMembershipOccurrence(
+                                                    libraryId = scoped.identityLibraryId,
+                                                    albumId = album.album.id,
+                                                    literalCredit = track.artist.ifBlank { albumCredit },
+                                                    trackIdentity = "${track.sourceId}\u0000${track.id}\u0000${track.filepath}",
                                                 )
                                             }
+                                        }
                                     },
                                 )
                             }

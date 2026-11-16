@@ -155,4 +155,60 @@ class ArtistPresentationGroupingTest {
         )
         assertEquals(listOf("A-ha"), plan.entries.map { it.credit })
     }
+    /**
+     * K48-R01: repeating a literal credit across albums must aggregate membership, never
+     * replace it. Three A-ha albums of ten tracks stay three albums and thirty tracks.
+     */
+    @Test
+    fun threeAlbumsWithTheSameCreditKeepEveryAlbumAndTrack() {
+        val plan = planArtistPresentation(
+            listOf(
+                occurrence("A-ha", listOf("album_hunting"), trackCount = 10),
+                occurrence("A-ha", listOf("album_scoundrel"), trackCount = 10),
+                occurrence("A-ha", listOf("album_east"), trackCount = 10),
+            ),
+        )
+        val entry = plan.entries.single()
+        assertEquals("A-ha", entry.credit)
+        assertEquals(listOf("album_east", "album_hunting", "album_scoundrel"), entry.albumIds)
+        assertEquals(30, entry.trackCount)
+        assertTrue(plan.variantHints.isEmpty())
+    }
+
+    /** The same guarantee through the real membership path used by the Artists screen. */
+    @Test
+    fun membershipsCountDistinctTracksAcrossRepeatedAlbumsAndCredits() {
+        val memberships = buildList {
+            listOf("album_hunting", "album_scoundrel", "album_east").forEach { album ->
+                (0 until 10).forEach { index ->
+                    add(
+                        ArtistMembershipOccurrence(
+                            libraryId = "lib_1",
+                            albumId = album,
+                            literalCredit = "A-ha",
+                            trackIdentity = "$album#$index",
+                        ),
+                    )
+                }
+            }
+        }
+        val plan = planArtistMemberships(memberships)
+        val entry = plan.entries.single()
+        assertEquals(3, entry.albumIds.size)
+        assertEquals(30, entry.trackCount)
+    }
+
+    /** A duplicated membership of the same track must not inflate the count. */
+    @Test
+    fun repeatedMembershipOfTheSameTrackIsCountedOnce() {
+        val membership = ArtistMembershipOccurrence(
+            libraryId = "lib_1",
+            albumId = "album_hunting",
+            literalCredit = "A-ha",
+            trackIdentity = "album_hunting#0",
+        )
+        val plan = planArtistMemberships(listOf(membership, membership.copy()))
+        assertEquals(1, plan.entries.single().trackCount)
+    }
+
 }
