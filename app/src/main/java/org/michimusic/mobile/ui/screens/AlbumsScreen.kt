@@ -83,6 +83,7 @@ import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.AlbumMosaicGrid
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
+import org.michimusic.mobile.ui.components.LibraryScopeStatus
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
@@ -385,6 +386,10 @@ fun AlbumsScreen(
                     }
                 }
             }
+
+            // K48-R02: a failed restore or an unsaved selection is visible even when the
+            // selector itself is hidden, and its retry re-runs that exact operation.
+            LibraryScopeStatus(store = libraryScopeStore)
 
             // M60: content type is the dominant library navigation level.
             // Collection scope above is omitted if there is no scope choice.
