@@ -55,8 +55,10 @@ class ArtistEnrichmentSummaryContentInstrumentedTest {
 
         compose.onNodeWithTag("artist_artwork_thumbnail_ARTIST_THUMB").assertIsDisplayed()
         compose.onNodeWithTag("artist_artwork_placeholder_ARTIST_THUMB").assertDoesNotExist()
-        // Provenance is printed only next to a real image.
-        compose.onNodeWithText("Test Author · CC BY 2.0").assertIsDisplayed()
+        // Provenance is printed only next to a real image, and the author and the licence
+        // get a line each so the licence is never the part that gets ellipsised.
+        compose.onNodeWithText("Test Author").assertIsDisplayed()
+        compose.onNodeWithText("CC BY 2.0").assertIsDisplayed()
 
         // The card has no verified bytes, so it must stay a monogram.
         compose.onNodeWithTag("artist_artwork_placeholder_ARTIST_HERO").assertIsDisplayed()
