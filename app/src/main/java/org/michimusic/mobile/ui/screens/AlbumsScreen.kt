@@ -95,6 +95,7 @@ import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentStack
 import org.michimusic.mobile.ui.components.aeroSegmentStacking
+import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.ArtistMembershipOccurrence
 import org.michimusic.mobile.artist.planArtistMemberships
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
@@ -106,6 +107,7 @@ import org.michimusic.mobile.library.authority
 import org.michimusic.mobile.library.authorizedScope
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
+import org.michimusic.mobile.library.rememberVerifiedArtistMbids
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
@@ -1126,29 +1128,60 @@ fun AlbumsScreen(
                             // credit (three A-ha albums stay three albums, thirty tracks).
                             // Identity resolution stays separate: a merge needs corroborated
                             // MusicBrainz evidence, which this screen never invents.
-                            val presentation = remember(scoped.albums, scoped.identityLibraryId) {
-                                planArtistMemberships(
-                                    scoped.albums.flatMap { album ->
-                                        val albumCredit = album.album.artist
-                                        if (album.tracks.isEmpty()) {
-                                            listOf(
-                                                ArtistMembershipOccurrence(
-                                                    libraryId = scoped.identityLibraryId,
-                                                    albumId = album.album.id,
-                                                    literalCredit = albumCredit,
-                                                    trackIdentity = "${album.album.id}#album",
-                                                ),
+                            val occurrences = remember(scoped.albums, scoped.identityLibraryId) {
+                                scoped.albums.flatMap { album ->
+                                    val albumCredit = album.album.artist
+                                    if (album.tracks.isEmpty()) {
+                                        listOf(
+                                            ArtistMembershipOccurrence(
+                                                libraryId = scoped.identityLibraryId,
+                                                albumId = album.album.id,
+                                                literalCredit = albumCredit,
+                                                trackIdentity = "${album.album.id}#album",
+                                            ),
+                                        )
+                                    } else {
+                                        album.tracks.map { track ->
+                                            ArtistMembershipOccurrence(
+                                                libraryId = scoped.identityLibraryId,
+                                                albumId = album.album.id,
+                                                literalCredit = track.artist.ifBlank { albumCredit },
+                                                trackIdentity = "${track.sourceId}\u0000${track.id}\u0000${track.filepath}",
                                             )
-                                        } else {
-                                            album.tracks.map { track ->
-                                                ArtistMembershipOccurrence(
-                                                    libraryId = scoped.identityLibraryId,
-                                                    albumId = album.album.id,
-                                                    literalCredit = track.artist.ifBlank { albumCredit },
-                                                    trackIdentity = "${track.sourceId}\u0000${track.id}\u0000${track.filepath}",
-                                                )
-                                            }
                                         }
+                                    }
+                                }
+                            }
+                            // K48-R12-03: identities come from this device, scoped to this
+                            // library, and only where two credits look alike. No provider is
+                            // consulted to open the grid.
+                            val identityStore = remember(context) {
+                                ArtistEnrichmentPersistence.from(context)
+                            }
+                            val creditsByAlbum = remember(occurrences) {
+                                occurrences
+                                    .groupBy { it.literalCredit.trim() }
+                                    .mapValues { (_, group) -> group.map { it.albumId }.distinct() }
+                            }
+                            val verifiedIdentities = rememberVerifiedArtistMbids(
+                                libraryId = scoped.identityLibraryId,
+                                credits = creditsByAlbum,
+                                store = identityStore,
+                                retryKey = artistScopeRetry,
+                            )
+                            if (!verifiedIdentities.ready) {
+                                Box(
+                                    Modifier.fillMaxWidth().testTag("artist_identity_loading"),
+                                    contentAlignment = Alignment.Center,
+                                ) { CircularProgressIndicator(color = TertiaryCyan) }
+                            }
+                            val presentation = remember(occurrences, verifiedIdentities.mbidsByCredit) {
+                                planArtistMemberships(
+                                    occurrences.map { occurrence ->
+                                        occurrence.copy(
+                                            verifiedMbid =
+                                                verifiedIdentities.mbidsByCredit[occurrence.literalCredit.trim()],
+                                        )
                                     },
                                 )
                             }
