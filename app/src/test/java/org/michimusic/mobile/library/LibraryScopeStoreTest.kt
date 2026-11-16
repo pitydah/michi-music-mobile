@@ -53,15 +53,64 @@ class LibraryScopeStoreTest {
     // every case now owns the store inside its own `runTest` scope: a failure is
     // attributed to the test that caused it and `runTest` cancels whatever is left.
     @Test
-    fun `a failing settings read degrades to All instead of crashing the scope`() =
+    fun `a failing settings read never authorizes All`() =
         runTest(StandardTestDispatcher()) {
             coEvery { appDao.getSetting(LibraryScopeStore.KEY_ACTIVE_SCOPE) } throws
                 IllegalStateException("settings provider unavailable")
             val store = LibraryScopeStore(appDao, libraryRepo, this)
             testScheduler.advanceUntilIdle()
 
-            assertEquals(LibraryScope.All, store.activeScope.value)
+            // K48-R02: a provider failure must stay a failure. Publishing All here
+            // would silently widen the library the user selected.
+            assertEquals(false, store.hydrated.value)
+            assertEquals(
+                LibraryScopeResolution.ReadFailed(LibraryScopeFailure.SETTINGS_UNAVAILABLE),
+                store.resolution.value,
+            )
+        }
+
+    @Test
+    fun `retrying after a read failure publishes the persisted scope`() =
+        runTest(StandardTestDispatcher()) {
+            var failRead = true
+            coEvery { appDao.getSetting(LibraryScopeStore.KEY_ACTIVE_SCOPE) } coAnswers {
+                if (failRead) throw IllegalStateException("settings provider unavailable")
+                "lib_custom_1"
+            }
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
+            assertEquals(false, store.hydrated.value)
+
+            failRead = false
+            store.retryLoading()
+            testScheduler.advanceUntilIdle()
+
             assertEquals(true, store.hydrated.value)
+            assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
+            assertEquals(
+                LibraryScopeResolution.Ready(LibraryScope.One("lib_custom_1"), persisted = true),
+                store.resolution.value,
+            )
+        }
+
+    @Test
+    fun `a failing persisted write reports it without losing the selection`() =
+        runTest(StandardTestDispatcher()) {
+            coEvery { appDao.setSetting(any()) } throws IllegalStateException("disk busy")
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
+
+            store.setScope(LibraryScope.One("lib_custom_1"))
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
+            assertEquals(
+                LibraryScopeResolution.WriteFailed(
+                    LibraryScope.One("lib_custom_1"),
+                    LibraryScopeFailure.WRITE_UNAVAILABLE,
+                ),
+                store.resolution.value,
+            )
         }
 
     @Test
