@@ -142,6 +142,8 @@ class ArtistEnrichmentController(
         albumIds: List<String>,
         mbid: String,
     ) {
+        // K48-R04: a new identity or association invalidates any portrait search in flight.
+        invalidatePortraitSearch()
         requestJob?.cancel()
         val epoch = ++requestEpoch
         _state.value = _state.value.copy(
@@ -187,6 +189,8 @@ class ArtistEnrichmentController(
         associationGroupKey: String,
         mbid: String,
     ) {
+        // K48-R04: a new identity or association invalidates any portrait search in flight.
+        invalidatePortraitSearch()
         val resolutionStore = profileStore as? ArtistAssociationResolutionStore ?: return
         val scopedLibrary = libraryId ?: return
         requestJob?.cancel()
@@ -217,6 +221,8 @@ class ArtistEnrichmentController(
     fun reconfirmVisibleAlbum(
         artistCredit: String, libraryId: String?, albumIds: List<String>, albumId: String,
     ) {
+        // K48-R04: a new identity or association invalidates any portrait search in flight.
+        invalidatePortraitSearch()
         val bindingStore = profileStore as? ArtistMembershipBindingStore ?: return
         val concreteLibrary = libraryId?.takeIf { it.isNotBlank() && it != "SCOPE_ALL" } ?: return
         val current = _state.value
@@ -260,6 +266,8 @@ class ArtistEnrichmentController(
         albumIds: List<String>,
         albumIdToBind: String? = null,
     ) {
+        // K48-R04: a new identity or association invalidates any portrait search in flight.
+        invalidatePortraitSearch()
         val bindingStore = profileStore as? ArtistMembershipBindingStore ?: return
         val scopedLibrary = libraryId ?: return
         val current = _state.value
