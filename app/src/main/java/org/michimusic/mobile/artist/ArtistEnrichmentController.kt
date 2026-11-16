@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
+import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
@@ -48,6 +49,8 @@ data class ArtistEnrichmentState(
     /** Last artwork receipt for this identity; null until a provider run finishes. */
     val artworkReport: org.michimusic.mobile.artist.artwork.ArtworkResolutionReport? = null,
     val unboundAlbumIds: List<String> = emptyList(),
+    /** K48-R05: explicit destructive-operation lifecycle, never inferred from [message]. */
+    val delete: EnrichmentDeleteState = EnrichmentDeleteState.Idle,
 )
 
 /**
@@ -90,6 +93,8 @@ class ArtistEnrichmentController(
      */
     private var portraitEpoch = 0L
     private var portraitReceipt: ArtistPortraitSearchReceipt? = null
+    /** K48-R05: only the newest destructive receipt may publish a result. */
+    private var deleteSequence = 0L
 
     fun bind(libraryId: String?, artistCredit: String, albumIds: List<String>) {
         val key = bindKeyFor(libraryId, artistCredit, albumIds)
@@ -97,6 +102,8 @@ class ArtistEnrichmentController(
         bindKey = key
         requestJob?.cancel()
         invalidatePortraitSearch()
+        // A destructive operation must not survive a re-bind: its receipt stops being current.
+        ++deleteSequence
         val epoch = ++requestEpoch
         _state.value = ArtistEnrichmentState()
         requestJob = scope.launch {
@@ -436,63 +443,122 @@ class ArtistEnrichmentController(
     }
 
     /**
-     * Removes the association and cancels in-flight work. A later provider search still
-     * requires a new explicit user action; no bind starts discovery by itself.
+     * K48-R05: a destructive operation starts as a [EnrichmentDeleteState.Confirming] receipt
+     * built from the identity this controller is bound to. Nothing is deleted here.
      */
-    fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
+    fun requestDelete(artistCredit: String, libraryId: String?, albumIds: List<String>) {
+        if (bindKeyFor(libraryId, artistCredit, albumIds) != bindKey) return
+        val current = _state.value
+        val receipt = EnrichmentDeleteReceipt(
+            libraryId = libraryId,
+            artistCredit = artistCredit,
+            albumIds = albumIds.toList(),
+            mbid = current.persistedMbid ?: current.profile?.mbid,
+            associationGroupKey = current.associationGroupKey,
+            sequence = ++deleteSequence,
+        )
+        _state.value = current.copy(delete = EnrichmentDeleteState.Confirming(receipt))
+    }
+
+    /** Cancels a pending confirmation. No store was touched, so the state stays verified. */
+    fun cancelDelete() {
+        val confirming = _state.value.delete as? EnrichmentDeleteState.Confirming ?: return
+        if (!isCurrentDelete(confirming.receipt, requestEpoch)) return
+        _state.value = _state.value.copy(delete = EnrichmentDeleteState.Idle)
+    }
+
+    /**
+     * K48-R05: runs the deletion announced by [requestDelete]. The receipt must still target
+     * the bound identity; a stale or re-targeted confirmation is refused instead of deleting.
+     */
+    fun confirmDelete(artistCredit: String, libraryId: String?, albumIds: List<String>) {
+        val confirming = _state.value.delete as? EnrichmentDeleteState.Confirming ?: return
+        val receipt = confirming.receipt
+        if (!receipt.targets(libraryId, artistCredit, albumIds)) return
+        if (bindKeyFor(libraryId, artistCredit, albumIds) != bindKey) return
+        if (receipt.sequence != deleteSequence) return
         requestJob?.cancel()
         invalidatePortraitSearch()
-        ++requestEpoch
+        val epoch = ++requestEpoch
         val previous = _state.value
-        val groupKey = previous.associationGroupKey
         val anchor = previous.profile?.let {
-            artistIdentityAnchor(libraryId, artistCredit, albumIds, it, groupKey)
+            artistIdentityAnchor(libraryId, artistCredit, albumIds, it, receipt.associationGroupKey)
         }
-        _state.value = ArtistEnrichmentState(
-            status = ArtistEnrichmentStatus.IDLE,
-            // K48-09: never announce success before the stores confirm it.
+        _state.value = previous.copy(
+            delete = EnrichmentDeleteState.Deleting(receipt),
             message = "Borrando datos enriquecidos…",
         )
-        requestJob = scope.launch {
-            var profileCleared = false
-            var failure = false
-            if (libraryId != null) {
-                try {
-                    profileStore.clear(libraryId, artistCredit, albumIds, groupKey)
-                    profileCleared = true
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    failure = true
-                }
-            }
-            if (anchor != null) {
-                try {
-                    artworkStore.clear(anchor)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    failure = true
-                }
-            }
-            if (failure) {
-                _state.value = if (profileCleared) {
-                    // The identity row is gone, so showing the previous profile again would
-                    // be a lie. Keep the coherent empty state and disclose the file cleanup
-                    // failure; an explicit repair can retry the unreferenced files.
-                    ArtistEnrichmentState(
-                        status = ArtistEnrichmentStatus.IDLE,
-                        message = "Se borró la asociación, pero no todos los archivos de imagen.",
-                    )
-                } else {
-                    previous.copy(message = "No fue posible borrar todos los datos guardados.")
-                }
-            } else {
-                // Only after both stores completed without failure.
-                _state.value = _state.value.copy(message = "Datos enriquecidos borrados.")
+        requestJob = scope.launch { runDelete(receipt, epoch, previous, anchor) }
+    }
+
+    /**
+     * Removes the association and cancels in-flight work. A later provider search still
+     * requires a new explicit user action; no bind starts discovery by itself.
+     *
+     * Kept as the single-call entry point: it announces the target and immediately confirms it.
+     */
+    fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
+        requestDelete(artistCredit, libraryId, albumIds)
+        confirmDelete(artistCredit, libraryId, albumIds)
+    }
+
+    private suspend fun runDelete(
+        receipt: EnrichmentDeleteReceipt,
+        epoch: Int,
+        previous: ArtistEnrichmentState,
+        anchor: ArtistIdentityAnchor?,
+    ) {
+        var associationRemoved = true
+        var associationFailure: EnrichmentDeleteFailure? = null
+        if (receipt.libraryId != null) {
+            try {
+                profileStore.clear(
+                    receipt.libraryId, receipt.artistCredit, receipt.albumIds,
+                    receipt.associationGroupKey,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                associationRemoved = false
+                associationFailure = EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED
             }
         }
+        var artworkFailure: EnrichmentDeleteFailure? = null
+        if (anchor != null) {
+            try {
+                artworkStore.clear(anchor)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                artworkFailure = EnrichmentDeleteFailure.ARTWORK_FILES_REMAIN
+            }
+        }
+        // A re-bind, a newer receipt or a newer identity invalidates this result entirely.
+        if (!isCurrentDelete(receipt, epoch)) return
+        _state.value = when {
+            associationFailure != null -> previous.copy(
+                delete = EnrichmentDeleteState.Failed(receipt, associationFailure),
+                message = associationFailure.userMessage(),
+            )
+            // The identity row is gone, so showing the previous profile again would be a lie.
+            // Keep the coherent empty state and disclose the file cleanup failure.
+            artworkFailure != null -> ArtistEnrichmentState(
+                status = ArtistEnrichmentStatus.IDLE,
+                delete = EnrichmentDeleteState.PartiallyCompleted(receipt, artworkFailure),
+                message = artworkFailure.userMessage(),
+            )
+            else -> _state.value.copy(
+                delete = EnrichmentDeleteState.Completed(receipt),
+                message = "Datos enriquecidos borrados.",
+            )
+        }
     }
+
+    /** True only while [receipt] is still the current target for the current binding. */
+    private fun isCurrentDelete(receipt: EnrichmentDeleteReceipt, epoch: Int): Boolean =
+        receipt.sequence == deleteSequence &&
+            epoch == requestEpoch &&
+            bindKeyFor(receipt.libraryId, receipt.artistCredit, receipt.albumIds) == bindKey
 
     private fun bindKeyFor(libraryId: String?, artistCredit: String, albumIds: List<String>): String =
         listOf(

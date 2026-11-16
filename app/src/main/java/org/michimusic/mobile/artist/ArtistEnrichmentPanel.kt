@@ -156,7 +156,6 @@ fun ArtistEnrichmentPanel(
     var creditVerificationBusy by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var creditProofSaved by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var advancedOpen by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
-    var clearConfirm by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     // K48-S7: the artwork slots are the first thing the screen answers. Identity, MBID
     // and association evidence stay one tap away instead of filling the first screen.
     var identityExpanded by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
@@ -637,7 +636,8 @@ fun ArtistEnrichmentPanel(
                                 color = TertiaryCyan, fontSize = 12.sp,
                             )
                         }
-                        if (clearConfirm) {
+                        val delete = uiState.delete
+                        if (delete is EnrichmentDeleteState.Confirming) {
                             Column(
                                 modifier = Modifier.fillMaxWidth()
                                     .testTag("artist_enrichment_confirm_delete"),
@@ -655,14 +655,15 @@ fun ArtistEnrichmentPanel(
                                     color = TextSecondary, fontSize = 11.sp,
                                 )
                                 TextButton(
-                                    onClick = { clearConfirm = false },
+                                    onClick = { activeController.cancelDelete() },
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         .testTag("artist_enrichment_delete_cancel"),
                                 ) { Text("Cancelar", color = SecondaryPurple) }
                                 OutlinedButton(
                                     onClick = {
-                                        clearConfirm = false
-                                        activeController.clear(artistCredit, libraryId, albumIds)
+                                        activeController.confirmDelete(
+                                            artistCredit, libraryId, albumIds,
+                                        )
                                     },
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         .testTag("artist_enrichment_delete_confirm"),
@@ -672,12 +673,22 @@ fun ArtistEnrichmentPanel(
                             }
                         } else {
                             OutlinedButton(
-                                onClick = { clearConfirm = true },
+                                onClick = {
+                                    activeController.requestDelete(
+                                        artistCredit, libraryId, albumIds,
+                                    )
+                                },
+                                enabled = delete !is EnrichmentDeleteState.Deleting,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                     .testTag("artist_enrichment_clear"),
                                 colors = secondaryColors,
                                 border = secondaryBorder,
-                            ) { Text("Quitar datos enriquecidos…") }
+                            ) {
+                                Text(
+                                    if (delete is EnrichmentDeleteState.Deleting) "Borrando…"
+                                    else "Quitar datos enriquecidos…",
+                                )
+                            }
                         }
                     }
                 }
