@@ -146,7 +146,10 @@ class GenreDetailRowArtworkComposeTest {
      */
     private fun openPopAndReveal(rowTag: String) {
         openPop()
-        rule.waitUntil(10_000) {
+        // The pop detail is lazily composed after navigation and pays for its own Room
+        // reads; on the slower CI emulator that regularly exceeded ten seconds, so the
+        // budget now matches the receipt waits in this class.
+        rule.waitUntil(30_000) {
             rule.onAllNodesWithTag("genre_detail").fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithTag("genre_detail").performScrollToNode(hasTestTag(rowTag))
