@@ -138,6 +138,21 @@ class GenreDetailRowArtworkComposeTest {
         rule.waitForIdle()
     }
 
+    /**
+     * Phase C's detail header can push the first row outside the initial viewport, so the
+     * lazy row and its artwork slot are not composed until the list scrolls to them.
+     * Waiting for the detail container first keeps the scroll itself from racing the
+     * navigation frame.
+     */
+    private fun openPopAndReveal(rowTag: String) {
+        openPop()
+        rule.waitUntil(10_000) {
+            rule.onAllNodesWithTag("genre_detail").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithTag("genre_detail").performScrollToNode(hasTestTag(rowTag))
+        rule.waitForIdle()
+    }
+
     private fun rowTrack(id: String, title: String, coverId: String, filepath: String) = Track(
         id = id,
         title = title,
@@ -156,7 +171,7 @@ class GenreDetailRowArtworkComposeTest {
         setPanel(mutableStateOf(listOf(track)), onTrackArtworkLoad = { id, ok ->
             if (id == track.id) receipt = ok
         })
-        openPop()
+        openPopAndReveal("genre_track_real1")
         rule.waitUntil(20_000) { receipt == true }
         rule.onNodeWithTag("genre_track_art_real1", useUnmergedTree = true)
             .assertIsDisplayed()
@@ -183,13 +198,10 @@ class GenreDetailRowArtworkComposeTest {
     @Test fun missingArtworkUsesTheNeutralPlaceholder() {
         val track = rowTrack("none1", "No Cover", "", "content://michi/missing.flac")
         setPanel(mutableStateOf(listOf(track)))
-        openPop()
         // A detail header built from missing artwork is tall enough to push the
         // first row out of the initial viewport, so the lazy row and its
-        // placeholder are not composed yet. Scroll to the row before waiting.
-        rule.onNodeWithTag("genre_detail")
-            .performScrollToNode(hasTestTag("genre_track_none1"))
-        rule.waitForIdle()
+        // placeholder are not composed yet. Reveal the row before waiting.
+        openPopAndReveal("genre_track_none1")
         waitForTag("album_artwork_unavailable")
         rule.onNodeWithTag("genre_track_art_none1", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithTag("album_artwork_unavailable", useUnmergedTree = true)
@@ -204,7 +216,7 @@ class GenreDetailRowArtworkComposeTest {
         val tracks = mutableStateOf(listOf(first))
         val receipts = mutableListOf<Boolean>()
         setPanel(tracks, onTrackArtworkLoad = { _, ok -> receipts += ok })
-        openPop()
+        openPopAndReveal("genre_track_switch1")
         rule.waitUntil(20_000) { receipts.contains(true) }
 
         // Same row identity, new model with no artwork: the previous painter
@@ -233,12 +245,9 @@ class GenreDetailRowArtworkComposeTest {
             rowTrack("long-$index", "Long Track ${index + 1}", "", "")
         }
         setPanel(mutableStateOf(tracks))
-        openPop()
         // Phase C's detail header can push the first row outside the initial
-        // viewport; scroll to it before waiting for its lazy artwork slot.
-        rule.onNodeWithTag("genre_detail")
-            .performScrollToNode(hasTestTag("genre_track_long-0"))
-        rule.waitForIdle()
+        // viewport; reveal it before waiting for its lazy artwork slot.
+        openPopAndReveal("genre_track_long-0")
         waitForTag("genre_track_art_long-0")
         rule.onNodeWithTag("genre_track_art_long-0", useUnmergedTree = true)
             .assertIsDisplayed()
