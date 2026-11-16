@@ -213,11 +213,6 @@ fun ArtistEnrichmentPanel(
         artworkPickerOpen = true
     }
 
-    fun openPickerAndSearch() {
-        artworkPickerOpen = true
-        activeController.searchPortraits(artistCredit, libraryId, albumIds)
-    }
-
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .testTag("artist_enrichment_panel"),
@@ -227,19 +222,12 @@ fun ArtistEnrichmentPanel(
             uiState = presentation,
             onChoosePhoto = { openPicker() },
             onPrimaryAction = { action ->
-                // K48-R03: the label comes from the action, so tapping it always runs
-                // exactly the operation the user read.
-                when (action) {
-                    ArtistEnrichmentPrimaryAction.ReviewIdentity,
-                    ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity,
-                    -> identityExpanded = true
-                    ArtistEnrichmentPrimaryAction.SearchMissingPhotos,
-                    ArtistEnrichmentPrimaryAction.RetryProvider,
-                    -> openPickerAndSearch()
-                    ArtistEnrichmentPrimaryAction.ReviewLicense,
-                    ArtistEnrichmentPrimaryAction.ViewPhotos,
-                    -> openPicker()
-                    ArtistEnrichmentPrimaryAction.None -> Unit
+                // K48-R12-01: no primary action reaches the provider on its own. The
+                // picker owns the consent gate, so an action can only open it.
+                when (action.panelEffect()) {
+                    ArtistEnrichmentPanelEffect.RevealIdentity -> identityExpanded = true
+                    ArtistEnrichmentPanelEffect.OpenPicker -> openPicker()
+                    ArtistEnrichmentPanelEffect.Nothing -> Unit
                 }
             },
         )

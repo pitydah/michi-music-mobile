@@ -375,4 +375,43 @@ class ArtistEnrichmentUiStateTest {
         assertEquals("Fotografías de 'Til Tuesday", ArtistEnrichmentUiState.heading("'Til Tuesday"))
         assertEquals("Fotografías de 'Til Tuesday'", ArtistEnrichmentUiState.heading("Til Tuesday"))
     }
+
+    /**
+     * K48-R12-01: the only effects a primary action may run are local. Nothing in this
+     * mapping can reach the provider, so a consent bypass would have to be introduced
+     * deliberately as a new effect member.
+     */
+    @Test
+    fun `no primary action starts a provider query on its own`() {
+        assertEquals(
+            ArtistEnrichmentPanelEffect.RevealIdentity,
+            ArtistEnrichmentPrimaryAction.ReviewIdentity.panelEffect(),
+        )
+        assertEquals(
+            ArtistEnrichmentPanelEffect.RevealIdentity,
+            ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity.panelEffect(),
+        )
+        // The three photo actions only open the picker; the disclosure lives there.
+        assertEquals(
+            ArtistEnrichmentPanelEffect.OpenPicker,
+            ArtistEnrichmentPrimaryAction.SearchMissingPhotos.panelEffect(),
+        )
+        assertEquals(
+            ArtistEnrichmentPanelEffect.OpenPicker,
+            ArtistEnrichmentPrimaryAction.RetryProvider.panelEffect(),
+        )
+        assertEquals(
+            ArtistEnrichmentPanelEffect.OpenPicker,
+            ArtistEnrichmentPrimaryAction.ReviewLicense.panelEffect(),
+        )
+        assertEquals(
+            ArtistEnrichmentPanelEffect.OpenPicker,
+            ArtistEnrichmentPrimaryAction.ViewPhotos.panelEffect(),
+        )
+        assertEquals(
+            ArtistEnrichmentPanelEffect.Nothing,
+            ArtistEnrichmentPrimaryAction.None.panelEffect(),
+        )
+        // Every action is accounted for by exactly one of the three local effects.
+    }
 }

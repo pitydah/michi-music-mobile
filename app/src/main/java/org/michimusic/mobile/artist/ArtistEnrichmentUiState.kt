@@ -56,6 +56,31 @@ data class ArtistCoverageRow(
 )
 
 /** The collapsible regions of the enrichment summary; only one is open at a time. */
+/**
+ * What tapping the primary action is allowed to do.
+ *
+ * K48-R12-01: there is deliberately no `Search` member. Opening the photo picker is a
+ * local, offline operation; the provider query can only start after the user confirms
+ * the disclosure inside the picker. Encoding this as a closed set means a future action
+ * cannot start a network call by accident.
+ */
+enum class ArtistEnrichmentPanelEffect { Nothing, RevealIdentity, OpenPicker }
+
+/** Maps every primary action to the one effect it may run. */
+fun ArtistEnrichmentPrimaryAction.panelEffect(): ArtistEnrichmentPanelEffect = when (this) {
+    ArtistEnrichmentPrimaryAction.ReviewIdentity,
+    ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity,
+    -> ArtistEnrichmentPanelEffect.RevealIdentity
+
+    ArtistEnrichmentPrimaryAction.SearchMissingPhotos,
+    ArtistEnrichmentPrimaryAction.RetryProvider,
+    ArtistEnrichmentPrimaryAction.ReviewLicense,
+    ArtistEnrichmentPrimaryAction.ViewPhotos,
+    -> ArtistEnrichmentPanelEffect.OpenPicker
+
+    ArtistEnrichmentPrimaryAction.None -> ArtistEnrichmentPanelEffect.Nothing
+}
+
 enum class ArtistEnrichmentSection { NONE, DIAGNOSIS, IDENTITY, ADVANCED }
 
 /** Persistence facts stated as one sentence, never as a raw enum. */

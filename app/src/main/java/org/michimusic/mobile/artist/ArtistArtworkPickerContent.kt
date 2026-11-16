@@ -222,9 +222,12 @@ fun ArtistArtworkPickerContent(
                 .testTag("artist_artwork_openverse_consent"),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            // K48-R12-01: the disclosure names the provider, what leaves the device and what
+            // the provider learns by being contacted. Consent is worthless without it.
             Text(
-                "La búsqueda en Openverse enviaría el nombre público de $artistCredit. " +
-                    "Las fotos requieren comprobar identidad, atribución y licencia antes de guardarse.",
+                "Se enviará el nombre público de $artistCredit a Openverse para buscar fotografías. " +
+                    "El proveedor podrá recibir los datos habituales de conexión. " +
+                    "Las imágenes deberán verificarse antes de guardarse.",
                 color = TextSecondary, fontSize = 11.sp,
             )
             TextButton(
