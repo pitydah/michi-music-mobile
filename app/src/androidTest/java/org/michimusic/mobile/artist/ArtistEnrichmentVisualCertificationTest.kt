@@ -432,8 +432,14 @@ class ArtistEnrichmentVisualCertificationTest {
         compose.onNodeWithTag("artist_artwork_decode_error_ARTIST_THUMB").assertExists()
         compose.onNodeWithTag("artist_artwork_decode_fallback_ARTIST_THUMB").assertExists()
         compose.onNodeWithTag("artist_artwork_thumbnail_ARTIST_THUMB").assertDoesNotExist()
+        // K48-R12-07: the saved file is still saved, but the label may not claim it is
+        // available, and the announcement may not say "Disponible" over an empty frame.
         compose.onNodeWithTag("artist_artwork_slot_state_ARTIST_THUMB")
-            .assertTextEquals("Disponible")
+            .assertTextEquals("Guardada · no se puede mostrar")
+        compose.onNodeWithTag("artist_artwork_decode_fallback_ARTIST_THUMB")
+            .assertContentDescriptionEquals(
+                "Foto de mosaico. Guardada, pero la vista previa no está disponible.",
+            )
     }
 
     /**

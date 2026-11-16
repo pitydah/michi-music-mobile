@@ -220,9 +220,12 @@ fun ArtworkSlotCard(
  */
 @Composable
 private fun ArtistSlotDetailText(slot: ArtistPhotoSlot, imageUnreadable: Boolean = false) {
+    // K48-R12-07: a saved photograph whose preview cannot be rendered is not "Disponible".
+    // The file is still there, so the truthful state names exactly that distinction.
+    val unshowable = slot.hasThumbnail && imageUnreadable
     Text(
-        slot.statusLabel,
-        color = if (slot.isSatisfied) TertiaryCyan else PureWhite,
+        if (unshowable) "Guardada · no se puede mostrar" else slot.statusLabel,
+        color = if (slot.isSatisfied && !unshowable) TertiaryCyan else PureWhite,
         fontSize = 12.sp, fontWeight = FontWeight.Medium,
         modifier = Modifier.testTag("artist_artwork_slot_state_${slot.slot.name}"),
     )
@@ -234,9 +237,10 @@ private fun ArtistSlotDetailText(slot: ArtistPhotoSlot, imageUnreadable: Boolean
         )
     }
     if (slot.hasThumbnail && imageUnreadable) {
-        // The photo is saved, so the state above is still accurate; only its display failed.
+        // The photo is saved, so nothing is lost; only its preview failed. No download is
+        // offered here: reopening the local file is the whole repair.
         Text(
-            "No se pudo mostrar la imagen guardada.",
+            "El archivo guardado no se pudo abrir. Reintentar no descarga nada.",
             color = TextSecondary, fontSize = 10.sp, maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.testTag("artist_artwork_decode_error_${slot.slot.name}"),
@@ -296,9 +300,12 @@ private fun ArtistSlotThumbnail(
     // drawn: the card falls back to the neutral monogram and says so (§9.5, K48-R11).
     var decodeFailed by remember(slot.imagePath) { mutableStateOf(false) }
     LaunchedEffect(decodeFailed) { if (decodeFailed) onUnreadable() }
+    // K48-R12-07: when the pixels cannot be shown the announcement drops the availability
+    // word entirely. Saying "Disponible" next to an empty frame is the one thing a screen
+    // reader must never hear about a preview that is not there.
     val describe = when {
         !slot.hasThumbnail -> "${slot.title}: ${slot.statusLabel}. Sin imagen verificada."
-        decodeFailed -> "${slot.title}: ${slot.statusLabel}. La imagen guardada no se pudo mostrar."
+        decodeFailed -> "${slot.title}. Guardada, pero la vista previa no está disponible."
         else -> "${slot.title}: ${slot.statusLabel}"
     }
     if (slot.hasThumbnail && !decodeFailed) {
