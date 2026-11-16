@@ -287,12 +287,20 @@ fun ArtistCoverageDiagnosticContent(
 @Composable
 fun artworkSlotsInline(): Boolean {
     val configuration = LocalConfiguration.current
-    // Each column needs the thumbnail plus the text block carrying state and CTA.
-    // A large font scale makes that text block taller and wider in practice, so the
-    // contract prefers a single column instead of clipping it.
-    val minimumColumn = SlotThumbnailSize + 152.dp
-    return configuration.fontScale < 1.6f &&
-        configuration.screenWidthDp.dp >= minimumColumn * 2
+    return artworkSlotsInline(configuration.screenWidthDp, configuration.fontScale)
+}
+
+/**
+ * K48-R07 §9.9: the same decision as pure data so the responsive contract can be tested
+ * without a device. Each column needs the thumbnail plus the text block carrying state and
+ * CTA; a large font scale widens and heightens that block, so two columns are refused there
+ * instead of clipping the label.
+ */
+internal fun artworkSlotsInline(widthDp: Int, fontScale: Float): Boolean {
+    // §9.9: two columns are required from 412 dp and allowed from 390 dp; below that the
+    // thumbnail plus its state and CTA would be clipped, so the single column wins.
+    val minimumColumn = SlotThumbnailSize + 112.dp
+    return fontScale < 1.6f && widthDp.dp >= minimumColumn * 2
 }
 
 /** Divider used between stacked collapsible regions. */
