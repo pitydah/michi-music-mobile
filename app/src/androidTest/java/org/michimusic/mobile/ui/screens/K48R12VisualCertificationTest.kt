@@ -18,6 +18,11 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -106,6 +111,7 @@ class K48R12VisualCertificationTest {
 
     /** The width the running device can actually give, which the certification may not exceed. */
     private val windowDp: Int get() = context.resources.configuration.screenWidthDp
+    private val fontScaleValue get() = context.resources.configuration.fontScale
     private val margin = 20
 
     private val allWidths = listOf(320, 360, 390, 412, 480)
@@ -243,14 +249,43 @@ class K48R12VisualCertificationTest {
             "editor $phase was asked for ${requested}dp but the sheet measured ${effectiveDp}dp",
             kotlin.math.abs(effectiveDp - requested.toFloat()) <= 2.0f,
         )
-        val file = File(dir, "genre_editor_${phase}_${requested}.png")
+        // K48-R12: the font scale belongs in the artifact name. Without it every scale
+        // overwrote the previous capture and the certification could not prove which
+        // configuration each image came from.
+        val file = File(dir, "genre_editor_${phase}_${requested}_fs${fontScaleValue}.png")
         capture("mi26_genre_editor_sheet", file)
         assertTrue("$phase produced an empty capture", file.length() > 0L)
-        File(dir, "r12_genre_editor_window_${requested}_${phase}.tsv").writeText(
+        File(dir, "r12_genre_editor_window_${requested}_fs${fontScaleValue}_${phase}.tsv").writeText(
             "window_requested_dp	effective_dp	font_scale	phase	result\n" +
                 "$requested\t" + String.format(Locale.US, "%.1f", effectiveDp) +
                 "\t" + (context.resources.configuration.fontScale) + "\t$phase\tCAPTURED\n",
         )
+    }
+
+    /**
+     * K48-R12: a sheet that is 88% of the window cannot show a long body at 320 dp and a
+     * doubled font scale, so the body scrolls. That is the design; what the contract
+     * forbids is text that gets cut and can never be reached. This proves the last body
+     * control becomes visible after scrolling, at the narrowest tested configuration.
+     */
+    @Test
+    fun theEditorBodyReachesItsLastControlAtTheNarrowestScale() {
+        assumeTrue(
+            "this guard certifies the narrowest window; run it at 320dp",
+            kotlin.math.abs(windowDp - 320) <= 2,
+        )
+        compose.setContent {
+            MichiTheme { GenreEditorContent(uiState = editorState(tagsVerified = false, embedded = emptyList()), onIntent = {}) }
+        }
+        compose.waitForIdle()
+        val lastControl = "Conservar la clasificación actual. No inventar ausencia de metadatos."
+        compose.onNodeWithTag("mi26_genre_editor_body").performScrollToNode(hasText(lastControl))
+        compose.waitForIdle()
+        compose.onNodeWithText(lastControl).assertIsDisplayed()
+        compose.onNodeWithTag("mi26_genre_editor_body")
+            .performScrollToNode(hasTestTag("mi26_genre_evidence_reason"))
+        compose.waitForIdle()
+        compose.onNodeWithTag("mi26_genre_evidence_reason").assertIsDisplayed()
     }
 
     private fun capture(tag: String, file: File) {
