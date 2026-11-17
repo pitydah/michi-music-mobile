@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -132,7 +133,9 @@ class K48R12VisualCertificationTest {
     fun everyNamedSurfaceIsCapturedAtTheCanonicalWidth() {
         val dir = File(context.getExternalFilesDir(null), "r12-certification").apply { mkdirs() }
         val png = localPng("r12-thumb.png")
-        val rows = StringBuilder("surface\trequested_dp\teffective_dp\tfont_scale\tresult\n")
+        val rows = StringBuilder(
+            "surface\trequested_dp\teffective_dp\tfont_scale\tsurface_height_dp\twindow_height_dp\tcapture\tresult\n",
+        )
         val surfaces = buildSurfaces(png)
         var index by mutableStateOf(0)
 
@@ -176,6 +179,11 @@ class K48R12VisualCertificationTest {
                         .fetchSemanticsNodes().isNotEmpty()
                 }
             }
+            if (name == "artist_picker_with_candidates") {
+                // Composed versus actually on screen: a node that only exists in semantics
+                // cannot be certified as a rendered surface.
+                compose.onNodeWithTag("artist_artwork_choose_ARTIST_THUMB_0").assertIsDisplayed()
+            }
             val measuredPx = compose.onNodeWithTag("cert_surface").fetchSemanticsNode().size.width
             val effectiveDp = measuredPx / baseDensity
             val expectedDp = (canonicalWidth - margin * 2).toFloat()
@@ -189,7 +197,7 @@ class K48R12VisualCertificationTest {
             rows.append(
                 "$name\t$canonicalWidth\t" +
                     String.format(Locale.US, "%.1f", effectiveDp) +
-                    "\t1.0\tCAPTURED\n",
+                    "\t1.0\t" + surfaceHeightFacts("cert_surface") + "\tCAPTURED\n",
             )
         }
         File(dir, "r12_surfaces.tsv").writeText(rows.toString())
@@ -288,9 +296,36 @@ class K48R12VisualCertificationTest {
         compose.onNodeWithTag("mi26_genre_evidence_reason").assertIsDisplayed()
     }
 
+    /**
+     * K48-R12: capture the window, not the node.
+     *
+     * `captureToImage()` on a node that is taller than the window returns undefined pixels for
+     * the part that was never on screen: the photo picker came back with overlapping text and a
+     * thumbnail drawn far outside its card. A certification image has to be what the device
+     * actually showed, including the bottom edge it clipped, so this takes a screenshot of the
+     * window and records whether the surface was taller than the viewport.
+     */
     private fun capture(tag: String, file: File) {
-        val bitmap = compose.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        // K48-R12: the headless display pipeline lags one buffer behind. A single
+        // takeScreenshot() returned the frame *before* the candidates were composed, which is
+        // how a surface that assertIsDisplayed() proves visible ended up as an empty image.
+        // Drain one buffer, then keep the settled one.
+        automation.takeScreenshot()?.recycle()
+        compose.waitForIdle()
+        val bitmap = automation.takeScreenshot()
         FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+    }
+
+    /** Height the surface asked for versus the window it had to fit in. */
+    private fun surfaceHeightFacts(tag: String): String {
+        val node = compose.onNodeWithTag(tag).fetchSemanticsNode()
+        val surfaceDp = node.size.height / baseDensity
+        val windowPx = context.resources.displayMetrics.heightPixels
+        val windowDp = windowPx / baseDensity
+        return String.format(Locale.US, "%.1f", surfaceDp) + "\t" +
+            String.format(Locale.US, "%.1f", windowDp) + "\t" +
+            if (surfaceDp > windowDp) "CLIPPED" else "FULL"
     }
 
     private fun buildSurfaces(png: File): List<Pair<String, @Composable () -> Unit>> = listOf(
@@ -327,9 +362,13 @@ class K48R12VisualCertificationTest {
             )
         },
         "artist_picker_before_consent" to {
-            ArtistArtworkPickerContent(uiState = pickerState(png), onIntent = {})
+            // K48-R12: the picker emits sibling composables and production hosts it inside a
+            // Column. Rendered straight into a Box the children stack on top of each other,
+            // which is a harness defect, not a product one.
+            Column { ArtistArtworkPickerContent(uiState = pickerState(png), onIntent = {}) }
         },
         "artist_picker_with_candidates" to {
+            Column {
             ArtistArtworkPickerContent(
                 uiState = pickerState(png).copy(
                     confirmedIdentity = true,
@@ -343,6 +382,7 @@ class K48R12VisualCertificationTest {
                 ),
                 onIntent = {},
             )
+            }
         },
         "artist_enrichment_confirm_delete" to {
             ArtistEnrichmentAdvancedActionsContent(
@@ -369,6 +409,7 @@ class K48R12VisualCertificationTest {
             )
         },
         "artist_picker_partial_save" to {
+            Column {
             ArtistArtworkPickerContent(
                 uiState = pickerState(png).copy(
                     message = bothDestinationsMessage(
@@ -388,6 +429,7 @@ class K48R12VisualCertificationTest {
                 ),
                 onIntent = {},
             )
+            }
         },
         "artist_photo_decode_failure" to {
             ArtistEnrichmentSummaryContent(
