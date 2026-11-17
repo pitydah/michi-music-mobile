@@ -50,6 +50,13 @@ internal fun FanartTvKeySettings() {
 
     Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Proveedores manuales", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Estos catálogos nunca entran en la búsqueda automática y no declaran " +
+                "licencia: sus fotografías sólo se guardan cuando las eliges tú, y quedan " +
+                "marcadas como licencia no declarada.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         Text("fanart.tv", style = MaterialTheme.typography.titleSmall)
         Text(
             "Las imágenes de fanart.tv proceden de fanart.tv y de sus colaboradores. Puedes " +

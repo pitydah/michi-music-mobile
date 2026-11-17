@@ -209,9 +209,9 @@ data class ArtistArtworkCoverageUiState(
             ArtworkSource.WIKIPEDIA_PAGEIMAGE -> "Wikipedia"
             ArtworkSource.COMMONS_CATEGORY -> "Commons · categoría"
             ArtworkSource.COMMONS_GALLERY -> "Commons · galería"
-            ArtworkSource.OPENVERSE -> "Openverse · búsqueda manual"
+            ArtworkSource.OPENVERSE -> "Openverse · sólo revisión manual"
             ArtworkSource.THEAUDIODB -> "TheAudioDB · sólo revisión manual"
-            ArtworkSource.FANART_TV -> "Fanart.tv · sólo revisión manual"
+            ArtworkSource.FANART_TV -> "fanart.tv · sólo revisión manual"
         }
 
         fun providerStatusLabel(outcome: ArtworkProviderOutcome): String = when (outcome.status) {

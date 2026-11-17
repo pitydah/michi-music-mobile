@@ -39,7 +39,7 @@ class ArtistArtworkCoordinator internal constructor(
         CommonsP180Provider(http, wikidata, commons),
         WikipediaPageImageProvider(http, wikidata, commons),
         DisabledArtworkProvider(ArtworkSource.THEAUDIODB, "THEAUDIODB_ENABLED=false"),
-        DisabledArtworkProvider(ArtworkSource.FANART_TV, "Sólo búsqueda manual: sin licencia declarada"),
+        DisabledArtworkProvider(ArtworkSource.FANART_TV, "Sólo revisión manual: sin licencia declarada"),
     )
 
     suspend fun resolve(anchor: ArtistIdentityAnchor, forceRefresh: Boolean = false): ArtworkResolutionReport =

@@ -279,12 +279,24 @@ data class ArtistEnrichmentUiState(
                 // licence had simply not been formatted.
                 license = when {
                     verifiedPath == null -> null
+                    // Both catalogues publish photographs without stating a licence.
+                    // Leaving the line empty for one of them would read as "no data",
+                    // when the truth is that the catalogue declares none at all.
                     selection?.licenseId.isNullOrBlank() &&
-                        selection?.source == ArtworkSource.THEAUDIODB -> "Licencia no declarada"
+                        selection?.source in undeclaredLicenceSources -> "Licencia no declarada"
                     else -> selection?.licenseId?.takeIf { it.isNotBlank() }
                 },
             )
         }
+
+        /**
+         * Catalogues that publish photographs with no licence and no author. They are
+         * manual-only by design, and whatever they hand over is stored as
+         * `UNDECLARED_LICENSE`, so the summary has to name that state instead of
+         * rendering an empty line.
+         */
+        private val undeclaredLicenceSources =
+            setOf(ArtworkSource.THEAUDIODB, ArtworkSource.FANART_TV)
 
         private fun availabilityOf(state: ArtistArtworkCoverageState): ArtistPhotoAvailability =
             when (state) {

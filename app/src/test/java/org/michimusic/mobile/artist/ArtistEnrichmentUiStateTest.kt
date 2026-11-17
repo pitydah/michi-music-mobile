@@ -94,6 +94,30 @@ class ArtistEnrichmentUiStateTest {
         )
 
     @Test
+    fun everyCatalogueThatDeclaresNoLicenceSaysSoInTheSummary() {
+        // Both manual catalogues publish photographs without a licence. The summary
+        // must name that state; an empty line reads as "missing data", which is a
+        // different claim and the wrong one.
+        val sources = listOf(ArtworkSource.THEAUDIODB, ArtworkSource.FANART_TV)
+        sources.forEach { source ->
+            val signed = selection(
+                ArtworkSlot.ARTIST_THUMB,
+                "/data/photo.jpg",
+                manuallyChosen = true,
+            ).copy(source = source, licenseId = null, licenseUrl = null, attribution = null)
+            val presentation = presentation(
+                ArtistEnrichmentState(selections = mapOf(ArtworkSlot.ARTIST_THUMB to signed)),
+                artwork = artworkUi(signed),
+            )
+            assertEquals(
+                "a $source photograph declares no licence",
+                "Licencia no declarada",
+                presentation.mosaic.license,
+            )
+        }
+    }
+
+    @Test
     fun `summary without identity says identity is pending`() {
         val ui = presentation()
 

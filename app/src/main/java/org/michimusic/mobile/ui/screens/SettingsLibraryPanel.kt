@@ -60,6 +60,9 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 internal fun SettingsLibraryPanel() {
     val context = LocalContext.current
     ArtistArtworkAutoSettings()
+    // fanart.tv is manual-only: its keys belong beside the decision to use it,
+    // not inside the switch that governs the automatic ladder.
+    FanartTvKeySettings()
     val scope = rememberCoroutineScope()
                         val musicRootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
                         val currentRoot by musicRootAuthority.currentRoot.collectAsStateWithLifecycle()

@@ -59,7 +59,9 @@ internal data class ArtistArtworkPickerCandidateUi(
             ArtworkSource.FANART_TV,
             -> "Licencia no declarada por el proveedor · revisar antes de usar"
 
-            else -> "${candidate.licenseId.orEmpty()} · revisar origen Flickr"
+            // Openverse aggregates Commons, museums and Flickr alike, so naming one
+            // source here would send the reader to a provenance the photo may not have.
+            else -> "${candidate.licenseId.orEmpty()} · revisar procedencia"
         }
 }
 
@@ -91,7 +93,12 @@ internal data class ArtistArtworkPickerUiState(
             "La identidad no se deduce por nombre."
 
     val searchLabel: String
-        get() = if (searching) "Buscando retratos…" else "Buscar otras fotografías"
+        get() = when {
+            searching -> "Buscando fotografías…"
+            // "otras" only makes sense once there is a first one.
+            savedSlots.isEmpty() -> "Buscar fotografías"
+            else -> "Buscar otras fotografías"
+        }
 
     fun candidate(candidateId: String): ArtistArtworkPickerCandidateUi? =
         candidates.firstOrNull { it.stableKey == candidateId }

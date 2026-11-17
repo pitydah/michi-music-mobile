@@ -272,7 +272,7 @@ class ArtistArtworkCoveragePolicyTest {
         )
 
         assertEquals(
-            listOf("Wikidata P18", "Commons P180", "Openverse · búsqueda manual"),
+            listOf("Wikidata P18", "Commons P180", "Openverse · sólo revisión manual"),
             coverage.providers.map { it.label },
         )
         assertEquals("Con resultados", coverage.providers[0].statusLabel)
