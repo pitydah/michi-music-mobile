@@ -41,7 +41,13 @@ fun allowedArtworkCandidate(
         // verify, so the candidate must carry nothing either — an invented licence id
         // would pass the gate below and then travel into a saved selection as if it
         // had been confirmed somewhere.
-        if (candidate.source != ArtworkSource.THEAUDIODB) return false
+        // Two catalogues publish photos they never licensed: TheAudioDB and fanart.tv.
+        // No other source may claim the undeclared state.
+        if (candidate.source != ArtworkSource.THEAUDIODB &&
+            candidate.source != ArtworkSource.FANART_TV
+        ) {
+            return false
+        }
         if (candidate.licenseId != null || candidate.licenseUrl != null) return false
         if (!candidate.attribution.isNullOrBlank()) return false
     } else {
@@ -73,7 +79,7 @@ fun allowedArtworkImageUrl(source: ArtworkSource, raw: String?): Boolean {
         // closed until a key exists and its terms have been read.
         ArtworkSource.THEAUDIODB -> host == "r2.theaudiodb.com"
 
-        ArtworkSource.FANART_TV -> false
+        ArtworkSource.FANART_TV -> host == "assets.fanart.tv"
     }
 }
 
@@ -96,7 +102,9 @@ fun allowedArtworkSourcePage(source: ArtworkSource, raw: String?): Boolean {
         ArtworkSource.THEAUDIODB ->
             host == "www.theaudiodb.com" && uri.rawPath?.startsWith("/artist/") == true
 
-        ArtworkSource.FANART_TV -> false
+        // fanart.tv publishes one page per MusicBrainz artist id and nothing else.
+        ArtworkSource.FANART_TV ->
+            host == "fanart.tv" && uri.rawPath?.startsWith("/artist/") == true
     }
 }
 
@@ -121,7 +129,9 @@ fun allowedArtworkEvidence(candidate: ArtistArtworkCandidate): Boolean = when (c
             candidate.source == ArtworkSource.WIKIPEDIA_PAGEIMAGE
 
     ArtworkEvidence.USER_SELECTED ->
-        candidate.source == ArtworkSource.OPENVERSE || candidate.source == ArtworkSource.THEAUDIODB
+        candidate.source == ArtworkSource.OPENVERSE ||
+            candidate.source == ArtworkSource.THEAUDIODB ||
+            candidate.source == ArtworkSource.FANART_TV
     ArtworkEvidence.UNVERIFIED -> false
 }
 

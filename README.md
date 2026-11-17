@@ -82,9 +82,13 @@ section only lists albums whose files exist on this phone.
   only when its resolution is sufficient.
 - **Offline cache** — decoded bytes live in app-private storage and are referenced from
   Room. A URL alone is never treated as a saved image, and artwork is never uploaded.
-- **Optional providers** — TheAudioDB and Fanart.tv are compiled but disabled (no keys,
-  no network); Openverse discovery runs automatically only when verified sources leave
-  a slot uncovered. An Openverse/Flickr result never becomes READY until its page's
+- **Optional providers** — TheAudioDB and fanart.tv never enter the automatic ladder:
+  both publish photographs without stating a licence or an author, so their images are
+  offered only in an explicit manual search and are saved as `UNDECLARED_LICENSE`, with
+  the copy saying so. fanart.tv needs a project key and also accepts the person's own
+  personal key, sent next to it, and its terms are honoured in code (see
+  `docs/contracts/R12_ARTWORK_PROVIDER_TERMS.md`). Openverse discovery runs
+  automatically only when verified sources leave a slot uncovered. An Openverse/Flickr result never becomes READY until its page's
   schema.org `ImageObject` contains both the exact numeric photo id and the expected
   licence, and the user explicitly chooses it.
 - **Durable association** — a confirmed profile stores the album IDs that supported it.

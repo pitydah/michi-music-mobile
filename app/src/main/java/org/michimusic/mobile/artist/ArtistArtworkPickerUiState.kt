@@ -49,12 +49,16 @@ internal data class ArtistArtworkPickerCandidateUi(
 ) {
     val attributionLine: String get() = candidate.attribution.orEmpty()
     /**
-     * TheAudioDB states no licence and no author for any of its photographs. The copy
-     * says exactly that instead of borrowing the wording used for a verified Flickr CC.
+     * TheAudioDB and fanart.tv state no licence and no author for any of their
+     * photographs. The copy says exactly that instead of borrowing the wording used for
+     * a verified Flickr CC.
      */
     val licenseLine: String
         get() = when (candidate.source) {
-            ArtworkSource.THEAUDIODB -> "Licencia no declarada por el proveedor · revisar antes de usar"
+            ArtworkSource.THEAUDIODB,
+            ArtworkSource.FANART_TV,
+            -> "Licencia no declarada por el proveedor · revisar antes de usar"
+
             else -> "${candidate.licenseId.orEmpty()} · revisar origen Flickr"
         }
 }
@@ -74,11 +78,13 @@ internal data class ArtistArtworkPickerUiState(
 ) {
     /** The disclosure the user has to read before any query leaves the device. */
     val consentText: String
-        get() = "Se enviará el nombre público de $artistCredit a Openverse y a TheAudioDB para " +
-            "buscar fotografías. Ambos proveedores podrán recibir los datos habituales de " +
-            "conexión. Openverse declara la licencia de cada imagen; TheAudioDB no declara " +
-            "ninguna, así que sus fotografías sólo pueden guardarse tras tu elección explícita " +
-            "y quedarán marcadas como licencia no declarada."
+        get() = "Se enviará el nombre público de $artistCredit a Openverse y a TheAudioDB, y su " +
+            "identificador musical a fanart.tv, para buscar fotografías. Los tres proveedores " +
+            "podrán recibir los datos habituales de conexión. Openverse declara la licencia de " +
+            "cada imagen; las fotografías procedentes de fanart.tv y del catálogo de TheAudioDB " +
+            "no declaran ninguna, así que sólo pueden guardarse tras tu elección explícita y " +
+            "quedarán marcadas como licencia no declarada. fanart.tv pone a disposición sus " +
+            "imágenes en fanart.tv y puedes usar tu propia clave personal en los ajustes."
 
     val identityText: String
         get() = "Confirmo que la foto elegida corresponde a $artistCredit (MBID $mbid). " +

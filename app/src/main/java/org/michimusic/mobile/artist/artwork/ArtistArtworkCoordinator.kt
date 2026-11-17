@@ -18,6 +18,7 @@ class ArtistArtworkCoordinator internal constructor(
     private val store: ArtistArtworkStore,
     private val verifySelection: suspend (ArtistArtworkSelection) -> ArtistArtworkSelection = { it },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val keys: suspend () -> FanartTvProvider.Keys = { FanartTvProvider.Keys(null, null) },
 ) {
     private data class LockRef(val mutex: Mutex, var holders: Int)
 
@@ -26,12 +27,19 @@ class ArtistArtworkCoordinator internal constructor(
 
     /** Manual discovery only: never part of [automaticProviders]. */
     private val theAudioDb = TheAudioDbProvider(http)
+
+    /**
+     * Manual-only, like TheAudioDB: fanart.tv publishes photographs and declares no
+     * licence for them. It is also keyed by MusicBrainz id, so it can only answer once
+     * the identity is confirmed.
+     */
+    private val fanartTv = FanartTvProvider(http, keys)
     private val automaticProviders: List<ArtistArtworkProvider> = listOf(
         CommonsP18Provider(http, wikidata, commons),
         CommonsP180Provider(http, wikidata, commons),
         WikipediaPageImageProvider(http, wikidata, commons),
         DisabledArtworkProvider(ArtworkSource.THEAUDIODB, "THEAUDIODB_ENABLED=false"),
-        DisabledArtworkProvider(ArtworkSource.FANART_TV, "FANART_ENABLED=false"),
+        DisabledArtworkProvider(ArtworkSource.FANART_TV, "Sólo búsqueda manual: sin licencia declarada"),
     )
 
     suspend fun resolve(anchor: ArtistIdentityAnchor, forceRefresh: Boolean = false): ArtworkResolutionReport =
@@ -267,24 +275,25 @@ class ArtistArtworkCoordinator internal constructor(
     }
 
     suspend fun searchManual(anchor: ArtistIdentityAnchor, query: String): ProviderArtworkResult {
-        val openverseResult = openverse.search(anchor, query)
-        val catalogueResult = theAudioDb.search(anchor, query)
-        val fromOpenverse = (openverseResult as? ProviderArtworkResult.Available)?.items.orEmpty()
-        val fromCatalogue = (catalogueResult as? ProviderArtworkResult.Available)?.items.orEmpty()
-        if (fromOpenverse.isNotEmpty() || fromCatalogue.isNotEmpty()) {
-            return ProviderArtworkResult.Available(fromOpenverse + fromCatalogue)
-        }
-        // A transport failure on one provider must not hide a clean answer from the
-        // other, but it must not be reported as "no match" either.
-        val failure = (openverseResult as? ProviderArtworkResult.Failure)
-            ?: (catalogueResult as? ProviderArtworkResult.Failure)
+        val results = listOf(
+            openverse.search(anchor, query),
+            theAudioDb.search(anchor, query),
+            fanartTv.search(anchor),
+        )
+        val available = results.filterIsInstance<ProviderArtworkResult.Available>()
+            .flatMap { it.items }
+        if (available.isNotEmpty()) return ProviderArtworkResult.Available(available)
+        // A transport failure on one provider must not hide a clean answer from
+        // another, but it must not be reported as "no match" either.
+        val failure = results.filterIsInstance<ProviderArtworkResult.Failure>().firstOrNull()
         return failure ?: ProviderArtworkResult.NoMatch
     }
 
     /**
      * Explicitly chosen manual candidate. An Openverse/Flickr candidate only becomes a
-     * file once its origin page confirms the exact licence; a TheAudioDB candidate
-     * carries no licence to confirm and therefore keeps `UNDECLARED_LICENSE` for ever.
+     * file once its origin page confirms the exact licence; a TheAudioDB or fanart.tv
+     * candidate carries no licence to confirm and therefore keeps
+     * `UNDECLARED_LICENSE` for ever.
      * Neither path is automatic, and neither replaces a verified slot without this
      * direct user action.
      */
@@ -300,7 +309,8 @@ class ArtistArtworkCoordinator internal constructor(
             return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Identidad no coincidente")
         }
         try {
-            val undeclared = candidate.source == ArtworkSource.THEAUDIODB
+            val undeclared = candidate.source == ArtworkSource.THEAUDIODB ||
+                candidate.source == ArtworkSource.FANART_TV
             if (!undeclared) {
                 val html = http.readText(candidate.canonicalSourcePage, setOf("www.flickr.com"))
                 if (!originPageConfirmsLicense(candidate.canonicalSourcePage, candidate.licenseUrl, html)) {

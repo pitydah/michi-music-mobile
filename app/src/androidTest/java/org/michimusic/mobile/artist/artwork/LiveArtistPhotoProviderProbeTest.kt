@@ -528,6 +528,77 @@ class LiveArtistPhotoProviderProbeTest {
         }
     }
 
+    /**
+     * fanart.tv requires a project key, so this probe runs only when one is supplied:
+     * `-e michiFanartProjectKey <key> [-e michiFanartPersonalKey <key>]`. Everywhere else
+     * it is skipped, like the rest of the live probes.
+     */
+    @Test
+    fun theFanartCatalogueAnswersAManualSearchWhenAKeyIsProvided() {
+        requireLive()
+        val project = arguments.getString("michiFanartProjectKey")?.trim().orEmpty()
+        assumeTrue("fanart.tv needs -e michiFanartProjectKey", project.isNotEmpty())
+        val personal = arguments.getString("michiFanartPersonalKey")?.trim()
+            ?.takeIf(String::isNotEmpty)
+        val provider = FanartTvProvider(
+            ArtworkHttp(),
+            keys = { FanartTvProvider.Keys(project, personal) },
+        )
+        val anchor = anchor(midnightOil, "-fanart")
+        val startedAt = SystemClock.elapsedRealtime()
+        val result = runBlocking { provider.search(anchor) }
+        val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+
+        val candidates = when (result) {
+            is ProviderArtworkResult.Available -> result.items
+            is ProviderArtworkResult.Disabled ->
+                throw AssertionError("fanart.tv is disabled: ${result.reason}")
+            is ProviderArtworkResult.NoMatch ->
+                throw AssertionError("fanart.tv returned NoMatch for ${midnightOil.credit}")
+            is ProviderArtworkResult.Failure ->
+                throw AssertionError("fanart.tv failed: ${result.type}")
+        }
+        assertTrue("fanart.tv must return candidates", candidates.isNotEmpty())
+        assertTrue(candidates.all { it.source == ArtworkSource.FANART_TV })
+        assertTrue(candidates.all { it.rights == ArtworkRights.REQUIRES_REVIEW })
+        assertTrue(candidates.all { it.licenseId == null && it.attribution == null })
+
+        val candidate = candidates.first()
+        // The catalogue states no licence, so the saved selection must keep saying so.
+        val saved = runBlocking {
+            ArtistArtworkService.from(context)
+                .chooseManual(anchor, candidate, ArtworkSlot.ARTIST_THUMB)
+        }.selections[ArtworkSlot.ARTIST_THUMB]
+
+        write(
+            "provider-fanarttv.tsv",
+            buildString {
+                appendLine("provider\tFANART_TV")
+                appendLine("artist\t${midnightOil.credit}")
+                appendLine("mbid\t${midnightOil.mbid}")
+                appendLine("personal_key\t${if (personal == null) "none" else "sent alongside"}")
+                appendLine("elapsed_ms\t$elapsedMs")
+                appendLine("candidates\t${candidates.size}")
+                appendLine("asset\t${candidate.stableAssetId}")
+                appendLine("image\t${candidate.imageUrl}")
+                appendLine("page\t${candidate.canonicalSourcePage}")
+                appendLine("licence\tDECLARADA: ${candidate.licenseId ?: "NO DECLARADA"}")
+                appendLine("status\t${saved?.status}")
+                appendLine("saved_licence\t${saved?.licenseId.orEmpty()}")
+                appendLine("bytes\t${saved?.localImagePath?.let { File(it).length() } ?: 0}")
+            },
+        )
+        Log.i(ProbeTag, "fanarttv candidates=${candidates.size} elapsedMs=$elapsedMs status=${saved?.status}")
+
+        assertEquals(ArtworkLoadStatus.READY, saved?.status)
+        assertTrue(saved?.source == ArtworkSource.FANART_TV)
+        assertTrue(saved?.licenseId.isNullOrBlank())
+        assertTrue(
+            "the photo must really have bytes",
+            File(requireNotNull(saved?.localImagePath)).length() > 1024L,
+        )
+    }
+
     private fun requireLive() {
         assumeTrue(
             "live provider probe is opt-in: pass -e michiLiveProviders true",

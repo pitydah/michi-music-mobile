@@ -36,8 +36,16 @@ class ArtworkHttp(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun readJson(url: String, allowedHosts: Set<String>): JsonObject {
-        val body = readBytes(url, allowedHosts, MAX_JSON_BYTES) { response ->
+    /**
+     * [headers] exists so a provider can authenticate without putting its key in the
+     * URL: query strings end up in caches, logs and traffic counters, headers do not.
+     */
+    suspend fun readJson(
+        url: String,
+        allowedHosts: Set<String>,
+        headers: Map<String, String> = emptyMap(),
+    ): JsonObject {
+        val body = readBytes(url, allowedHosts, MAX_JSON_BYTES, headers) { response ->
             if (response.header("Content-Type")?.contains("json", ignoreCase = true) != true) {
                 throw IOException("Proveedor no devolvió JSON")
             }
@@ -53,7 +61,7 @@ class ArtworkHttp(
     }
 
     suspend fun readText(url: String, allowedHosts: Set<String>, maxBytes: Int = MAX_ORIGIN_BYTES): String =
-        readBytes(url, allowedHosts, maxBytes) { response ->
+        readBytes(url, allowedHosts, maxBytes, emptyMap()) { response ->
             if (response.header("Content-Type")?.contains("html", ignoreCase = true) != true) {
                 throw IOException("Origen sin HTML")
             }
@@ -63,9 +71,10 @@ class ArtworkHttp(
         url: String,
         allowedHosts: Set<String>,
         maxBytes: Int,
+        headers: Map<String, String>,
         validate: (Response) -> Unit,
     ): ByteArray = readWithRetry {
-        readOnce(url, allowedHosts, maxBytes, validate)
+        readOnce(url, allowedHosts, maxBytes, headers, validate)
     }
 
     private suspend fun readWithRetry(block: suspend () -> ByteArray): ByteArray {
@@ -86,6 +95,7 @@ class ArtworkHttp(
         url: String,
         allowedHosts: Set<String>,
         maxBytes: Int,
+        headers: Map<String, String>,
         validate: (Response) -> Unit,
     ): ByteArray = suspendCancellableCoroutine { continuation ->
         val endpoint = url.toHttpUrlOrNull()
@@ -96,6 +106,7 @@ class ArtworkHttp(
         val request = Request.Builder().url(endpoint)
             .header("User-Agent", MICHI_HTTP_USER_AGENT)
             .header("Accept", "application/json, text/html;q=0.8")
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
             .build()
         val call = http.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }

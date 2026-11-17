@@ -195,5 +195,6 @@ internal fun ArtistArtworkAutoSettings() {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(4.dp))
+        FanartTvKeySettings()
     }
 }

@@ -155,7 +155,9 @@ fun ArtistArtworkCandidate.isAutoEligible(): Boolean =
 
 fun ArtistArtworkCandidate.isManualEligible(): Boolean =
     rights != ArtworkRights.REJECTED &&
-        (source == ArtworkSource.OPENVERSE || source == ArtworkSource.THEAUDIODB)
+        (source == ArtworkSource.OPENVERSE ||
+            source == ArtworkSource.THEAUDIODB ||
+            source == ArtworkSource.FANART_TV)
 
 /**
  * The only path from a local artist and a confirmed MusicBrainz profile to artwork queries.

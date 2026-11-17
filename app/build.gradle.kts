@@ -172,6 +172,11 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.core)
+
+    // Artwork provider keys (fanart.tv project and personal keys) live in
+    // EncryptedSharedPreferences. :michi-link-client uses the same library for its
+    // token store but keeps it internal, so the app declares it too.
+    implementation(libs.security.crypto)
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.kotlinx.serialization.json)

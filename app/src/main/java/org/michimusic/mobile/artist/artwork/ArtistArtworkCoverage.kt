@@ -211,7 +211,7 @@ data class ArtistArtworkCoverageUiState(
             ArtworkSource.COMMONS_GALLERY -> "Commons · galería"
             ArtworkSource.OPENVERSE -> "Openverse · búsqueda manual"
             ArtworkSource.THEAUDIODB -> "TheAudioDB · sólo revisión manual"
-            ArtworkSource.FANART_TV -> "Fanart.tv · deshabilitado"
+            ArtworkSource.FANART_TV -> "Fanart.tv · sólo revisión manual"
         }
 
         fun providerStatusLabel(outcome: ArtworkProviderOutcome): String = when (outcome.status) {

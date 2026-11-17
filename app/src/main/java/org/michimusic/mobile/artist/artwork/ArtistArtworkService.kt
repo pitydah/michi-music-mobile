@@ -1,6 +1,8 @@
 package org.michimusic.mobile.artist.artwork
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Process-wide single-flight coordinator; one instance owns all provider federation. */
 object ArtistArtworkService {
@@ -25,6 +27,12 @@ object ArtistArtworkService {
             downloader = ArtworkDownloader(context),
             store = ArtistArtworkPersistence.from(context),
             verifySelection = { verifyCachedArtwork(context, it) },
+            // The keystore read happens lazily, inside the suspending search, so the
+            // picker can call it without touching disk on the main thread.
+            keys = {
+                val stored = withContext(Dispatchers.IO) { ArtworkProviderKeys.fanart(context) }
+                FanartTvProvider.Keys(stored.projectKey, stored.personalKey)
+            },
         )
     }
 }

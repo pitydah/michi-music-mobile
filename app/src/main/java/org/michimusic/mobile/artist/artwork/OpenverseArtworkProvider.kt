@@ -108,7 +108,20 @@ object ArtworkFeatureFlags {
      * false on purpose.
      */
     const val THEAUDIODB_ENABLED = false
+
+    /**
+     * fanart.tv is manual-only for the same reason: it publishes photographs and states
+     * no licence for them. The flag describes the automatic ladder, which stays shut.
+     */
     const val FANART_ENABLED = false
+
+    /**
+     * fanart.tv project key. A build may set it before the first manual search; the
+     * person's own personal key is stored separately and sent alongside it. Neither is
+     * ever logged.
+     */
+    @Volatile
+    var fanartProjectKey: String = ""
 
     /**
      * TheAudioDB requires a key on every path. `123` is their public test key: it is
