@@ -409,7 +409,7 @@ class ArtistArtworkCoveragePolicyTest {
     fun everyPrimaryActionAnnouncesItsOwnOperation() {
         assertEquals("Revisar identidad", ArtistEnrichmentPrimaryAction.ReviewIdentity.label)
         assertEquals(
-            "Verificar identidad para fotos",
+            "Vincular Wikidata para buscar fotos",
             ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity.label,
         )
         assertEquals(

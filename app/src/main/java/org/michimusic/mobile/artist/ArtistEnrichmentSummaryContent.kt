@@ -239,9 +239,12 @@ private fun ArtistSlotDetailText(slot: ArtistPhotoSlot, imageUnreadable: Boolean
     if (slot.hasThumbnail && imageUnreadable) {
         // The photo is saved, so nothing is lost; only its preview failed. No download is
         // offered here: reopening the local file is the whole repair.
+        // Beside a sibling the card is ~145 dp wide, and the two-line budget cut this
+        // sentence mid-word. It now says only what is true, in a budget that holds at
+        // every certified width: the file is there, the preview is not.
         Text(
-            "El archivo guardado no se pudo abrir. Reintentar no descarga nada.",
-            color = TextSecondary, fontSize = 10.sp, maxLines = 2,
+            "La imagen guardada no se pudo abrir.",
+            color = TextSecondary, fontSize = 10.sp, maxLines = 3,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.testTag("artist_artwork_decode_error_${slot.slot.name}"),
         )

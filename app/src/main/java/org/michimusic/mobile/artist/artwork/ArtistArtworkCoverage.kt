@@ -195,7 +195,7 @@ data class ArtistArtworkCoverageUiState(
             ArtistArtworkCoverageState.READY, ArtistArtworkCoverageState.MANUAL_PROTECTED -> null
             ArtistArtworkCoverageState.NOT_ATTEMPTED -> "Abrir diagnóstico"
             ArtistArtworkCoverageState.IDENTITY_UNVERIFIED -> "Revisar identidad"
-            ArtistArtworkCoverageState.QID_MISSING -> "Verificar identidad para fotos"
+            ArtistArtworkCoverageState.QID_MISSING -> "Vincular Wikidata para buscar fotos"
             ArtistArtworkCoverageState.NO_MATCH -> "Buscar otras fotografías"
             ArtistArtworkCoverageState.LICENSE_REJECTED -> "Elegir otra fotografía"
             ArtistArtworkCoverageState.DOWNLOAD_FAILED -> "Reintentar descarga"
@@ -280,7 +280,10 @@ sealed interface ArtistEnrichmentPrimaryAction {
     val label: String?
         get() = when (this) {
             ReviewIdentity -> "Revisar identidad"
-            VerifyWikidataIdentity -> "Verificar identidad para fotos"
+            // The musical identity is already confirmed when this action appears; what is
+            // missing is the Wikidata item. Saying "verificar identidad" under a header that
+            // says "Identidad musical confirmada" reads as a contradiction.
+            VerifyWikidataIdentity -> "Vincular Wikidata para buscar fotos"
             SearchMissingPhotos -> "Buscar fotos faltantes"
             RetryProvider -> "Reintentar cuando haya conexión"
             ReviewLicense -> "Elegir otra fotografía"
