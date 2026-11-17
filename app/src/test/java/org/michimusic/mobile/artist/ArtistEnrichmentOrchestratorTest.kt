@@ -31,6 +31,7 @@ import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.CommonsImageInfo
 import org.michimusic.mobile.artist.artwork.DownloadedArtwork
 import org.michimusic.mobile.artist.artwork.OpenverseArtworkProvider
+import org.michimusic.mobile.artist.artwork.WikidataApiFixture
 import org.michimusic.mobile.artist.artwork.WikidataArtworkLookup
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -54,8 +55,7 @@ class ArtistEnrichmentOrchestratorTest {
         val url = chain.request().url
         val body = when {
             url.host == "www.wikidata.org" ->
-                """{"entities":{"Q48284":{"claims":{"P18":[{"mainsnak":{"datavalue":{"value":"Midnight Oil.jpg"}}}]},
-                    "sitelinks":{}}}}"""
+                WikidataApiFixture(p18 = listOf("Midnight Oil.jpg")).response(url)
             url.host == "commons.wikimedia.org" && url.queryParameter("list") == "search" ->
                 """{"query":{"search":[]}}"""
             url.host == "commons.wikimedia.org" && url.queryParameter("prop") == "info" ->

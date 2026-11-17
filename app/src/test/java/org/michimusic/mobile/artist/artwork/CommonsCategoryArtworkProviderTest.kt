@@ -23,15 +23,12 @@ class CommonsCategoryArtworkProviderTest {
     )
 
     private fun client(category: String?, depicts: Boolean, requests: MutableList<String>, secondPage: Boolean = false): OkHttpClient {
-        val claim = category?.let {
-            """"P373":[{"mainsnak":{"datavalue":{"value":"$it"}}}]"""
-        } ?: ""
+        val wikidata = WikidataApiFixture(category = category)
         return OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
             val url = chain.request().url
             requests += url.toString()
             val response = when {
-                url.host == "www.wikidata.org" ->
-                    """{"entities":{"Q48284":{"claims":{${claim}},"sitelinks":{}}}}"""
+                url.host == "www.wikidata.org" -> wikidata.response(url)
                 url.queryParameter("list") == "search" ->
                     """{"query":{"search":[{"title":"File:Not_artist.jpg"},
                         {"title":"File:Actual_artist.jpg"}]}}"""
@@ -154,8 +151,8 @@ class CommonsCategoryArtworkProviderTest {
             val result = provider(client(category, depicts = true, requests))
                 .findCandidates(anchor, ArtworkSlot.ARTIST_THUMB)
             assertEquals(ProviderArtworkResult.NoMatch, result)
-            assertEquals(1, requests.size)
-            assertTrue(requests.single().contains("wikidata.org"))
+            assertEquals(4, requests.count { it.contains("wikidata.org") })
+            assertTrue(requests.none { it.contains("commons.wikimedia.org") })
         }
     }
 }

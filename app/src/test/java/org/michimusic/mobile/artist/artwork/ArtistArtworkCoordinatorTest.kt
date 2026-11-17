@@ -47,16 +47,11 @@ class ArtistArtworkCoordinatorTest {
 
     private fun pngMime() = "image/png".toMediaType()
 
-    private fun wikidata(p18: String? = "Midnight Oil.jpg", depicts: String? = "Q48284"): String {
-        val p18Claims = p18?.let {
-            """[{"mainsnak":{"datavalue":{"value":"$it"}}}]"""
-        } ?: "[]"
-        val depictsClaims = depicts?.let {
-            """[{"mainsnak":{"datavalue":{"value":"$it"}}}]"""
-        } ?: "[]"
-        return """{"entities":{"Q48284":{"claims":{"P18":$p18Claims,"P180":$depictsClaims},
-            "sitelinks":{"eswiki":{"title":"Midnight Oil"},"enwiki":{"title":"Midnight Oil"}}}}}"""
-    }
+    // K48-R12: the lookup reads one property at a time, so the fixture answers per call.
+    private fun wikidata(p18: String? = "Midnight Oil.jpg"): WikidataApiFixture = WikidataApiFixture(
+        p18 = listOfNotNull(p18),
+        sitelinks = """{"eswiki":{"title":"Midnight Oil"},"enwiki":{"title":"Midnight Oil"}}""",
+    )
 
     private fun commonsInfo(
         license: String = "CC BY-SA 2.0",
@@ -76,7 +71,7 @@ class ArtistArtworkCoordinatorTest {
     }]}}}}"""
 
     private fun client(
-        wikidataBody: String = wikidata(),
+        wikidataBody: WikidataApiFixture = wikidata(),
         commonsBody: String = commonsInfo(),
         commonsSearchBody: String = """{"query":{"search":[{"title":"File:Midnight Oil.jpg"}]}}""",
         wikipediaBody: String = """{"query":{"pages":{"1":{"pageimage":"Midnight Oil.jpg"}}}}""",
@@ -94,7 +89,7 @@ class ArtistArtworkCoordinatorTest {
             url.host == "www.wikidata.org" && url.queryParameter("sites") == "commonswiki" ->
                 """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
                     .toResponseBody("application/json".toMediaType())
-            url.host == "www.wikidata.org" -> wikidataBody.toResponseBody("application/json".toMediaType())
+            url.host == "www.wikidata.org" -> wikidataBody.response(url).toResponseBody("application/json".toMediaType())
             url.host == "commons.wikimedia.org" && url.queryParameter("list") == "search" ->
                 commonsSearchBody.toResponseBody("application/json".toMediaType())
             url.host == "commons.wikimedia.org" -> commonsBody.toResponseBody("application/json".toMediaType())
@@ -216,7 +211,7 @@ class ArtistArtworkCoordinatorTest {
             val url = chain.request().url
             requests += url.toString()
             val body = when {
-                url.host == "www.wikidata.org" -> wikidata()
+                url.host == "www.wikidata.org" -> wikidata().response(url)
                     .toResponseBody("application/json".toMediaType())
                 url.host == "commons.wikimedia.org" && url.queryParameter("list") == "search" ->
                     """{"query":{"search":[{"title":"File:Midnight Oil P180.jpg"}]}}"""
@@ -288,7 +283,7 @@ class ArtistArtworkCoordinatorTest {
         val store = MemoryStore(context)
         val requests = mutableListOf<String>()
         val coordinator = coordinator(client(
-            wikidataBody = wikidata(p18 = null, depicts = null),
+            wikidataBody = wikidata(p18 = null),
             commonsSearchBody = """{"query":{"search":[]}}""",
             wikipediaBody = """{"query":{"pages":{"1":{}}}}""",
             onRequest = { requests += it },
@@ -307,7 +302,7 @@ class ArtistArtworkCoordinatorTest {
         val store = MemoryStore(context)
         val requests = mutableListOf<String>()
         val coordinator = coordinator(client(
-            wikidataBody = wikidata(p18 = null, depicts = "Q48284"),
+            wikidataBody = wikidata(p18 = null),
             onRequest = { requests += it },
         ), store)
 
@@ -326,7 +321,7 @@ class ArtistArtworkCoordinatorTest {
         val store = MemoryStore(context)
         val requests = mutableListOf<String>()
         val coordinator = coordinator(client(
-            wikidataBody = wikidata(p18 = null, depicts = null),
+            wikidataBody = wikidata(p18 = null),
             commonsSearchBody = """{"query":{"search":[]}}""",
             onRequest = { requests += it },
         ), store)

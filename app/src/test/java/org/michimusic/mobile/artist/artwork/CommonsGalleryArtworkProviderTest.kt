@@ -29,12 +29,9 @@ class CommonsGalleryArtworkProviderTest {
         OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
             val url = chain.request().url
             calls += url.toString()
-            val galleryClaim = gallery?.let {
-                "\"P935\":[{\"mainsnak\":{\"datavalue\":{\"value\":\"$it\"}}}]"
-            } ?: ""
+            val wikidata = WikidataApiFixture(gallery = gallery)
             val response = when {
-                url.host == "www.wikidata.org" ->
-                    """{"entities":{"Q48284":{"claims":{$galleryClaim},"sitelinks":{}}}}"""
+                url.host == "www.wikidata.org" -> wikidata.response(url)
                 url.queryParameter("prop") == "images" && secondPage &&
                     url.queryParameter("imcontinue") == null -> {
                     val next = if (malformedContinuation) "bad\\ncontinuation" else "File:second|11"
@@ -129,7 +126,10 @@ class CommonsGalleryArtworkProviderTest {
             val result = provider(client(value, true, calls))
                 .findCandidates(anchor, ArtworkSlot.ARTIST_THUMB)
             assertEquals(ProviderArtworkResult.NoMatch, result)
-            assertEquals(1, calls.size)
+            // K48-R12: the snapshot costs four small Wikidata reads now (sitelinks plus
+            // three single properties). What must never happen is a Commons request.
+            assertEquals(4, calls.count { it.contains("wikidata.org") })
+            assertTrue(calls.none { it.contains("commons.wikimedia.org") })
         }
     }
     @Test fun secondGalleryPageRecoversVerifiedFileWithBoundedMediaInfo() = kotlinx.coroutines.runBlocking {
