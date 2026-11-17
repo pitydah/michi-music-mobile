@@ -29,6 +29,7 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
@@ -955,7 +956,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened()
+        rule.waitUntilDetailOpened("genre_tile_jazz")
         // Phase C's detail header can push the first row outside the initial
         // viewport; compose it before asserting its disabled state.
         rule.onNodeWithTag("genre_detail")
@@ -984,7 +985,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened()
+        rule.waitUntilDetailOpened("genre_tile_jazz")
         rule.onNodeWithTag("genre_track_unique").performClick()
         rule.runOnIdle { assertEquals(listOf("unique"), played) }
     }
@@ -1001,7 +1002,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened()
+        rule.waitUntilDetailOpened("genre_tile_jazz")
         // The detail is a LazyColumn: on a shorter CI device the row is not
         // composed until the list is scrolled to it. Scroll first, then assert
         // the real disabled semantics instead of assuming it is on screen.
@@ -1017,8 +1018,24 @@ class GenreLibraryPanelComposeTest {
      * straight after the click therefore races the recomposition, which is exactly how
      * this class failed intermittently in CI. Wait for the container, then assert.
      */
-    private fun ComposeContentTestRule.waitUntilDetailOpened() {
-        waitUntil(20_000) { onAllNodesWithTag("genre_detail").fetchSemanticsNodes().isNotEmpty() }
+    private fun ComposeContentTestRule.waitUntilDetailOpened(tag: String) {
+        // On CI this has timed out while the tile itself was already rendered, so a bare
+        // timeout cannot say whether the click was lost, the selection resolved to
+        // nothing, or the composition stopped applying state. Report the tree instead.
+        try {
+            waitUntil(20_000) {
+                onAllNodesWithTag("genre_detail").fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            val overview = onAllNodesWithTag("genres_overview").fetchSemanticsNodes().size
+            val empty = onAllNodesWithTag("genres_empty").fetchSemanticsNodes().size
+            val tile = onAllNodesWithTag(tag).fetchSemanticsNodes().size
+            throw AssertionError(
+                "$tag was tapped but no genre_detail composed within 20 s " +
+                    "(overview=$overview empty=$empty tile=$tile).",
+                timeout,
+            )
+        }
     }
 
     // endregion
