@@ -228,11 +228,18 @@ class GenreArtworkComposeRenderTest {
 
         titles.forEach { title ->
             val id = genreGroupingKey(title)
-            rule.waitUntil(20_000) { receipts["FEATURED:$id"] != null }
-            assertEquals("$title must decode", true, receipts["FEATURED:$id"])
+            // K48-R12: the grid is lazy. A card that is not composed does not request or
+            // decode anything, so waiting for its receipt before scrolling to it waits for
+            // an event that composition itself has to produce. Compose the card first, then
+            // wait for the decode it starts.
+            rule.waitUntil(20_000) {
+                rule.onAllNodesWithTag("genres_featured").fetchSemanticsNodes().isNotEmpty()
+            }
             rule.onNodeWithTag("genres_featured")
                 .performScrollToNode(hasTestTag("genre_tile_$id"))
             rule.waitForIdle()
+            rule.waitUntil(20_000) { receipts["FEATURED:$id"] != null }
+            assertEquals("$title must decode", true, receipts["FEATURED:$id"])
             rule.onNodeWithTag("genre_tile_$id").assertIsDisplayed()
             assertTrue("$title must compose its approved WebP", hasTag("genre_artwork_$id"))
             assertTrue("$title must own a painted frame", hasTag("genre_art_frame_$id"))
