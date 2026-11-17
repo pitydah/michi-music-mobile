@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -33,10 +35,11 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.michimusic.mobile.artist.artwork.ArtistArtworkAutoScheduler
+import org.michimusic.mobile.ui.theme.TertiaryCyan
 
 /** Privacy-first library settings. Reads preferences off main; does not scan or fetch. */
 @Composable
-internal fun ArtistArtworkAutoSettings() {
+private fun ArtistArtworkAutoSettingsBody() {
     val app = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val scheduler = remember(app) { ArtistArtworkAutoScheduler(app) }
@@ -74,9 +77,9 @@ internal fun ArtistArtworkAutoSettings() {
         } else value = 0
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+    // The section card already states the title; repeating it here read as two headings.
+    Column(modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Fotografías de artistas", style = MaterialTheme.typography.titleMedium)
         Text(
             "Con tu permiso, Michi consulta fuentes abiertas para artistas ya identificados. " +
                 "Envía identificadores del artista, nunca canciones, archivos, rutas o historial.",
@@ -194,5 +197,22 @@ internal fun ArtistArtworkAutoSettings() {
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+/**
+ * The automatic ladder is a library setting, so it wears the same section card as the
+ * rest of Settings instead of a bare Column: a bare Column inherits no content colour,
+ * and on obsidian that renders black text.
+ */
+@Composable
+internal fun ArtistArtworkAutoSettings() {
+    SettingsSectionCard(
+        icon = Icons.Default.Face,
+        title = "Fotografías de artistas",
+        subtitle = "Búsqueda automática y revisión acotada",
+        accent = TertiaryCyan,
+    ) {
+        ArtistArtworkAutoSettingsBody()
     }
 }

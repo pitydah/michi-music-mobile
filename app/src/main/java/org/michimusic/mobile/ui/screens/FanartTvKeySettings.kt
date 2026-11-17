@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,6 +20,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SecondaryPurple
+import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.TextSecondary
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -48,22 +56,24 @@ internal fun FanartTvKeySettings() {
     var status by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Proveedores manuales", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Estos catálogos nunca entran en la búsqueda automática y no declaran " +
-                "licencia: sus fotografías sólo se guardan cuando las eliges tú, y quedan " +
-                "marcadas como licencia no declarada.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text("fanart.tv", style = MaterialTheme.typography.titleSmall)
+    SettingsSectionCard(
+        icon = Icons.Default.Lock,
+        title = "Proveedores manuales",
+        subtitle = "Nunca buscan solos y no declaran licencia",
+        accent = SecondaryPurple,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+        Text("fanart.tv", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Text(
             "Las imágenes de fanart.tv proceden de fanart.tv y de sus colaboradores. Puedes " +
                 "usar tu propia clave personal: se envía junto a la clave del proyecto, " +
                 "nunca en lugar de ella. Ninguna de las dos se muestra ni se registra. " +
                 "Se solicitan a fanart.tv/get-an-api-key/.",
             style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
         )
         OutlinedTextField(
             value = projectKey,
@@ -89,6 +99,7 @@ internal fun FanartTvKeySettings() {
                 "Sin clave del proyecto no se consulta fanart.tv, aunque haya una personal."
             },
             style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
         )
         TextButton(
             enabled = !saving,
@@ -114,7 +125,8 @@ internal fun FanartTvKeySettings() {
                     }
                 }
             },
-        ) { Text("Guardar claves") }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        ) { Text("Guardar claves", color = TertiaryCyan) }
+        status?.let { Text(it, color = TertiaryCyan, style = MaterialTheme.typography.bodySmall) }
+    }
     }
 }

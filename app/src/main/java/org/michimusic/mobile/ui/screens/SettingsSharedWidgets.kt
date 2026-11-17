@@ -16,11 +16,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
@@ -175,7 +177,13 @@ internal fun SettingsSectionCard(
             Spacer(Modifier.height(16.dp))
 
 
-            content()
+            // A Text with no explicit colour takes LocalContentColor, and this screen has no
+            // Material Surface to provide one: the default is black, which is invisible on
+            // obsidian. Providing it here keeps every section legible without each caller
+            // having to remember a colour.
+            CompositionLocalProvider(LocalContentColor provides PureWhite) {
+                content()
+            }
         }
     }
 }
