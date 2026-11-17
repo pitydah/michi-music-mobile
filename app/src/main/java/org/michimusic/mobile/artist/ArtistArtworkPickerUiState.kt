@@ -2,6 +2,7 @@ package org.michimusic.mobile.artist
 
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.ArtworkSource
 
 /**
  * K48-R12-06: everything the photo picker can ask for.
@@ -47,7 +48,15 @@ internal data class ArtistArtworkPickerCandidateUi(
     val candidate: ArtistArtworkCandidate,
 ) {
     val attributionLine: String get() = candidate.attribution.orEmpty()
-    val licenseLine: String get() = "${candidate.licenseId.orEmpty()} · revisar origen Flickr"
+    /**
+     * TheAudioDB states no licence and no author for any of its photographs. The copy
+     * says exactly that instead of borrowing the wording used for a verified Flickr CC.
+     */
+    val licenseLine: String
+        get() = when (candidate.source) {
+            ArtworkSource.THEAUDIODB -> "Licencia no declarada por el proveedor · revisar antes de usar"
+            else -> "${candidate.licenseId.orEmpty()} · revisar origen Flickr"
+        }
 }
 
 /** K48-R12-06: the picker rendered from data alone. */
@@ -65,9 +74,11 @@ internal data class ArtistArtworkPickerUiState(
 ) {
     /** The disclosure the user has to read before any query leaves the device. */
     val consentText: String
-        get() = "Se enviará el nombre público de $artistCredit a Openverse para buscar fotografías. " +
-            "El proveedor podrá recibir los datos habituales de conexión. " +
-            "Las imágenes deberán verificarse antes de guardarse."
+        get() = "Se enviará el nombre público de $artistCredit a Openverse y a TheAudioDB para " +
+            "buscar fotografías. Ambos proveedores podrán recibir los datos habituales de " +
+            "conexión. Openverse declara la licencia de cada imagen; TheAudioDB no declara " +
+            "ninguna, así que sus fotografías sólo pueden guardarse tras tu elección explícita " +
+            "y quedarán marcadas como licencia no declarada."
 
     val identityText: String
         get() = "Confirmo que la foto elegida corresponde a $artistCredit (MBID $mbid). " +

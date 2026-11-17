@@ -36,9 +36,19 @@ fun allowedArtworkCandidate(
     if (candidate.rights == ArtworkRights.REJECTED) return false
     if (!allowedArtworkImageUrl(candidate.source, candidate.imageUrl)) return false
     if (!allowedArtworkSourcePage(candidate.source, candidate.canonicalSourcePage)) return false
-    if (!allowedArtworkLicenseUrl(candidate.licenseUrl)) return false
-    if (!allowedPortraitLicense(candidate.licenseId.orEmpty())) return false
-    if (!allowedPortraitAttribution(candidate.attribution.orEmpty())) return false
+    if (candidate.rights == ArtworkRights.UNDECLARED_LICENSE) {
+        // K48: the provider published no licence and no author. There is nothing to
+        // verify, so the candidate must carry nothing either — an invented licence id
+        // would pass the gate below and then travel into a saved selection as if it
+        // had been confirmed somewhere.
+        if (candidate.source != ArtworkSource.THEAUDIODB) return false
+        if (candidate.licenseId != null || candidate.licenseUrl != null) return false
+        if (!candidate.attribution.isNullOrBlank()) return false
+    } else {
+        if (!allowedArtworkLicenseUrl(candidate.licenseUrl)) return false
+        if (!allowedPortraitLicense(candidate.licenseId.orEmpty())) return false
+        if (!allowedPortraitAttribution(candidate.attribution.orEmpty())) return false
+    }
     if (!allowedArtworkEvidence(candidate)) return false
     return true
 }
@@ -59,9 +69,11 @@ fun allowedArtworkImageUrl(source: ArtworkSource, raw: String?): Boolean {
         ArtworkSource.OPENVERSE ->
             host == "live.staticflickr.com" || host == "staticflickr.com"
 
-        ArtworkSource.THEAUDIODB,
-        ArtworkSource.FANART_TV,
-        -> false
+        // K48: TheAudioDB serves its catalogue from its own R2 bucket. Fanart.tv stays
+        // closed until a key exists and its terms have been read.
+        ArtworkSource.THEAUDIODB -> host == "r2.theaudiodb.com"
+
+        ArtworkSource.FANART_TV -> false
     }
 }
 
@@ -81,9 +93,10 @@ fun allowedArtworkSourcePage(source: ArtworkSource, raw: String?): Boolean {
         ArtworkSource.OPENVERSE ->
             host == "www.flickr.com" && uri.rawPath?.startsWith("/photos/") == true
 
-        ArtworkSource.THEAUDIODB,
-        ArtworkSource.FANART_TV,
-        -> false
+        ArtworkSource.THEAUDIODB ->
+            host == "www.theaudiodb.com" && uri.rawPath?.startsWith("/artist/") == true
+
+        ArtworkSource.FANART_TV -> false
     }
 }
 
@@ -107,7 +120,8 @@ fun allowedArtworkEvidence(candidate: ArtistArtworkCandidate): Boolean = when (c
         candidate.verifiedQid != null && qidPattern.matches(candidate.verifiedQid) &&
             candidate.source == ArtworkSource.WIKIPEDIA_PAGEIMAGE
 
-    ArtworkEvidence.USER_SELECTED -> candidate.source == ArtworkSource.OPENVERSE
+    ArtworkEvidence.USER_SELECTED ->
+        candidate.source == ArtworkSource.OPENVERSE || candidate.source == ArtworkSource.THEAUDIODB
     ArtworkEvidence.UNVERIFIED -> false
 }
 

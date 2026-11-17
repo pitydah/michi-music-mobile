@@ -7,6 +7,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -457,6 +459,73 @@ class LiveArtistPhotoProviderProbeTest {
             "the fall-through photo must come from the later stage that answered, got ${saved.source}",
             saved.source == laterStage?.source,
         )
+    }
+
+    /**
+     * TheAudioDB is manual-only: it publishes photos and no licence. This probe checks
+     * both halves of that sentence — the catalogue answers a real search, and what it
+     * produces is saved with the licence still declared as undeclared.
+     */
+    @Test
+    fun theAudioDbCatalogueAnswersAManualSearchWithoutClaimingALicence() {
+        requireLive()
+        runBlocking {
+            val artist = midnightOil
+            val target = anchor(artist, "-theaudiodb")
+            val coordinator = ArtistArtworkService.from(context)
+
+            val result = coordinator.searchManual(target, artist.credit)
+            val catalogue = (result as? ProviderArtworkResult.Available)?.items.orEmpty()
+                .filter { it.source == ArtworkSource.THEAUDIODB }
+            write(
+                "provider-theaudiodb.tsv",
+                buildString {
+                    appendLine("provider\tTHEAUDIODB")
+                    appendLine("artist\t${artist.credit}")
+                    appendLine("candidates\t${catalogue.size}")
+                    catalogue.forEach {
+                        appendLine("asset\t${it.stableAssetId}")
+                        appendLine("image\t${it.imageUrl}")
+                        appendLine("page\t${it.canonicalSourcePage}")
+                        appendLine("licence\t${it.licenseId ?: "NO DECLARADA"}")
+                        appendLine("rights\t${it.rights}")
+                    }
+                },
+            )
+            assertTrue("TheAudioDB must answer the manual search, got $result", catalogue.isNotEmpty())
+            assertTrue(
+                "every catalogue candidate is review-only",
+                catalogue.all { it.rights == ArtworkRights.REQUIRES_REVIEW || it.rights == ArtworkRights.UNDECLARED_LICENSE },
+            )
+            assertTrue("no candidate may state a licence", catalogue.all { it.licenseId == null && it.licenseUrl == null })
+
+            val chosen = catalogue.first { it.imageUrl.contains("/thumb/") || catalogue.size == 1 }
+            val report = coordinator.chooseManual(target, chosen, ArtworkSlot.ARTIST_THUMB)
+            val saved = report.selections[ArtworkSlot.ARTIST_THUMB]
+            write(
+                "choosetheaudiodb.tsv",
+                buildString {
+                    appendLine("status\t${report.status}")
+                    appendLine("slot\t${saved?.slot}")
+                    appendLine("asset\t${saved?.assetId}")
+                    appendLine("source\t${saved?.source}")
+                    appendLine("licence\t${saved?.licenseId ?: "NO DECLARADA"}")
+                    appendLine("attribution\t${saved?.attribution ?: "SIN AUTOR DECLARADO"}")
+                    appendLine("bytes\t${saved?.localImagePath?.let { File(it).length() }}")
+                },
+            )
+
+            assertEquals("the chosen catalogue photo must be saved", ArtworkLoadStatus.READY, saved?.status)
+            assertEquals(ArtworkSource.THEAUDIODB, saved?.source)
+            // The store normalises a missing licence to an empty string; what matters is
+            // that nothing was invented, and that the slot has no attribution either.
+            assertTrue(
+                "the provider declares no licence and none may be invented, got ${saved?.licenseId}",
+                saved?.licenseId.isNullOrBlank(),
+            )
+            assertTrue(saved?.licenseUrl.isNullOrBlank())
+            assertTrue("the photo must really have bytes", File(requireNotNull(saved?.localImagePath)).length() > 1024L)
+        }
     }
 
     private fun requireLive() {

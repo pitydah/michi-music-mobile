@@ -25,7 +25,19 @@ enum class ArtworkEvidence {
     UNVERIFIED,
 }
 
-enum class ArtworkRights { VERIFIED_ALLOWED, REQUIRES_REVIEW, REJECTED }
+enum class ArtworkRights {
+    /** Licence and author were verified against the origin before the bytes were kept. */
+    VERIFIED_ALLOWED,
+    REQUIRES_REVIEW,
+
+    /**
+     * The provider published the photograph but declared no licence and no author.
+     * The photo may be shown and chosen by explicit consent, and it must always say
+     * that its licence is undeclared. It can never become [VERIFIED_ALLOWED].
+     */
+    UNDECLARED_LICENSE,
+    REJECTED,
+}
 
 /** UI-visible state; READY is emitted only after bytes exist locally and decode. */
 enum class ArtworkLoadStatus {
@@ -142,7 +154,8 @@ fun ArtistArtworkCandidate.isAutoEligible(): Boolean =
         source != ArtworkSource.OPENVERSE
 
 fun ArtistArtworkCandidate.isManualEligible(): Boolean =
-    rights != ArtworkRights.REJECTED && source == ArtworkSource.OPENVERSE
+    rights != ArtworkRights.REJECTED &&
+        (source == ArtworkSource.OPENVERSE || source == ArtworkSource.THEAUDIODB)
 
 /**
  * The only path from a local artist and a confirmed MusicBrainz profile to artwork queries.

@@ -6,6 +6,7 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistEnrichmentPrimaryAction
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.ArtworkSource
 
 /**
  * K48-R07: what a photograph slot answers before any provider detail is expanded.
@@ -272,8 +273,16 @@ data class ArtistEnrichmentUiState(
                 statusLabel = labelOf(effective, coverageLabel),
                 detail = if (effective == ArtistPhotoAvailability.BLOCKED) reason else null,
                 imagePath = verifiedPath,
-                attribution = selection?.attribution?.takeIf { verifiedPath != null },
-                license = selection?.licenseId?.takeIf { verifiedPath != null },
+                attribution = selection?.attribution?.takeIf { verifiedPath != null && it.isNotBlank() },
+                // K48: a catalogue photo carries no licence, and the slot must say so.
+                // An empty string would render as nothing at all, which reads as if the
+                // licence had simply not been formatted.
+                license = when {
+                    verifiedPath == null -> null
+                    selection?.licenseId.isNullOrBlank() &&
+                        selection?.source == ArtworkSource.THEAUDIODB -> "Licencia no declarada"
+                    else -> selection?.licenseId?.takeIf { it.isNotBlank() }
+                },
             )
         }
 

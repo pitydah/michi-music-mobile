@@ -210,7 +210,7 @@ data class ArtistArtworkCoverageUiState(
             ArtworkSource.COMMONS_CATEGORY -> "Commons · categoría"
             ArtworkSource.COMMONS_GALLERY -> "Commons · galería"
             ArtworkSource.OPENVERSE -> "Openverse · búsqueda manual"
-            ArtworkSource.THEAUDIODB -> "TheAudioDB · deshabilitado"
+            ArtworkSource.THEAUDIODB -> "TheAudioDB · sólo revisión manual"
             ArtworkSource.FANART_TV -> "Fanart.tv · deshabilitado"
         }
 

@@ -102,6 +102,22 @@ class DisabledArtworkProvider(
 }
 
 object ArtworkFeatureFlags {
+    /**
+     * TheAudioDB is manual-only: its catalogue declares no licence, so it may never
+     * fill a slot automatically. This flag describes the automatic ladder and stays
+     * false on purpose.
+     */
     const val THEAUDIODB_ENABLED = false
     const val FANART_ENABLED = false
+
+    /**
+     * TheAudioDB requires a key on every path. `123` is their public test key: it is
+     * rate limited and shared by everyone, so it is the floor for a device build, not
+     * a production credential. A build may replace it before the first search; the key
+     * is never logged and never persisted.
+     */
+    @Volatile
+    var theAudioDbApiKey: String = PUBLIC_TEST_KEY
+
+    const val PUBLIC_TEST_KEY = "123"
 }

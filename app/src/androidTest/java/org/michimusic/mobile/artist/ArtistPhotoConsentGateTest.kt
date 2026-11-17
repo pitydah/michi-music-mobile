@@ -168,9 +168,11 @@ class ArtistPhotoConsentGateTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(
-            "Se enviará el nombre público de $credit a Openverse para buscar fotografías. " +
-                "El proveedor podrá recibir los datos habituales de conexión. " +
-                "Las imágenes deberán verificarse antes de guardarse.",
+            "Se enviará el nombre público de $credit a Openverse y a TheAudioDB para buscar fotografías. " +
+                "Ambos proveedores podrán recibir los datos habituales de conexión. " +
+                "Openverse declara la licencia de cada imagen; TheAudioDB no declara ninguna, " +
+                "así que sus fotografías sólo pueden guardarse tras tu elección explícita y " +
+                "quedarán marcadas como licencia no declarada.",
         ).assertIsDisplayed()
     }
 

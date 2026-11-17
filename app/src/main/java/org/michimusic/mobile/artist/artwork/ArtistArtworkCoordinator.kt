@@ -23,6 +23,9 @@ class ArtistArtworkCoordinator internal constructor(
 
     /** Locks are reference-counted so a long artist list cannot leak one mutex per anchor. */
     private val locks = HashMap<String, LockRef>()
+
+    /** Manual discovery only: never part of [automaticProviders]. */
+    private val theAudioDb = TheAudioDbProvider(http)
     private val automaticProviders: List<ArtistArtworkProvider> = listOf(
         CommonsP18Provider(http, wikidata, commons),
         CommonsP180Provider(http, wikidata, commons),
@@ -263,13 +266,27 @@ class ArtistArtworkCoordinator internal constructor(
         )
     }
 
-    suspend fun searchManual(anchor: ArtistIdentityAnchor, query: String): ProviderArtworkResult =
-        openverse.search(anchor, query)
+    suspend fun searchManual(anchor: ArtistIdentityAnchor, query: String): ProviderArtworkResult {
+        val openverseResult = openverse.search(anchor, query)
+        val catalogueResult = theAudioDb.search(anchor, query)
+        val fromOpenverse = (openverseResult as? ProviderArtworkResult.Available)?.items.orEmpty()
+        val fromCatalogue = (catalogueResult as? ProviderArtworkResult.Available)?.items.orEmpty()
+        if (fromOpenverse.isNotEmpty() || fromCatalogue.isNotEmpty()) {
+            return ProviderArtworkResult.Available(fromOpenverse + fromCatalogue)
+        }
+        // A transport failure on one provider must not hide a clean answer from the
+        // other, but it must not be reported as "no match" either.
+        val failure = (openverseResult as? ProviderArtworkResult.Failure)
+            ?: (catalogueResult as? ProviderArtworkResult.Failure)
+        return failure ?: ProviderArtworkResult.NoMatch
+    }
 
     /**
-     * Explicitly chosen Openverse candidate: origin HTML must confirm the exact licence
-     * before bytes are downloaded. It never becomes automatic and never replaces a
-     * verified slot without this direct user action.
+     * Explicitly chosen manual candidate. An Openverse/Flickr candidate only becomes a
+     * file once its origin page confirms the exact licence; a TheAudioDB candidate
+     * carries no licence to confirm and therefore keeps `UNDECLARED_LICENSE` for ever.
+     * Neither path is automatic, and neither replaces a verified slot without this
+     * direct user action.
      */
     suspend fun chooseManual(
         anchor: ArtistIdentityAnchor,
@@ -283,9 +300,12 @@ class ArtistArtworkCoordinator internal constructor(
             return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Identidad no coincidente")
         }
         try {
-            val html = http.readText(candidate.canonicalSourcePage, setOf("www.flickr.com"))
-            if (!originPageConfirmsLicense(candidate.canonicalSourcePage, candidate.licenseUrl, html)) {
-                return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El origen no confirma la licencia")
+            val undeclared = candidate.source == ArtworkSource.THEAUDIODB
+            if (!undeclared) {
+                val html = http.readText(candidate.canonicalSourcePage, setOf("www.flickr.com"))
+                if (!originPageConfirmsLicense(candidate.canonicalSourcePage, candidate.licenseUrl, html)) {
+                    return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El origen no confirma la licencia")
+                }
             }
             val downloaded = downloader.download(candidate)
             val verified = candidate.copy(
@@ -293,7 +313,7 @@ class ArtistArtworkCoordinator internal constructor(
                 originalHeight = downloaded.height,
                 mimeType = downloaded.mimeType,
                 evidence = ArtworkEvidence.USER_SELECTED,
-                rights = ArtworkRights.VERIFIED_ALLOWED,
+                rights = if (undeclared) ArtworkRights.UNDECLARED_LICENSE else ArtworkRights.VERIFIED_ALLOWED,
                 localRelativePath = downloaded.relativePath,
                 downloadedSha256 = downloaded.sha256,
             )
@@ -311,7 +331,7 @@ class ArtistArtworkCoordinator internal constructor(
                     1 -> ArtworkLoadStatus.PARTIAL
                     else -> ArtworkLoadStatus.CACHE_ERROR
                 },
-                outcomes = listOf(ArtworkProviderOutcome(ArtworkSource.OPENVERSE,
+                outcomes = listOf(ArtworkProviderOutcome(candidate.source,
                     ArtworkProviderStatus.AVAILABLE, "USER_SELECTED", 1)),
                 selectedAssets = ArtworkSlot.entries.associateWith { selections[it]?.assetId },
                 selections = selections,
