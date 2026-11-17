@@ -93,7 +93,15 @@ class K48R12VisualCertificationTest {
     /** The window is a hard ceiling: a 480 dp request inside a 411 dp window measures less. */
     private val baseDensity get() = context.resources.displayMetrics.density
 
-    private val canonicalWidth = 390
+    /**
+     * The window width is a hard ceiling: asking for 390 dp inside a 384 dp phone window
+     * makes Compose clamp the content and the captured PNG would not be the width the row
+     * claims. The caller passes the width the device can actually give.
+     */
+    private val canonicalWidth: Int = InstrumentationRegistry.getArguments()
+        .getString("michiSurfaceWidth")
+        ?.toIntOrNull()
+        ?: 390
     private val margin = 20
 
     private val allWidths = listOf(320, 360, 390, 412, 480)
