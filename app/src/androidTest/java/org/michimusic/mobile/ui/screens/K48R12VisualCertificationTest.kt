@@ -30,6 +30,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -102,6 +103,9 @@ class K48R12VisualCertificationTest {
         .getString("michiSurfaceWidth")
         ?.toIntOrNull()
         ?: 390
+
+    /** The width the running device can actually give, which the certification may not exceed. */
+    private val windowDp: Int get() = context.resources.configuration.screenWidthDp
     private val margin = 20
 
     private val allWidths = listOf(320, 360, 390, 412, 480)
@@ -148,6 +152,13 @@ class K48R12VisualCertificationTest {
                 }
             }
         }
+
+        // A configuration this device cannot host is NOT_RUN, never a red suite and
+        // never a PNG that claims a width the content did not have.
+        assumeTrue(
+            "a ${canonicalWidth}dp surface cannot be measured in a ${windowDp}dp window",
+            windowDp >= canonicalWidth,
+        )
 
         surfaces.forEachIndexed { position, (name, _) ->
             compose.runOnIdle { index = position }
@@ -219,6 +230,10 @@ class K48R12VisualCertificationTest {
             else -> editorState(tagsVerified = false, embedded = emptyList())
         }
 
+        assumeTrue(
+            "the sheet takes the real window width: this device is ${windowDp}dp, not ${requested}dp",
+            kotlin.math.abs(windowDp - requested) <= 2,
+        )
         compose.setContent { MichiTheme { GenreEditorContent(uiState = state, onIntent = {}) } }
         compose.waitForIdle()
 

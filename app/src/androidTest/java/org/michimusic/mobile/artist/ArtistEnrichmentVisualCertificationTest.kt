@@ -39,6 +39,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,8 +89,15 @@ class ArtistEnrichmentVisualCertificationTest {
     /** Horizontal margins the artist surfaces use, so the effective width is comparable. */
     private val surfaceMargin = 20
 
+    private val windowDp: Int get() = context.resources.configuration.screenWidthDp
+
     @Test
     fun everyContractConfigurationMeasuresTheWidthItRequested() {
+        // Widths the window cannot host are NOT_RUN, not a false measurement.
+        assumeTrue(
+            "no requested width fits a ${windowDp}dp window",
+            widths.any { it <= windowDp },
+        )
         val thumbnail = localPng("cert-thumb.png")
         val state = summaryState(thumbnail)
         var width by mutableStateOf(widths.first())
@@ -127,6 +135,22 @@ class ArtistEnrichmentVisualCertificationTest {
         val records = mutableListOf<String>()
         val failures = mutableListOf<String>()
         for (candidateWidth in widths) {
+            if (candidateWidth > windowDp) {
+                // The window is a hard ceiling: a width it cannot host is NOT_RUN, not a
+                // measurement of whatever Compose clamped it to.
+                for (candidateScale in scales) {
+                    records += listOf(
+                        candidateWidth,
+                        "NOT_RUN",
+                        "-",
+                        candidateScale,
+                        "portrait",
+                        "-",
+                        "NOT_RUN",
+                    ).joinToString("\t")
+                }
+                continue
+            }
             for (candidateScale in scales) {
                 width = candidateWidth
                 scale = candidateScale
