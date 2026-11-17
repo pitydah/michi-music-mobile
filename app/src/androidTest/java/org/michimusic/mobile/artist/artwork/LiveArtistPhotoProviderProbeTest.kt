@@ -536,10 +536,17 @@ class LiveArtistPhotoProviderProbeTest {
     @Test
     fun theFanartCatalogueAnswersAManualSearchWhenAKeyIsProvided() {
         requireLive()
-        val project = arguments.getString("michiFanartProjectKey")?.trim().orEmpty()
-        assumeTrue("fanart.tv needs -e michiFanartProjectKey", project.isNotEmpty())
+        // Prefer the encrypted store: a key typed into Settings never has to appear
+        // in a command line, a shell history or a process listing.
+        val stored = ArtworkProviderKeys.fanart(context)
+        val project = arguments.getString("michiFanartProjectKey")?.trim()
+            ?.takeIf(String::isNotEmpty) ?: stored.projectKey.orEmpty()
+        assumeTrue(
+            "fanart.tv needs a key in Settings or -e michiFanartProjectKey",
+            project.isNotEmpty(),
+        )
         val personal = arguments.getString("michiFanartPersonalKey")?.trim()
-            ?.takeIf(String::isNotEmpty)
+            ?.takeIf(String::isNotEmpty) ?: stored.personalKey?.takeIf(String::isNotEmpty)
         val provider = FanartTvProvider(
             ArtworkHttp(),
             keys = { FanartTvProvider.Keys(project, personal) },
