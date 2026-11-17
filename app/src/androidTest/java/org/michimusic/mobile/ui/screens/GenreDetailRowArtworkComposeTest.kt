@@ -134,6 +134,14 @@ class GenreDetailRowArtworkComposeTest {
     }
 
     private fun openPop() {
+        // K48-R12: while the mosaic catalog is still resolving the card is a loading
+        // skeleton; it is replaced by the rendered surface as soon as the catalog lands.
+        // In CI the click arrived inside that swap, on a tile that was being replaced,
+        // and the detail never opened (verified from the CI logcat: catalog_loaded
+        // 6-10 ms before the click, then no composition of the detail at all). Local
+        // runs never overlapped it because the catalog resolves inside the first idle.
+        // Wait for the rendered surface this class asserts, then click it.
+        waitForTag("genre_art_frame_pop")
         rule.onNodeWithTag("genre_tile_pop").performClick()
         rule.waitForIdle()
     }

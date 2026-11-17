@@ -34,6 +34,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -954,7 +955,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitForIdle()
+        rule.waitUntilDetailOpened()
         // Phase C's detail header can push the first row outside the initial
         // viewport; compose it before asserting its disabled state.
         rule.onNodeWithTag("genre_detail")
@@ -983,6 +984,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
+        rule.waitUntilDetailOpened()
         rule.onNodeWithTag("genre_track_unique").performClick()
         rule.runOnIdle { assertEquals(listOf("unique"), played) }
     }
@@ -999,6 +1001,7 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
+        rule.waitUntilDetailOpened()
         // The detail is a LazyColumn: on a shorter CI device the row is not
         // composed until the list is scrolled to it. Scroll first, then assert
         // the real disabled semantics instead of assuming it is on screen.
@@ -1006,6 +1009,16 @@ class GenreLibraryPanelComposeTest {
             .performScrollToNode(hasTestTag("genre_track_shared"))
         rule.onNodeWithTag("genre_track_shared").assertIsNotEnabled()
         rule.runOnIdle { assertEquals(false, invoked) }
+    }
+
+    /**
+     * K48-R12: tapping a genre card writes the selection, but the detail is composed in
+     * the next frame; `performClick` returns before that frame. Querying `genre_detail`
+     * straight after the click therefore races the recomposition, which is exactly how
+     * this class failed intermittently in CI. Wait for the container, then assert.
+     */
+    private fun ComposeContentTestRule.waitUntilDetailOpened() {
+        waitUntil(20_000) { onAllNodesWithTag("genre_detail").fetchSemanticsNodes().isNotEmpty() }
     }
 
     // endregion
