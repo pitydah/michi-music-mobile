@@ -955,8 +955,7 @@ class GenreLibraryPanelComposeTest {
                     })
             }
         }
-        rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened("genre_tile_jazz")
+        rule.openGenreTile("jazz")
         // Phase C's detail header can push the first row outside the initial
         // viewport; compose it before asserting its disabled state.
         rule.onNodeWithTag("genre_detail")
@@ -984,8 +983,7 @@ class GenreLibraryPanelComposeTest {
                     isPlaying = false, onPlay = { queue, _ -> played = queue.map { it.id } })
             }
         }
-        rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened("genre_tile_jazz")
+        rule.openGenreTile("jazz")
         rule.onNodeWithTag("genre_track_unique").performClick()
         rule.runOnIdle { assertEquals(listOf("unique"), played) }
     }
@@ -1001,8 +999,7 @@ class GenreLibraryPanelComposeTest {
                     globallyBlockedTrackIds = setOf("shared"))
             }
         }
-        rule.onNodeWithTag("genre_tile_jazz").performClick()
-        rule.waitUntilDetailOpened("genre_tile_jazz")
+        rule.openGenreTile("jazz")
         // The detail is a LazyColumn: on a shorter CI device the row is not
         // composed until the list is scrolled to it. Scroll first, then assert
         // the real disabled semantics instead of assuming it is on screen.
@@ -1010,6 +1007,27 @@ class GenreLibraryPanelComposeTest {
             .performScrollToNode(hasTestTag("genre_track_shared"))
         rule.onNodeWithTag("genre_track_shared").assertIsNotEnabled()
         rule.runOnIdle { assertEquals(false, invoked) }
+    }
+
+    /**
+     * K48-R12: the mosaic card has three branches that carry the same surface tag — the
+     * loading skeleton, the fallback and the real artwork — and it changes height when its
+     * asset resolves, which moves it inside the grid. A tap resolved against the skeleton
+     * therefore lands where the card no longer is, and the selection is never written.
+     * Wait for the settled branch and for the grid to finish laying out, then tap.
+     */
+    private fun ComposeContentTestRule.openGenreTile(id: String) {
+        // The card merges its descendants (it is one button), so the tags of the settled
+        // branches only exist in the unmerged tree.
+        waitUntil(20_000) {
+            onAllNodesWithTag("genre_art_frame_$id", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty() ||
+                onAllNodesWithTag("genre_mosaic_fallback_$id", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
+        waitForIdle()
+        onNodeWithTag("genre_tile_$id").performClick()
+        waitUntilDetailOpened("genre_tile_$id")
     }
 
     /**

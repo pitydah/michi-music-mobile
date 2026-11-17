@@ -161,19 +161,31 @@ class ArtistPhotoConsentGateTest {
     }
 
     @Test
-    fun theDisclosureNamesTheProviderTheArtistAndWhatLeavesTheDevice() {
+    fun theDisclosureNamesTheProvidersTheArtistAndWhatLeavesTheDevice() {
         setPicker(onSearch = {})
 
         compose.onNodeWithTag("artist_artwork_openverse_search").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithText(
-            "Se enviará el nombre público de $credit a Openverse y a TheAudioDB para buscar fotografías. " +
-                "Ambos proveedores podrán recibir los datos habituales de conexión. " +
-                "Openverse declara la licencia de cada imagen; TheAudioDB no declara ninguna, " +
-                "así que sus fotografías sólo pueden guardarse tras tu elección explícita y " +
-                "quedarán marcadas como licencia no declarada.",
-        ).assertIsDisplayed()
+        // Read the sentence from the state the picker renders instead of copying it here:
+        // duplicating it let a whole new provider (fanart.tv) ship without this test noticing.
+        val disclosure = ArtistArtworkPickerUiState(artistCredit = credit, mbid = mbid).consentText
+        listOf("Openverse", "TheAudioDB", "fanart.tv", credit).forEach { named ->
+            assertTrue("the disclosure must name $named", disclosure.contains(named))
+        }
+        assertTrue(
+            "the disclosure must say the catalogue declares no licence",
+            disclosure.contains("no declaran ninguna"),
+        )
+        assertTrue(
+            "the disclosure must say a photo is only kept after an explicit choice",
+            disclosure.contains("elección explícita"),
+        )
+        assertTrue(
+            "the disclosure must say the provider learns the usual connection data",
+            disclosure.contains("datos habituales de conexión"),
+        )
+        compose.onNodeWithText(disclosure).assertIsDisplayed()
     }
 
     @Test
