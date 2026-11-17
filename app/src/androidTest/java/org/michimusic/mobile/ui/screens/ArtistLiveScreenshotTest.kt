@@ -33,6 +33,11 @@ import org.michimusic.mobile.artist.ArtistEnrichmentSelectionStore
 import org.michimusic.mobile.artist.ArtistEnrichmentService
 import org.michimusic.mobile.artist.ArtistExternalProfile
 import org.michimusic.mobile.artist.PersistedArtistProfile
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
+import org.michimusic.mobile.artist.artwork.ArtistArtworkService
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
 import java.io.File
@@ -59,13 +64,6 @@ class ArtistLiveScreenshotTest {
         return repository.confirmedProfile(candidate.mbid)
     }
 
-    private suspend fun prefetch(profile: ArtistExternalProfile) {
-        val url = profile.portrait?.imageUrl ?: return
-        val result = SingletonImageLoader.get(context)
-            .execute(ImageRequest.Builder(context).data(url).build())
-        assertTrue("Portrait must decode before the screenshot", result is SuccessResult)
-    }
-
     private fun liveStore(vararg profiles: Pair<String, ArtistExternalProfile>) =
         object : ArtistEnrichmentSelectionStore {
             private val byCredit = profiles.toMap()
@@ -85,6 +83,24 @@ class ArtistLiveScreenshotTest {
             override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
         }
 
+    private fun midnightAnchor(profile: ArtistExternalProfile) = requireNotNull(
+        artistIdentityAnchor(
+            "live-qa-library",
+            "Midnight Oil",
+            listOf("live-qa-album-midnight-oil"),
+            profile,
+        ),
+    )
+
+    private fun flockAnchor(profile: ArtistExternalProfile) = requireNotNull(
+        artistIdentityAnchor(
+            "live-qa-library",
+            "A Flock Of Seagulls",
+            listOf("live-qa-album-flock"),
+            profile,
+        ),
+    )
+
     private fun save(tag: String, fileName: String) {
         val bitmap = compose.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
         val directory = File(context.filesDir, "screenshots").apply { mkdirs() }
@@ -99,8 +115,13 @@ class ArtistLiveScreenshotTest {
         runBlocking {
             val midnight = liveProfile("Midnight Oil")
             val flock = liveProfile("A Flock Of Seagulls")
-            prefetch(midnight)
-            prefetch(flock)
+            // The production mosaic never paints a remote portrait: it paints the file
+            // this device already saved. Prefetching the URL into Coil proved nothing,
+            // which is why this capture used to wait twenty seconds for a photo that
+            // could not appear.
+            val service = ArtistArtworkService.from(context)
+            service.resolve(midnightAnchor(midnight), forceRefresh = true)
+            service.resolve(flockAnchor(flock), forceRefresh = true)
             val store = liveStore(
                 "Midnight Oil" to midnight,
                 "A Flock Of Seagulls" to flock,
@@ -136,6 +157,7 @@ class ArtistLiveScreenshotTest {
                         refreshToken = 0,
                         onOpenArtist = {},
                         selectionStore = store,
+                        artworkStore = ArtistArtworkPersistence.from(context),
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -161,7 +183,12 @@ class ArtistLiveScreenshotTest {
         assumeTrue("live providers are opt-in", enabled)
         runBlocking {
             val midnight = liveProfile("Midnight Oil")
-            prefetch(midnight)
+            val anchor = midnightAnchor(midnight)
+            ArtistArtworkService.from(context).resolve(anchor, forceRefresh = true)
+            val hero = ArtistArtworkPersistence.from(context).load(anchor)
+                .firstOrNull {
+                    it.slot == ArtworkSlot.ARTIST_HERO && it.status == ArtworkLoadStatus.READY
+                }
             compose.setContent {
                 Column(
                     Modifier.width(412.dp).background(Color(0xFF090B11)).padding(20.dp)
@@ -169,16 +196,17 @@ class ArtistLiveScreenshotTest {
                 ) {
                     ArtistDetailHero(
                         artistCredit = "Midnight Oil",
-                        portrait = midnight.portrait,
+                        portrait = null,
                         albumCount = 1,
                         trackCount = 8,
                         modifier = Modifier.fillMaxWidth().height(300.dp),
+                        artwork = hero,
                     )
                     ArtistBiographySection(
                         artistCredit = "Midnight Oil",
                         profile = midnight,
                         isStale = false,
-                        portrait = midnight.portrait,
+                        portrait = null,
                     )
                 }
             }
