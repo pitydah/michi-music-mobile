@@ -3,6 +3,7 @@ package org.michimusic.mobile.devices.aircat
 import android.content.Context
 import org.robolectric.RuntimeEnvironment
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -31,6 +32,8 @@ class AirCatOperationCoordinatorTest {
     private val registry = mockk<PairedDeviceRegistry>()
     private val connections = mockk<ConnectionManager>()
     private val identity = mockk<MichiIdentity>()
+    private val PINNED = "https://source.example"
+
     private val authority = MichiIdentityAuthority(
         context, factory = { identity }, initialState = IdentityState.Ready(identity),
     )
@@ -68,16 +71,24 @@ class AirCatOperationCoordinatorTest {
 
     @Test fun transientClientClosesAfterRemoteVerificationFailureAndReleasesLease() = runBlocking {
         every { identity.michiId } returns "local"
+        val service = mockk<AirCatTransferClient>(relaxed = true)
+        // A68-13: the operation cannot reach any HTTP call until Home enrollment
+        // answers with a pin for this exact source and endpoint.
+        val enrolledPin = "sha256/" + java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 3 })
+        every { service.enrolledSourceTlsPin("micro", PINNED) } returns enrolledPin
         every { registry.getDevice("micro") } returns PairedDevice(
-            deviceId = "micro", deviceToken = "token", lastUrl = "http://192.168.1.2",
+            deviceId = "micro", deviceToken = "token", michiId = "micro", lastUrl = PINNED,
         )
         every { connections.getClient("micro") } returns null
         val transient = mockk<LinkClient>(relaxed = true)
-        every { transient.baseUrl } returns "http://192.168.1.2"
+        every { transient.baseUrl } returns PINNED
         every { transient.deviceToken } returns "token"
         every { transient.pairedClientDeviceId } returns ""
-        coEvery { transient.getServerInfo() } returns Result.failure(IllegalStateException("offline"))
-        val service = mockk<AirCatTransferClient>(relaxed = true)
+        // A27: the transfer runs on a fresh pinned transport created FROM the
+        // transient, and the transient must be closed whether or not that succeeds.
+        val secure = mockk<LinkClient>(relaxed = true)
+        every { transient.pinnedAirCatSession(enrolledPin) } returns secure
+        coEvery { secure.getServerInfo() } returns Result.failure(IllegalStateException("offline"))
         val results = mutableListOf<Pair<Boolean, String>>()
         val first = CompletableDeferred<Unit>()
         coordinator(service) { _, _ -> transient }.startTransfer("micro", this, null) { ok, message ->
@@ -89,7 +100,53 @@ class AirCatOperationCoordinatorTest {
         coroutineContext[kotlinx.coroutines.Job]!!.children.forEach { it.join() }
         assertEquals(1, results.size)
         assertFalse(results.single().first)
+        assertTrue(
+            "the refusal has to name the unverified session, but was ${results.single().second}",
+            results.single().second.contains("No se pudo verificar la sesión remota"),
+        )
         verify(exactly = 1) { transient.close() }
+        verify(exactly = 1) { transient.pinnedAirCatSession(enrolledPin) }
+        val lease = AirCatLeaseCoordinator(context)
+        assertTrue(lease.tryEnter())
+        lease.leave()
+    }
+
+    /**
+     * A68-13: a transient client resolved to a different origin must be closed and
+     * the operation refused, even though the same SPKI pin would validate there too.
+     * A pinned Home URL is a saved binding, never a hint a scan can improve on.
+     */
+    @Test fun aResolvedEndpointThatMovedIsClosedAndRefused() = runBlocking {
+        every { identity.michiId } returns "local"
+        val service = mockk<AirCatTransferClient>(relaxed = true)
+        val enrolledPin = "sha256/" + java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 3 })
+        every { service.enrolledSourceTlsPin("micro", PINNED) } returns enrolledPin
+        every { registry.getDevice("micro") } returns PairedDevice(
+            deviceId = "micro", deviceToken = "token", michiId = "micro", lastUrl = PINNED,
+        )
+        every { connections.getClient("micro") } returns null
+        val moved = mockk<LinkClient>(relaxed = true)
+        every { moved.baseUrl } returns "https://moved.example"
+        every { moved.deviceToken } returns "token"
+        every { moved.pairedClientDeviceId } returns ""
+        val results = mutableListOf<Pair<Boolean, String>>()
+        val first = CompletableDeferred<Unit>()
+        coordinator(service) { _, _ -> moved }.startTransfer("micro", this, null) { ok, message ->
+            results += ok to message
+            first.complete(Unit)
+        }
+        withTimeout(5000) { first.await() }
+        coroutineContext[kotlinx.coroutines.Job]!!.children.forEach { it.join() }
+        assertEquals(1, results.size)
+        assertFalse(results.single().first)
+        assertTrue(
+            "the refusal has to say the location changed, but was ${results.single().second}",
+            results.single().second.contains("cambió"),
+        )
+        verify(exactly = 1) { moved.close() }
+        // Nothing may be negotiated against an endpoint Home did not enrol.
+        verify(exactly = 0) { moved.pinnedAirCatSession(any()) }
+        coVerify(exactly = 0) { moved.getServerInfo() }
         val lease = AirCatLeaseCoordinator(context)
         assertTrue(lease.tryEnter())
         lease.leave()

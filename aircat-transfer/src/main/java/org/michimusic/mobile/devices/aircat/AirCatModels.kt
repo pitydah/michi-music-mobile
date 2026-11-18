@@ -16,6 +16,16 @@ enum class AirCatTransferState {
     PAUSED,
     CANCELLED,
     FAILED,
+    /**
+     * A68-06: the catalogue was legitimately empty (0 tracks, 0 bytes).
+     *
+     * It is not [COMPLETED]. `COMPLETED` means «this batch was transferred, its bytes
+     * were verified and its rows were committed», and a batch with no files can never
+     * prove any of that. Reporting completion with `checksumVerified = false` and
+     * `libraryCommitted = false` was a false success dressed as a real one, so the
+     * absence of files now has its own name.
+     */
+    NO_FILES,
 }
 
 @Serializable

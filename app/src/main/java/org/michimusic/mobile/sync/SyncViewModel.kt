@@ -100,6 +100,11 @@ class SyncViewModel(
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
     private val autoSyncScheduler: AutoSyncScheduler? = null,
+    // A68-08: releasing the multicast socket must survive this ViewModel's death,
+    // so the coordinator tears down on its own scope. Production uses IO; a test
+    // that drives discovery deterministically passes its own scheduler.
+    private val discoveryTeardownContext: kotlin.coroutines.CoroutineContext =
+        kotlinx.coroutines.Dispatchers.IO,
 ) : ViewModel() {
     // File-transfer exclusivity belongs to AirCat, not to the screen model.
     private val airCatLease = org.michimusic.mobile.devices.aircat.AirCatLeaseCoordinator(context)
@@ -112,6 +117,7 @@ class SyncViewModel(
         org.michimusic.mobile.devices.link.LinkDiscoveryCoordinator(
             linkDiscovery = linkDiscovery,
             scope = viewModelScope,
+            teardownContext = discoveryTeardownContext,
             onWindowFinished = {
                 if (_connectionState.value == SyncConnectionState.DISCOVERING) {
                     _connectionState.value = SyncConnectionState.DISCONNECTED

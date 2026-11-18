@@ -55,7 +55,10 @@ jobs:
       - name: Run Build Logic Tests
         run: ./gradlew -p buildSrc test
       - name: Run Core & Normal Unit Tests and Verify Android Instrumented Tests
-        run: ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest :player:testDebugUnitTest :michi-link-client:testDebugUnitTest :app:testNormalDebugUnitTest :app:compileNormalDebugAndroidTestKotlin :app:assembleNormalDebugAndroidTest
+        # aircat-transfer is listed explicitly: it is a real module with its own
+        # grants, integrity, journal and recovery suites, and nothing else in this
+        # workflow compiles its tests. Leaving it out made those failures invisible.
+        run: ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest :player:testDebugUnitTest :michi-link-client:testDebugUnitTest :aircat-transfer:testDebugUnitTest :app:testNormalDebugUnitTest :app:compileNormalDebugAndroidTestKotlin :app:assembleNormalDebugAndroidTest
 
   unit-tests-fdroid:
     name: "Job C — Unit Tests (F-Droid)"

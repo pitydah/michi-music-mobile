@@ -84,8 +84,16 @@ data class AirCatSignedGrant(
     val signatureBase64Url: String,
 )
 
-/** Exact length-prefixed byte format, suitable for independent Rust/Python producers. */
-internal object AirCatCanonicalWire {
+/**
+ * Exact length-prefixed byte format, suitable for independent Rust/Python producers.
+ *
+ * A68: this is a serialisation contract, not a secret. It is public so that any
+ * module of this app can describe the bytes a grant covers — a test that runs a
+ * real transfer needs to mint one. Publishing the format grants no authority: a
+ * grant is only accepted when its Ed25519 signature verifies against the Home key
+ * provisioned by enrollment, and that private key never lives in the app.
+ */
+object AirCatCanonicalWire {
     private const val MAX_FIELD_BYTES = 4096
     private const val MAX_MANIFEST_ITEMS = 10000
     private const val MAX_CANONICAL_MANIFEST_BYTES = 8 * 1024 * 1024
@@ -168,7 +176,7 @@ internal object AirCatCanonicalWire {
         }.toByteArray()
     }
 
-    internal fun manifestSha256(manifest: AirCatManifest): String? = runCatching {
+    fun manifestSha256(manifest: AirCatManifest): String? = runCatching {
         val hash = MessageDigest.getInstance("SHA-256").digest(manifestBytes(manifest))
         buildString(hash.size * 2) {
             for (b in hash) {
@@ -177,7 +185,7 @@ internal object AirCatCanonicalWire {
         }
     }.getOrNull()
 
-    internal fun signedGrantBytes(grant: AirCatSignedGrant): ByteArray =
+    fun signedGrantBytes(grant: AirCatSignedGrant): ByteArray =
         BoundedCanonicalBuffer(MAX_CANONICAL_GRANT_BYTES).also { out ->
             DataOutputStream(out).use { data ->
                 data.field("MICHI-AIRCAT-GRANT-V1")

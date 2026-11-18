@@ -5,6 +5,8 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import org.bouncycastle.crypto.digests.Blake3Digest
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.core.models.PersistentCheckpoint
@@ -14,7 +16,19 @@ import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.PairedDevice
 import org.michimusic.link.PairedDeviceRegistry
+import java.security.SecureRandom
+import java.util.Base64
 
+/**
+ * A68-09: the recovery path evaluates its fences in a fixed order, and each test
+ * here has to sit at exactly one of them.
+ *
+ * Home enrollment first: a source that no Home anchor covers is refused with
+ * [AirCatException.RevokedPeer] before the presented token is even read. Then the
+ * QR-enrollment trust of this device, then the token binding. A matching token is
+ * therefore never evidence of trust — it only clears the fence that runs after the
+ * cryptographic ones already passed.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AirCatSecurityTokenBindingTest {
 
@@ -23,7 +37,44 @@ class AirCatSecurityTokenBindingTest {
     private val checkpointRepository = mockk<TransferCheckpointRepository>(relaxed = true)
     private val libraryRepository = mockk<org.michimusic.data.repository.MusicLibraryRepository>(relaxed = true)
 
+    // A27: mint a real Ed25519 Home anchor, so `enrolledSourceReady` can answer
+    // "yes" and the token fence is genuinely reached.
+    private val encoder = Base64.getUrlEncoder().withoutPadding()
+    private val authorityKey = Ed25519PrivateKeyParameters(SecureRandom())
+    private val authorityPublic = authorityKey.generatePublicKey().encoded
+    private val authorityId = michiIdOf(authorityPublic)
+    private val tlsPin = "sha256/" + Base64.getEncoder().encodeToString(ByteArray(32) { 5 })
+    private val pinnedBaseUrl = "https://source.example"
+
+    private val homeAnchor: AirCatHomeAnchor
+        get() = AirCatHomeAnchor(
+            homeId = authorityId,
+            authorityMichiId = authorityId,
+            authorityPublicKeyBase64Url = encoder.encodeToString(authorityPublic),
+            sourceMichiId = "",
+            tlsSpkiSha256 = tlsPin,
+            pinnedBaseUrl = pinnedBaseUrl,
+        )
+
+    private val grantSecurity = AirCatSignedGrantSecurity(object : AirCatHomeAuthorityProvider {
+        override fun anchorFor(homeId: String): AirCatHomeAnchor? =
+            homeAnchor.takeIf { it.homeId == homeId }
+
+        override fun anchorForSource(sourceMichiId: String): AirCatHomeAnchor? =
+            homeAnchor.copy(sourceMichiId = sourceMichiId)
+    })
+
+    /** Enrolled Home: everything up to the token fence can pass. */
     private val client = DefaultAirCatTransferClient(
+        transferManager = transferManager,
+        pairedDeviceRegistry = pairedDeviceRegistry,
+        libraryRepository = libraryRepository,
+        checkpointRepository = checkpointRepository,
+        signedGrantSecurity = grantSecurity,
+    )
+
+    /** No anchor at all: the state of a device that was never enrolled, or was revoked. */
+    private val unenrolledClient = DefaultAirCatTransferClient(
         transferManager = transferManager,
         pairedDeviceRegistry = pairedDeviceRegistry,
         libraryRepository = libraryRepository,
@@ -47,10 +98,22 @@ class AirCatSecurityTokenBindingTest {
         updatedAt = System.currentTimeMillis(),
     )
 
+    private fun pinnedClient(
+        token: String,
+        baseUrl: String = pinnedBaseUrl,
+    ): LinkClient = mockk<LinkClient>(relaxed = true).also {
+        every { it.deviceToken } returns token
+        every { it.baseUrl } returns baseUrl
+    }
+
+    private fun michiIdOf(publicKey: ByteArray): String {
+        val digest = Blake3Digest(256).also { it.update(publicKey, 0, publicKey.size) }
+        return encoder.encodeToString(ByteArray(32).also { digest.doFinal(it, 0) })
+    }
+
     @Test
     fun recover_whenClientTokenEmpty_rejectsWithUnauthorizedPeer() = runTest {
-        val linkClient = mockk<LinkClient>(relaxed = true)
-        every { linkClient.deviceToken } returns ""
+        val linkClient = pinnedClient("")
         every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
             deviceId = "device-456",
             deviceToken = "valid-token-abc",
@@ -61,13 +124,12 @@ class AirCatSecurityTokenBindingTest {
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
-        assertTrue(ex is AirCatException.UnauthorizedPeer)
+        assertTrue("expected UnauthorizedPeer but was ${result.exceptionOrNull()}", ex is AirCatException.UnauthorizedPeer)
     }
 
     @Test
     fun recover_whenRegistryTokenEmpty_rejectsWithUnauthorizedPeer() = runTest {
-        val linkClient = mockk<LinkClient>(relaxed = true)
-        every { linkClient.deviceToken } returns "valid-token-abc"
+        val linkClient = pinnedClient("valid-token-abc")
         every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
             deviceId = "device-456",
             deviceToken = "",
@@ -78,13 +140,12 @@ class AirCatSecurityTokenBindingTest {
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
-        assertTrue(ex is AirCatException.UnauthorizedPeer)
+        assertTrue("expected UnauthorizedPeer but was ${result.exceptionOrNull()}", ex is AirCatException.UnauthorizedPeer)
     }
 
     @Test
     fun recover_whenTokensMismatch_rejectsWithUnauthorizedPeer() = runTest {
-        val linkClient = mockk<LinkClient>(relaxed = true)
-        every { linkClient.deviceToken } returns "token-from-client-123"
+        val linkClient = pinnedClient("token-from-client-123")
         every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
             deviceId = "device-456",
             deviceToken = "token-from-registry-789",
@@ -95,25 +156,76 @@ class AirCatSecurityTokenBindingTest {
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
-        assertTrue(ex is AirCatException.UnauthorizedPeer)
+        assertTrue("expected UnauthorizedPeer but was ${result.exceptionOrNull()}", ex is AirCatException.UnauthorizedPeer)
     }
 
     @Test
     fun recover_whenTokensMatchAndNonEmpty_allowsRecoveryCheck() = runTest {
-        val linkClient = mockk<LinkClient>(relaxed = true)
-        val sharedToken = "cryptographically-verified-token-xyz"
-        every { linkClient.deviceToken } returns sharedToken
+        val linkClient = pinnedClient("cryptographically-verified-token-xyz")
         every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
             deviceId = "device-456",
-            deviceToken = sharedToken,
+            deviceToken = "cryptographically-verified-token-xyz",
             isRevoked = false,
         )
-        // With empty pending checkpoints, it succeeds and returns emptyList
+        // With empty pending checkpoints, it succeeds and returns emptyList.
+        // The batch preflight still runs, so the managed root has to be a real
+        // directory: a relaxed mock answers with a File that is not one.
+        every { transferManager.musicDir } returns
+            java.nio.file.Files.createTempDirectory("aircat_token_root").toFile()
         coEvery { checkpointRepository.getCheckpointsForDevice("device-456") } returns emptyList()
 
         val result = client.recoverIncompleteTransfers("device-456", linkClient)
 
-        assertTrue(result.isSuccess)
+        assertTrue("expected success but was ${result.exceptionOrNull()}", result.isSuccess)
         assertTrue(result.getOrNull()?.isEmpty() == true)
+    }
+
+    /**
+     * A68-09: the fence that matters. Both tokens match and the checkpoint looks
+     * legitimate, but no Home anchor covers this source, so recovery must stop with
+     * [AirCatException.RevokedPeer]. A shared token is a pairing detail, never an
+     * authorisation to touch bytes that a revoked Home once owned.
+     */
+    @Test
+    fun aMatchingTokenNeverStandInForAHomeAnchor() = runTest {
+        val linkClient = pinnedClient("cryptographically-verified-token-xyz")
+        every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
+            deviceId = "device-456",
+            deviceToken = "cryptographically-verified-token-xyz",
+            isRevoked = false,
+        )
+        coEvery { checkpointRepository.getCheckpointsForDevice("device-456") } returns emptyList()
+
+        val result = unenrolledClient.recoverIncompleteTransfers("device-456", linkClient)
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            "expected RevokedPeer but was ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is AirCatException.RevokedPeer,
+        )
+    }
+
+    /**
+     * A68-09: an anchor is bound to the pinned endpoint. Pointing the same source at
+     * a different origin has to fail the Home fence, not the token fence, because
+     * presenting a durable grant to an unpinned host is exactly what A27 forbids.
+     */
+    @Test
+    fun aSourceReachedOnAnotherEndpointIsNoLongerEnrolled() = runTest {
+        val linkClient = pinnedClient("cryptographically-verified-token-xyz", "https://elsewhere.example")
+        every { pairedDeviceRegistry.getDevice("device-456") } returns PairedDevice(
+            deviceId = "device-456",
+            deviceToken = "cryptographically-verified-token-xyz",
+            isRevoked = false,
+        )
+        coEvery { checkpointRepository.getCheckpointsForDevice("device-456") } returns emptyList()
+
+        val result = client.recoverIncompleteTransfers("device-456", linkClient)
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            "expected RevokedPeer but was ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is AirCatException.RevokedPeer,
+        )
     }
 }

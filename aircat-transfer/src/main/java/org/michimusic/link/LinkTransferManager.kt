@@ -195,14 +195,36 @@ class LinkTransferManager(
         var shouldAppend = false
 
         if (existingPartBytes > 0) {
-            val safeResume = TransferResumeBoundaryPolicy.mayAppend(
-                checkpoint = savedCheckpoint, partPath = tempFile.absolutePath,
-                finalPath = file.absolutePath, expectedSize = item.size,
-                expectedSha256 = checksum, actualPartBytes = existingPartBytes,
-            )
+            // A68-10: only an AirCat managed transfer can enforce the strong
+            // validator; the legacy Link /download protocol has none, and demanding
+            // one there turned every interrupted library sync into a full re-download.
+            // The legacy branch still requires the persisted checkpoint to describe
+            // this exact file, and the final SHA-256 still gates the commit.
+            val safeResume = if (item.requiresLibraryCommit) {
+                TransferResumeBoundaryPolicy.mayAppend(
+                    checkpoint = savedCheckpoint, partPath = tempFile.absolutePath,
+                    finalPath = file.absolutePath, expectedSize = item.size,
+                    expectedSha256 = checksum, actualPartBytes = existingPartBytes,
+                )
+            } else {
+                TransferResumeBoundaryPolicy.mayAppendWithoutValidator(
+                    checkpoint = savedCheckpoint, partPath = tempFile.absolutePath,
+                    finalPath = file.absolutePath, expectedSize = item.size,
+                    expectedSha256 = checksum, actualPartBytes = existingPartBytes,
+                )
+            }
             // Missing checkpoint/strong ETag or mismatched file/identity means
             // the partial is untrusted; never infer verified bytes from its size.
-            val recordedBytes = if (safeResume) savedCheckpoint!!.bytesVerified else 0L
+            // A managed transfer resumes exactly what the server attested. The
+            // legacy /download protocol attests nothing per byte, so a checkpoint
+            // that recorded verified bytes still truncates to them, while a
+            // checkpoint that recorded none lets the physical .part length be the
+            // resume point - the final SHA-256 is what authorises the file.
+            val recordedBytes = when {
+                !safeResume -> 0L
+                item.requiresLibraryCommit -> savedCheckpoint!!.bytesVerified
+                else -> savedCheckpoint?.bytesVerified?.takeIf { it > 0L } ?: existingPartBytes
+            }
             val sizeOverflow = item.size > 0 && existingPartBytes >= item.size
             if (!safeResume || sizeOverflow || existingPartBytes < recordedBytes) {
                 // Inconsistent or overflowing partial file: purge to prevent corruption

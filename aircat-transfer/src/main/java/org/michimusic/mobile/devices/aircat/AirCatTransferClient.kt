@@ -81,6 +81,11 @@ class DefaultAirCatTransferClient(
     private val clock: () -> Long = { System.currentTimeMillis() },
     // Injectable AM2 seam: legacy constructors/Koin stay source-compatible.
     private val peerTrust: PeerTrustPort = RegistryPeerTrustPort(pairedDeviceRegistry),
+    // A68: a resume must hold the same process/cross-process lease as an explicit
+    // transfer, so a null lease can only refuse the resume — never run it unguarded.
+    // Production wires the shared coordinator in SyncModule; a test that exercises
+    // resume supplies its own. Keep the default null: inventing a lease from an
+    // unknown directory would guard nothing.
     private val resumeLease: AirCatLeaseCoordinator? = null,
     // Default MUST be fail-closed; no grant/anchor is inferred from UDP or local pairing.
     private val signedGrantSecurity: AirCatSignedGrantSecurity =
@@ -303,7 +308,10 @@ class DefaultAirCatTransferClient(
         }
 
         // 7. Legitimate 0 tracks / 0 bytes empty transfer (K49-02, K49B-06):
-        // Complete immediately without requiring 100 MB storage safety margin.
+        // Finish immediately without requiring the 100 MB storage safety margin.
+        // A68-06: this is NOT a completed file transfer. Nothing was downloaded, no
+        // byte was verified and no row was committed, so it reports NO_FILES instead
+        // of borrowing COMPLETED and leaving two false receipts in the payload.
         if (manifest.totalTracks == 0 && manifest.totalBytes == 0L && manifest.items.isEmpty()) {
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
             activeSessions.remove(intent.transferId)
@@ -313,7 +321,7 @@ class DefaultAirCatTransferClient(
                 totalTracks = 0,
                 bytesTransferred = 0L,
                 totalBytes = 0L,
-                state = AirCatTransferState.COMPLETED,
+                state = AirCatTransferState.NO_FILES,
                 checksumVerified = false,
                 libraryCommitted = false,
                 onProgress = onProgress,

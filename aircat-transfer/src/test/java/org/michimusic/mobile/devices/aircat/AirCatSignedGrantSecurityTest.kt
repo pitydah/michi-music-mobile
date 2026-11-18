@@ -95,8 +95,18 @@ class AirCatSignedGrantSecurityTest {
         val broken = manifest.copy(items=manifest.items.map { it.copy(remoteTrackId="") })
         assertTrue(AirCatCanonicalWire.manifestSha256(broken) == null)
     }
-    @Test fun grantRequestRefusesEmptyManifest() {
-        assertTrue(runCatching { AirCatGrantRequest.create(intent.copy(authorizationNonceBase64Url=""),manifest.copy(items=emptyList(),totalTracks=0,totalBytes=0)) }.isFailure)
+    @Test fun anEmptyCatalogueIsSignableButOnlyWhenItSaysItIsEmpty() {
+        // A68-04: plan §68.3 makes 0 tracks / 0 bytes a legitimate transfer, so a grant
+        // request must be able to describe it. What must stay refused is an empty item
+        // list that still claims tracks, which is how an empty manifest would smuggle a
+        // non-empty total past the signature.
+        val empty = manifest.copy(items = emptyList(), totalTracks = 0, totalBytes = 0)
+        assertTrue(runCatching {
+            AirCatGrantRequest.create(intent.copy(authorizationNonceBase64Url = ""), empty)
+        }.isSuccess)
+        assertTrue(AirCatCanonicalWire.manifestSha256(empty)?.length == 64)
+        assertTrue(AirCatCanonicalWire.manifestSha256(
+            manifest.copy(items = emptyList(), totalTracks = 1, totalBytes = 0)) == null)
     }
     @Test fun authorityPreflightRequiresEnrolledSourceIndex() {
         val onlyHome = object: AirCatHomeAuthorityProvider {

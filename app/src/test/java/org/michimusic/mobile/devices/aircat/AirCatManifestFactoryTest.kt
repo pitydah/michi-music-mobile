@@ -26,19 +26,58 @@ class AirCatManifestFactoryTest {
     }
 
     @Test fun negativeSizeAndOverflowFailBeforeCreatingTransfer() {
+        // A68-11: every entry here is otherwise valid (format, digest, positive clock),
+        // so the refusal can only come from the size. With a zero clock the factory
+        // stopped at the clock gate and this test proved nothing about size or overflow.
         assertThrows(IllegalArgumentException::class.java) {
-            AirCatManifestFactory.prepare("a", "b", listOf(ManifestTrackDto("one", size = -1)), 0L)
+            AirCatManifestFactory.prepare(
+                "a", "b",
+                listOf(ManifestTrackDto("one", size = -1, format = "flac", checksum = "a".repeat(64))),
+                1000L,
+            )
         }
         assertThrows(ArithmeticException::class.java) {
             AirCatManifestFactory.prepare("a", "b", listOf(
-                ManifestTrackDto("one", size = Long.MAX_VALUE, checksum = "a".repeat(64)),
-                ManifestTrackDto("two", size = 1L, checksum = "b".repeat(64)),
-            ), 0L)
+                ManifestTrackDto("one", size = Long.MAX_VALUE, format = "flac", checksum = "a".repeat(64)),
+                ManifestTrackDto("two", size = 1L, format = "flac", checksum = "b".repeat(64)),
+            ), 1000L)
+        }
+    }
+
+    @Test fun aClockThatCannotTimestampATransferIsRefused() {
+        val tracks = listOf(ManifestTrackDto("one", size = 4L, format = "flac", checksum = "a".repeat(64)))
+        assertThrows(IllegalArgumentException::class.java) {
+            AirCatManifestFactory.prepare("a", "b", tracks, 0L)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AirCatManifestFactory.prepare("a", "b", tracks, -1L)
+        }
+    }
+
+    @Test fun formatlessAndOversizedBatchesAreRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            AirCatManifestFactory.prepare(
+                "a", "b",
+                listOf(ManifestTrackDto("one", size = 4L, checksum = "a".repeat(64))),
+                1000L,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AirCatManifestFactory.prepare("a", "b", emptyList(), 1000L)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AirCatManifestFactory.prepare(
+                "a", "b",
+                (1..10_001).map {
+                    ManifestTrackDto("t$it", size = 1L, format = "flac", checksum = "a".repeat(64))
+                },
+                1000L,
+            )
         }
     }
 
     @Test fun repeatedRequestsInSameMillisecondHaveUniqueTransferIds() {
-        val tracks = listOf(ManifestTrackDto("one", size = 42L, checksum = "a".repeat(64)))
+        val tracks = listOf(ManifestTrackDto("one", size = 42L, format = "flac", checksum = "a".repeat(64)))
         val a = AirCatManifestFactory.prepare("micro", "mobile", tracks, 1000L)
         val b = AirCatManifestFactory.prepare("micro", "mobile", tracks, 1000L)
         assertTrue(a.intent.transferId != b.intent.transferId)
@@ -48,20 +87,23 @@ class AirCatManifestFactoryTest {
 
     @Test fun newTransferRejectsHashlessMalformedAndDuplicateSourceEntries() {
         assertThrows(IllegalArgumentException::class.java) {
-            AirCatManifestFactory.prepare("micro", "mobile", listOf(ManifestTrackDto("no-digest", size = 5L)), 1L)
+            AirCatManifestFactory.prepare(
+                "micro", "mobile",
+                listOf(ManifestTrackDto("no-digest", size = 5L, format = "flac")), 1L,
+            )
         }
         assertThrows(IllegalArgumentException::class.java) {
             AirCatManifestFactory.prepare("micro", "mobile",
-                listOf(ManifestTrackDto("bad", size = 5L, checksum = "z".repeat(64))), 1L)
+                listOf(ManifestTrackDto("bad", size = 5L, format = "flac", checksum = "z".repeat(64))), 1L)
         }
         assertThrows(IllegalArgumentException::class.java) {
             AirCatManifestFactory.prepare("micro", "mobile",
-                listOf(ManifestTrackDto("same", size = 2L, checksum = "a".repeat(64)),
-                    ManifestTrackDto("same", size = 2L, checksum = "a".repeat(64))), 1L)
+                listOf(ManifestTrackDto("same", size = 2L, format = "flac", checksum = "a".repeat(64)),
+                    ManifestTrackDto("same", size = 2L, format = "flac", checksum = "a".repeat(64))), 1L)
         }
         assertThrows(IllegalArgumentException::class.java) {
             AirCatManifestFactory.prepare("micro", "mobile",
-                listOf(ManifestTrackDto(" ", size = 2L, checksum = "a".repeat(64))), 1L)
+                listOf(ManifestTrackDto(" ", size = 2L, format = "flac", checksum = "a".repeat(64))), 1L)
         }
     }
     @Test fun distinctLogicalAndRemoteIdsRemainSeparateAcrossManifestAndRoom() {

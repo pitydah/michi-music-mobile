@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.WifiTethering
@@ -1175,7 +1176,8 @@ fun DevicesScreen(
 }
 
 @Composable
-private fun DevicesTopBar(
+// Internal so the A68-07 access test can drive both header layouts directly.
+internal fun DevicesTopBar(
     isSearching: Boolean,
     onRefreshClick: () -> Unit,
     onStopClick: () -> Unit,
@@ -1300,10 +1302,6 @@ private fun DevicesTopBar(
                                 )
                             }
                             androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("Administrar confianza Home") },
-                                onClick = { showMenu = false; onHomeTrustClick() },
-                            )
-                            androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Escanear código QR") },
                                 onClick = { showMenu = false; onQrClick() },
                                 leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null, tint = TertiaryCyan) }
@@ -1314,6 +1312,15 @@ private fun DevicesTopBar(
                                 leadingIcon = { Icon(Icons.Filled.Settings, null, tint = TertiaryCyan) }
                             )
                         }
+                        // A68-07: Home trust is not a compact-layout convenience. Revoking
+                        // a paired source is the only way out of a bad pairing, so the entry
+                        // stays in the overflow menu at every width and font scale.
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Administrar confianza Home") },
+                            onClick = { showMenu = false; onHomeTrustClick() },
+                            leadingIcon = { Icon(Icons.Filled.Security, null, tint = TertiaryCyan) },
+                            modifier = Modifier.testTag("menu_home_trust"),
+                        )
                         androidx.compose.material3.DropdownMenuItem(
                             text = { Text("Control Remoto") },
                             onClick = { showMenu = false; onRemoteClick() },

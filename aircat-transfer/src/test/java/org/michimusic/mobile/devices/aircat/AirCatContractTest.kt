@@ -108,7 +108,10 @@ class AirCatContractTest {
         }
         transferManager = LinkTransferManager(mockContext, durableCheckpoints)
         pairedRegistry = mockk(relaxed = true)
-        libraryRepo = mockk(relaxed = true)
+        // A68-03: the commit receipt re-reads what the library recorded. A relaxed
+        // mock answers "nothing", so every receipt would fail; a stateful fake keeps
+        // the receipt honest because it can only succeed on a row that exists.
+        libraryRepo = FakeMusicLibraryRepository()
 
         // A27: the Home anchor is provisioned by enrollment; `homeAnchor` and
         // `grantSecurity` are shared by every client built in this class.
@@ -234,6 +237,56 @@ class AirCatContractTest {
             )
         }
     }
+
+    /**
+     * A68-01: a network recovery is authorised by a fresh Home grant over an
+     * independent original manifest, never by the checkpoints it resumes. Room holds
+     * bytes and hashes; it cannot authorise the transfer that produced them.
+     *
+     * The manifest and the intent must describe the same transfer as every pending
+     * checkpoint in the batch: one transfer id, one destination library, and one item
+     * per checkpoint with matching remote id, size and hash.
+     */
+    private fun recoveryAuthority(
+        deviceId: String,
+        transferId: String,
+        sourceLibraryId: String,
+        destinationLibraryId: String,
+        items: List<AirCatManifestItem>,
+    ): Pair<TransferIntent, AirCatManifest> {
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = transferId,
+            sourceDeviceId = deviceId,
+            totalTracks = items.size,
+            totalBytes = items.sumOf { it.size },
+            items = items,
+        )
+        val intent = TransferIntent(
+            transferId = transferId,
+            sourceMichiId = deviceId,
+            destinationMichiId = mid("client_id"),
+            sourceLibraryId = sourceLibraryId,
+            destinationLibraryId = destinationLibraryId,
+        )
+        return authorized(intent, manifest) to manifest
+    }
+
+    private fun item(
+        logicalTrackId: String,
+        remoteTrackId: String,
+        size: Long,
+        sha256: String,
+    ) = AirCatManifestItem(
+        logicalTrackId = logicalTrackId,
+        remoteTrackId = remoteTrackId,
+        title = logicalTrackId,
+        artist = "Michi QA",
+        album = "Contract Album",
+        format = "mp3",
+        size = size,
+        sha256 = sha256,
+    )
 
     private fun sha256(data: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -434,15 +487,20 @@ class AirCatContractTest {
         assertEquals(content.size.toLong(), files[0].length())
         assertEquals(expectedHash, sha256(files[0].readBytes()))
 
-        // Verify library registration was invoked with AIRC_AT origin
-        io.mockk.coVerify {
-            libraryRepo.registerTrackWithLocation(
-                identity = match { it.id == "trk_hifi" && it.title == "Moonlight" },
-                location = match { it.trackId == "trk_hifi" && it.sourceDeviceId == sourceId },
-                libraryId = "lib_phone_synced",
-                origin = "AIRC_AT",
-            )
-        }
+        // The registration is read back from the library that received it, not from
+        // a verifier that would accept a call nobody persisted.
+        val fakeLibrary = libraryRepo as FakeMusicLibraryRepository
+        val recorded = fakeLibrary.registrations.single()
+        assertEquals("lib_phone_synced", recorded.libraryId)
+        assertEquals("AIRC_AT", recorded.origin)
+        assertEquals("trk_hifi", recorded.identity.id)
+        assertEquals("Moonlight", recorded.identity.title)
+        assertEquals(expectedHash, recorded.identity.contentHash)
+        assertEquals("trk_hifi", recorded.location.trackId)
+        assertEquals(sourceId, recorded.location.sourceDeviceId)
+        assertEquals("remote_hifi_1", recorded.location.remoteTrackId)
+        assertEquals(files[0].absolutePath, recorded.location.uri)
+        assertEquals(org.michimusic.core.models.TrackLocationType.SYNCED_MANAGED, recorded.location.type)
     }
 
     @Test
@@ -627,8 +685,7 @@ class AirCatContractTest {
         completedFile.parentFile?.mkdirs()
         completedFile.writeBytes(trackData)
 
-        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
-        coEvery { checkpointRepo.getCheckpoint(transferKey) } returns org.michimusic.core.models.PersistentCheckpoint(
+        val completedCheckpoint = org.michimusic.core.models.PersistentCheckpoint(
             transferKey = transferKey,
             transferId = "xfer_persisted_1",
             remoteDeviceId = sourceId,
@@ -646,6 +703,32 @@ class AirCatContractTest {
             createdAt = 1000L,
             updatedAt = 2000L,
         )
+        val checkpointRepo = FakeTransferCheckpointRepository(listOf(completedCheckpoint))
+
+        // The library already knows this file: the identity hash and a SYNCED_MANAGED
+        // location pointing at the final path. Without them no receipt can be honest.
+        (libraryRepo as FakeMusicLibraryRepository).apply {
+            seedIdentity(
+                TrackIdentity(
+                    id = "trk_recover_1",
+                    title = "Recovered Song",
+                    artist = "Artist",
+                    album = "Album",
+                    durationMs = 1000L,
+                    contentHash = trackSha256,
+                ),
+            )
+            seedLocation(
+                TrackLocation(
+                    id = "loc_recover_1",
+                    trackId = "trk_recover_1",
+                    type = TrackLocationType.SYNCED_MANAGED,
+                    uri = completedFile.absolutePath,
+                    sourceDeviceId = sourceId,
+                    remoteTrackId = "rem_1",
+                ),
+            )
+        }
 
         // Instantiate new client instance simulating application process recreation
         val newAircatClient = DefaultAirCatTransferClient(
@@ -674,8 +757,16 @@ class AirCatContractTest {
             )
         )
 
-        val pinnedClient = mockk<LinkClient>()
+        val pinnedClient = mockk<LinkClient>(relaxed = true)
         every { pinnedClient.deviceToken } returns "token"
+        // Reusing a confirmed file must not stream a single byte.
+        var streams = 0
+        coEvery {
+            pinnedClient.streamTrackRange(any(), any(), any(), any(), any(), any())
+        } answers {
+            streams++
+            Result.failure(java.io.IOException("a confirmed file must not be downloaded again"))
+        }
         val result = newAircatClient.executeTransfer(
             intent = authorized(intent, manifest),
             manifest = manifest,
@@ -683,11 +774,16 @@ class AirCatContractTest {
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
-        assertTrue("Should succeed by resuming from checkpoint without re-downloading", result.isSuccess)
+        assertTrue(
+            "Should succeed by resuming from checkpoint without re-downloading, but was ${result.exceptionOrNull()}",
+            result.isSuccess,
+        )
         val files = result.getOrThrow()
         assertEquals(1, files.size)
         assertEquals(completedFile.absolutePath, files.first().absolutePath)
         assertEquals(AirCatTransferState.COMPLETED, newAircatClient.progressEvents.value?.state)
+        assertEquals("the confirmed file must be reused, not downloaded", 0, streams)
+        assertEquals(completedCheckpoint.expectedSha256, checkpointRepo.row(transferKey)?.expectedSha256)
     }
 
     @Test
@@ -767,8 +863,23 @@ class AirCatContractTest {
                    signedGrantSecurity = grantSecurity,
         )
 
-        val recoveryResult = client.recoverIncompleteTransfers(sourceId, pinnedLink(mockClient))
-        assertTrue("Expected recovery to succeed, but was: ${recoveryResult.exceptionOrNull()}", recoveryResult.isSuccess)
+        val (authorizationIntent, authorizationManifest) = recoveryAuthority(
+            deviceId = sourceId,
+            transferId = "xfer_incomplete_1",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+            items = listOf(
+                item("trk_pending_resume", "rem_pending_1", trackData.size.toLong(), trackSha256),
+            ),
+        )
+        val recoveryResult = client.recoverIncompleteTransfers(
+            remoteDeviceId = sourceId,
+            linkClient = pinnedLink(mockClient),
+            authorizationIntent = authorizationIntent,
+            authorizationManifest = authorizationManifest,
+        )
+        assertTrue("Expected recovery to succeed, but was: ${recoveryResult.exceptionOrNull()}",
+            recoveryResult.isSuccess)
         val files = recoveryResult.getOrThrow()
         assertEquals(1, files.size)
         assertEquals(targetFile.absolutePath, files.first().absolutePath)
@@ -861,8 +972,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib",
             trackId = "t1",
             remoteTrackId = "t1",
-            tempFilePath = "/tmp/t1.part",
-            finalFilePath = File(tempDir, "t1.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "t1.part").absolutePath,
+            finalFilePath = File(musicRoot, "t1.mp3").absolutePath,
             expectedSize = 100L,
             receivedBytes = 50L,
             verifiedBytes = 0L,
@@ -877,8 +988,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib",
             trackId = "t2",
             remoteTrackId = "t2",
-            tempFilePath = "/tmp/t2.part",
-            finalFilePath = File(tempDir, "t2.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "t2.part").absolutePath,
+            finalFilePath = File(musicRoot, "t2.mp3").absolutePath,
             expectedSize = 100L,
             receivedBytes = 50L,
             verifiedBytes = 0L,
@@ -894,9 +1005,9 @@ class AirCatContractTest {
         // A33/A67: a relaxed mock would hand the preflight a mocked File, and the
         // managed root must be a real directory before a repair batch may write.
         every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
-        coEvery { mockTransferManager.downloadTrack(any(), any()) } answers {
+        coEvery { mockTransferManager.downloadTrack(any(), any(), any(), any()) } answers {
             isRevokedFlag = true // Revoked after first accepted download, before the next item.
-            Result.success(File(tempDir, "t1.mp3").apply { writeBytes(ByteArray(100)) })
+            Result.success(File(musicRoot, "t1.mp3").apply { writeBytes(ByteArray(100)) })
         }
         every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
@@ -908,11 +1019,32 @@ class AirCatContractTest {
                    signedGrantSecurity = grantSecurity,
         )
 
-        val result = client.recoverIncompleteTransfers(deviceId, pinnedLink(mockClient))
+        // The batch is authorised before any byte moves; revocation then has to stop
+        // the second download on its own.
+        val (authorizationIntent, authorizationManifest) = recoveryAuthority(
+            deviceId = deviceId,
+            transferId = "xfer1",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib",
+            items = listOf(
+                item("t1", "t1", 100L, sha256(ByteArray(100))),
+                item("t2", "t2", 100L, sha256(ByteArray(100))),
+            ),
+        )
+
+        val result = client.recoverIncompleteTransfers(
+            remoteDeviceId = deviceId,
+            linkClient = pinnedLink(mockClient),
+            authorizationIntent = authorizationIntent,
+            authorizationManifest = authorizationManifest,
+        )
         assertTrue(result.isFailure)
-        assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        // A67 gives revocation its own exception: a peer revoked mid-transfer is not
+        // merely unauthorised, and reporting it as such hid the reason from the UI.
+        assertTrue("expected AirCatException.RevokedPeer but was ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is AirCatException.RevokedPeer)
         // Only 1 download track call was made before revocation aborted recovery
-        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any(), any(), any()) }
     }
 
     @Test
@@ -927,11 +1059,11 @@ class AirCatContractTest {
         every { peer.mockClient.deviceToken } returns "token"
         peer.setupTrackStreaming("track_fail_reg", trackData)
 
-        val failingLibraryRepo = mockk<MusicLibraryRepository>()
-        coEvery { failingLibraryRepo.getTrackIdentity(any()) } returns null
-        coEvery {
-            failingLibraryRepo.registerTrackWithLocation(any(), any(), any(), any())
-        } returns Result.failure(IllegalStateException("Database constraint violation"))
+        // A library that accepts the call and then fails, so the test exercises the
+        // production compensation path rather than a mock answering "no".
+        val failingLibraryRepo = FakeMusicLibraryRepository(
+            registrationFailure = IllegalStateException("Database constraint violation"),
+        )
 
         val checkpointMap = mutableMapOf<String, org.michimusic.core.models.PersistentCheckpoint>()
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
@@ -1008,7 +1140,15 @@ class AirCatContractTest {
             destinationLibraryId = "lib_dest",
         )
 
-        val result = client.executeTransfer(intent, manifest, peer.mockClient, availableStorageBytes = 10L * 1024 * 1024 * 1024)
+        // The transfer has to clear Home authorisation and the TLS pin before the
+        // library write is even attempted; failing earlier would prove nothing.
+        val authorizedIntent = authorized(intent, manifest)
+        val result = client.executeTransfer(
+            authorizedIntent,
+            manifest,
+            pinnedLink(peer.mockClient),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
         assertTrue("executeTransfer should fail if library registration fails", result.isFailure)
 
         // Checkpoint must NOT be marked COMPLETED
@@ -1050,11 +1190,11 @@ class AirCatContractTest {
         )
 
         val cp2 = org.michimusic.core.models.PersistentCheckpoint(
-            transferKey = "$deviceId:lib_wrong_dest:track_strict_2",
-            transferId = "xfer_2",
+            transferKey = "$deviceId:lib_target_1:track_strict_2",
+            transferId = "xfer_1",
             remoteDeviceId = deviceId,
             sourceLibraryId = "lib_src",
-            destinationLibraryId = "lib_wrong_dest",
+            destinationLibraryId = "lib_target_1",
             trackId = "track_strict_2",
             remoteTrackId = "track_strict_2",
             tempFilePath = File(musicRoot, "temp2.part").absolutePath,
@@ -1062,7 +1202,7 @@ class AirCatContractTest {
             expectedSize = 2000L,
             receivedBytes = 1000L,
             verifiedBytes = 0L,
-            expectedSha256 = "hash_valid_2",
+            expectedSha256 = sha256(ByteArray(2000) { it.toByte() }),
             etag = "",
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
             createdAt = 100L,
@@ -1078,7 +1218,7 @@ class AirCatContractTest {
         // managed root must be a real directory before a repair batch may write.
         every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
         val dummyFile = File(musicRoot, "final1.mp3").also { it.writeText("hello") }
-        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+        coEvery { mockTransferManager.downloadTrack(any(), any(), any(), any()) } returns Result.success(dummyFile)
         every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
         val client = DefaultAirCatTransferClient(
@@ -1101,21 +1241,36 @@ class AirCatContractTest {
                 trackId = "track_strict_2",
                 destinationLibraryId = "lib_correct_dest_not_wrong", // does not match cp2
                 expectedSize = 2000L,
-                expectedSha256 = "hash_valid_2",
+                expectedSha256 = sha256(ByteArray(2000) { it.toByte() }),
             )
+        )
+
+        // Room stores bytes and hashes; it cannot authorise the transfer that produced
+        // them. Recovery over the network needs a Home grant that covers this batch.
+        val (authorizationIntent, authorizationManifest) = recoveryAuthority(
+            deviceId = deviceId,
+            transferId = "xfer_1",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_target_1",
+            items = listOf(
+                item("track_strict_1", "track_strict_1", 5L, sha256("hello".toByteArray())),
+                item("track_strict_2", "track_strict_2", 2000L, sha256(ByteArray(2000) { it.toByte() })),
+            ),
         )
 
         val result = client.recoverIncompleteTransfers(
             remoteDeviceId = deviceId,
             linkClient = pinnedLink(mockClient),
             authorizedCriteria = criteria,
+            authorizationIntent = authorizationIntent,
+            authorizationManifest = authorizationManifest,
         )
 
         assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals(1, files.size)
         // Exactly one download was performed (for track_strict_1), cp2 was rejected
-        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any(), any(), any()) }
     }
 
     @Test
@@ -1166,7 +1321,7 @@ class AirCatContractTest {
             expectedSize = 1000L,
             receivedBytes = 500L,
             verifiedBytes = 0L,
-            expectedSha256 = "corrupted_hash",
+            expectedSha256 = sha256(ByteArray(1000) { 9 }), // a real hash, just not the authorised one
             etag = "",
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
             createdAt = 100L,
@@ -1203,7 +1358,7 @@ class AirCatContractTest {
         // managed root must be a real directory before a repair batch may write.
         every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
         val dummyFile = File(musicRoot, "final_valid.mp3").also { it.writeText("hello valid") }
-        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+        coEvery { mockTransferManager.downloadTrack(any(), any(), any(), any()) } returns Result.success(dummyFile)
         every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
         val client = DefaultAirCatTransferClient(
@@ -1214,18 +1369,57 @@ class AirCatContractTest {
                    signedGrantSecurity = grantSecurity,
         )
 
-        val criteria = listOf(
-            AuthorizedTransferCriteria(
-                trackId = "track_empty_hash",
-                destinationLibraryId = "lib_1",
-                expectedSize = 1000L,
-                expectedSha256 = "expected_hash_empty",
+        // Phase A: a checkpoint whose hash is empty cannot appear in a canonical manifest,
+        // so no Home grant can authorise this batch. The refusal has to cover the whole
+        // batch: nothing may be downloaded on the strength of an unauthenticatable row.
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpEmpty, cpValid)
+        val (emptyIntent, emptyManifest) = recoveryAuthority(
+            deviceId = deviceId,
+            transferId = "xfer_valid",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_1",
+            items = listOf(
+                item("track_valid_hash", "track_valid_hash", "hello valid".length.toLong(),
+                    sha256("hello valid".toByteArray())),
             ),
+        )
+        val refused = client.recoverIncompleteTransfers(
+            remoteDeviceId = deviceId,
+            linkClient = pinnedLink(mockClient),
+            authorizationIntent = emptyIntent,
+            authorizationManifest = emptyManifest,
+        )
+        // The empty hash is refused by the checkpoint preflight before the signed
+        // manifest is even consulted; either refusal is fail-closed, and what matters
+        // is that no unauthenticatable row can authorise a download.
+        val refusal = refused.exceptionOrNull()?.message.orEmpty()
+        assertTrue(
+            "an unauthenticatable checkpoint must refuse the batch, but was $refusal",
+            refusal.contains("AIRC_RECOVERY_INVALID_CHECKPOINT") ||
+                refusal.contains("AIRC_RECOVERY_NOT_IN_SIGNED_MANIFEST"),
+        )
+        coVerify(exactly = 0) { mockTransferManager.downloadTrack(any(), any(), any(), any()) }
+
+        // Phase B: both checkpoints are authenticatable, so the grant covers them and the
+        // per-track criteria decide. The mismatching hash never reaches the wire.
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpMismatch, cpValid)
+        val (batchIntent, batchManifest) = recoveryAuthority(
+            deviceId = deviceId,
+            transferId = "xfer_valid",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_1",
+            items = listOf(
+                item("track_mismatch_hash", "track_mismatch_hash", 1000L, sha256(ByteArray(1000) { 9 })),
+                item("track_valid_hash", "track_valid_hash", "hello valid".length.toLong(),
+                    sha256("hello valid".toByteArray())),
+            ),
+        )
+        val criteria = listOf(
             AuthorizedTransferCriteria(
                 trackId = "track_mismatch_hash",
                 destinationLibraryId = "lib_1",
                 expectedSize = 1000L,
-                expectedSha256 = "expected_hash_mismatch",
+                expectedSha256 = sha256(ByteArray(1000) { 7 }),
             ),
             AuthorizedTransferCriteria(
                 trackId = "track_valid_hash",
@@ -1239,12 +1433,14 @@ class AirCatContractTest {
             remoteDeviceId = deviceId,
             linkClient = pinnedLink(mockClient),
             authorizedCriteria = criteria,
+            authorizationIntent = batchIntent,
+            authorizationManifest = batchManifest,
         )
 
         assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
-        assertEquals("Only cpValid should be recovered; empty and mismatching hashes must be rejected", 1, files.size)
-        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
+        assertEquals("Only cpValid should be recovered; the mismatching hash must be rejected", 1, files.size)
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any(), any(), any()) }
     }
 
     @Test
@@ -1310,7 +1506,7 @@ class AirCatContractTest {
         assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals("Checkpoints from plan_A must NOT be recovered under plan_B criteria", 0, files.size)
-        coVerify(exactly = 0) { mockTransferManager.downloadTrack(any(), any()) }
+        coVerify(exactly = 0) { mockTransferManager.downloadTrack(any(), any(), any(), any()) }
     }
 
     @Test
@@ -1322,13 +1518,15 @@ class AirCatContractTest {
         val hashNew = "1".repeat(64)
 
         // Seed library repository with an existing identity for trk_conflict with hashOld
-        coEvery { libraryRepo.getTrackIdentity("trk_conflict") } returns org.michimusic.core.models.TrackIdentity(
-            id = "trk_conflict",
-            title = "Existing Track",
-            artist = "Artist",
-            album = "Album",
-            durationMs = 1000L,
-            contentHash = hashOld,
+        (libraryRepo as FakeMusicLibraryRepository).seedIdentity(
+            org.michimusic.core.models.TrackIdentity(
+                id = "trk_conflict",
+                title = "Existing Track",
+                artist = "Artist",
+                album = "Album",
+                durationMs = 1000L,
+                contentHash = hashOld,
+            )
         )
 
         val intent = TransferIntent(
@@ -1422,24 +1620,28 @@ class AirCatContractTest {
         val hashOriginal = "a".repeat(64)
         val hashIncoming = "b".repeat(64)
 
-        coEvery { libraryRepo.getTrackIdentity("trk_registered") } returns TrackIdentity(
-            id = "trk_registered",
-            title = "Existing Song",
-            artist = "Artist",
-            album = "Album",
-            durationMs = 120000L,
-            contentHash = hashOriginal,
-        )
-        // Simulate existing file is a registered location
-        coEvery { libraryRepo.getLocationsForTrack("trk_registered") } returns listOf(
-            TrackLocation(
-                id = "loc_local_1",
-                trackId = "trk_registered",
-                type = TrackLocationType.SYNCED_MANAGED,
-                uri = existingFile.absolutePath,
-                availability = LocationAvailability.AVAILABLE,
+        (libraryRepo as FakeMusicLibraryRepository).apply {
+            seedIdentity(
+                TrackIdentity(
+                    id = "trk_registered",
+                    title = "Existing Song",
+                    artist = "Artist",
+                    album = "Album",
+                    durationMs = 120000L,
+                    contentHash = hashOriginal,
+                )
             )
-        )
+            // The existing file is already a registered managed location.
+            seedLocation(
+                TrackLocation(
+                    id = "loc_local_1",
+                    trackId = "trk_registered",
+                    type = TrackLocationType.SYNCED_MANAGED,
+                    uri = existingFile.absolutePath,
+                    availability = LocationAvailability.AVAILABLE,
+                )
+            )
+        }
 
         val intent = TransferIntent(
             transferId = "xfer_reg_conflict",
@@ -1507,7 +1709,7 @@ class AirCatContractTest {
     }
 
     @Test
-    fun manifestLegitimateZeroTracks_completesWithoutClaimingVerified() = runBlocking {
+    fun manifestLegitimateZeroTracks_finishesAsNoFilesWithoutClaimingVerified() = runBlocking {
         val sourceId = mid("peer_empty")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
@@ -1539,7 +1741,9 @@ class AirCatContractTest {
         assertTrue("Empty manifest transfer should succeed legitimately", result.isSuccess)
         val finalStatus = updates.lastOrNull()
         assertNotNull("Should emit progress", finalStatus)
-        assertEquals(AirCatTransferState.COMPLETED, finalStatus!!.state)
+        // A68-06: an empty catalogue is legitimate and finishes, but it is not a completed
+        // file transfer: nothing was transferred, so it may not borrow COMPLETED.
+        assertEquals(AirCatTransferState.NO_FILES, finalStatus!!.state)
         assertFalse("0 tracks must not claim checksumVerified = true", finalStatus.checksumVerified)
         assertFalse("0 tracks must not claim libraryCommitted = true", finalStatus.libraryCommitted)
     }

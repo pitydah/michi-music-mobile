@@ -48,35 +48,41 @@ internal class AirCatProgressLedger(private val maxEntries: Int = 64) {
             (event.totalTracks > 0 && event.currentTrackIndex > event.totalTracks)) return null
         if (event.transferId in sealed) return null
         // A42: COMPLETED without both receipts is a false successful batch.
-        // Empty selections are a harmless no-op, never a verified transfer.
         if (event.state == AirCatTransferState.COMPLETED) {
-            val noOp = event.totalTracks == 0 && event.currentTrackIndex == 0 &&
-                event.totalBytes == 0L && event.bytesTransferred == 0L &&
-                !event.checksumVerified && !event.libraryCommitted
             val verified = event.totalTracks > 0 && event.totalBytes > 0L &&
                 event.currentTrackIndex == event.totalTracks &&
                 event.bytesTransferred == event.totalBytes &&
                 event.checksumVerified && event.libraryCommitted
-            if (!noOp && !verified) return null
+            if (!verified) return null
         }
+        // A68-06: an empty catalogue reports NO_FILES, and only when it really moved
+        // nothing. That path may never carry receipts: claiming a verified checksum or
+        // a library commit for zero files is the false success this split exists to stop.
+        if (event.state == AirCatTransferState.NO_FILES &&
+            (event.totalTracks != 0 || event.currentTrackIndex != 0 ||
+                event.totalBytes != 0L || event.bytesTransferred != 0L ||
+                event.checksumVerified || event.libraryCommitted)) return null
         val previous = entries[event.transferId]
         // A41: stale callbacks after pause/failure cannot start a transfer or
         // claim a completion; only the coordinator's accepted retry may reopen it.
         if (previous?.state == AirCatTransferState.PAUSED &&
-            event.state in setOf(AirCatTransferState.FAILED, AirCatTransferState.COMPLETED)) return null
+            event.state in setOf(
+                AirCatTransferState.FAILED, AirCatTransferState.COMPLETED,
+                AirCatTransferState.NO_FILES)) return null
         if (previous?.state == AirCatTransferState.FAILED &&
-            event.state == AirCatTransferState.COMPLETED) return null
+            event.state in setOf(AirCatTransferState.COMPLETED, AirCatTransferState.NO_FILES)) return null
         if (previous?.state in setOf(AirCatTransferState.PAUSED, AirCatTransferState.FAILED) &&
             event.state == AirCatTransferState.TRANSFERRING &&
             !permittedRestarts.remove(event.transferId)) return null
-        if (previous?.state == AirCatTransferState.COMPLETED ||
-            previous?.state == AirCatTransferState.CANCELLED) return null
+        if (previous?.state in setOf(
+                AirCatTransferState.COMPLETED, AirCatTransferState.CANCELLED,
+                AirCatTransferState.NO_FILES)) return null
         // Prefer evicting old terminal snapshots, never an active transfer.
         if (previous == null && entries.size >= maxEntries) {
             val terminal = entries.entries.firstOrNull {
                 it.value.state in setOf(
                     AirCatTransferState.CANCELLED, AirCatTransferState.COMPLETED,
-                    AirCatTransferState.FAILED)
+                    AirCatTransferState.NO_FILES, AirCatTransferState.FAILED)
             }?.key ?: return null
             // A45: an evicted FAILED receipt is not an open slot for a delayed
             // callback to resurrect a worker that has already been dismissed.
@@ -86,8 +92,9 @@ internal class AirCatProgressLedger(private val maxEntries: Int = 64) {
         }
         entries.remove(event.transferId)
         entries[event.transferId] = event
-        if (event.state == AirCatTransferState.COMPLETED ||
-            event.state == AirCatTransferState.CANCELLED) {
+        if (event.state in setOf(
+                AirCatTransferState.COMPLETED, AirCatTransferState.CANCELLED,
+                AirCatTransferState.NO_FILES)) {
             permittedRestarts.remove(event.transferId)
             seal(event.transferId)
         }

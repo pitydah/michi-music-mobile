@@ -168,11 +168,18 @@ class AirCatProgressLedgerTest {
         assertTrue(book.record(complete) != null)
     }
 
-    @Test fun emptySelectionNoOpCannotMasqueradeAsVerifiedFile() {
+    @Test fun anEmptySelectionIsNoFilesAndNeverACompletedTransfer() {
         val book = AirCatProgressLedger()
-        val zero = AirCatProgressEvent("empty", 0, 0, 0L, 0L, AirCatTransferState.COMPLETED)
-        assertTrue(book.record(zero) != null)
-        assertNull(book.record(zero.copy(checksumVerified = true)))
+        // A68-06: zero files has its own terminal state. The previous contract accepted a
+        // COMPLETED with no receipts as a "harmless no-op", which is exactly how an empty
+        // selection came to be displayed as a finished file transfer.
+        val noFiles = AirCatProgressEvent("empty", 0, 0, 0L, 0L, AirCatTransferState.NO_FILES)
+        assertTrue(book.record(noFiles) != null)
+        assertNull(book.record(noFiles.copy(transferId = "empty-hash", checksumVerified = true)))
+        assertNull(book.record(noFiles.copy(transferId = "empty-commit", libraryCommitted = true)))
+        assertNull(book.record(noFiles.copy(transferId = "empty-tracks", totalTracks = 1, currentTrackIndex = 1)))
+        assertNull(book.record(noFiles.copy(transferId = "empty-bytes", totalBytes = 10L)))
+        assertNull(book.record(AirCatProgressEvent("empty-completed", 0, 0, 0L, 0L, AirCatTransferState.COMPLETED)))
     }
 
 }

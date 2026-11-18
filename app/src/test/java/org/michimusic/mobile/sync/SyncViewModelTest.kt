@@ -67,7 +67,10 @@ class SyncViewModelTest {
                 factory = { identity },
                 initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
             ),
-            trackRepository = trackRepository
+            trackRepository = trackRepository,
+            // A68-08: the socket teardown runs on its own scope, so the test has
+            // to own that scope to observe "stop then immediate start" in order.
+            discoveryTeardownContext = testDispatcher,
         )
     }
 
