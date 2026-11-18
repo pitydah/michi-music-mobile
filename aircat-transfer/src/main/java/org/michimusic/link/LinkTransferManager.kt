@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.DownloadItem
+import org.michimusic.link.port.RemoteFileSource
 import org.michimusic.link.transfer.ResumeMode
 import org.michimusic.link.transfer.TransferCheckpoint
 import org.michimusic.link.transfer.TransferChecksumMismatchException
@@ -41,9 +42,19 @@ class LinkTransferManager(
     val musicDir: File
         get() = File(context.filesDir, "synced_music").also { it.mkdirs() }
 
+    // Link legacy audio/sync keeps /stream. Managed AirCat must fetch immutable
+    // source bytes from /download; NEVER silently fall back to transcodable stream.
+    // Both ports share LinkClient authentication and its HTTP engine.
+    suspend fun downloadTrack(client: LinkClient, item: DownloadItem): Result<File> =
+        if (item.requiresLibraryCommit) Result.failure(IllegalStateException(
+            "AIRC_AUTHENTICATED_SOURCE_REQUIRED: use a pinned raw source with Home grant"))
+        else downloadTrack(source = client, item = item)
+
     suspend fun downloadTrack(
-        client: LinkClient,
+        source: RemoteFileSource,
         item: DownloadItem,
+        beforeWrite: ((Int) -> Unit)? = null,
+        beforeCommit: (() -> Unit)? = null,
     ): Result<File> = withContext(Dispatchers.IO) {
         val (file, tempFile) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
             musicDir = musicDir,
@@ -58,16 +69,54 @@ class LinkTransferManager(
         // A cached file is never accredited by size or filename alone.
         // Hashless legacy AirCat downloads remain allowed but UNVERIFIED, without cached reuse.
         val checksum = item.checksum.trim()
+        // A40: managed transfers cannot bypass ongoing Home/cancel/expiry
+        // checks by calling the transfer manager directly. Initial zero-byte
+        // preflight applies even to a cached file reuse (no HTTP stream).
+        if (item.requiresLibraryCommit) {
+            if (beforeWrite == null || beforeCommit == null) return@withContext Result.failure(
+                IllegalStateException("AIRC_RUNTIME_CONTINUITY_REQUIRED"))
+            val initialGuard = runCatching { beforeWrite(0) }
+            if (initialGuard.isFailure) return@withContext Result.failure(
+                initialGuard.exceptionOrNull() ?: IllegalStateException("AIRC_RUNTIME_CONTINUITY_REFUSED"))
+        }
+        if (item.requiresLibraryCommit && (!source.servesOriginalBytes || !source.verifiedTransport)) {
+            return@withContext Result.failure(IllegalArgumentException(
+                "AIRC_AUTHENTICATED_SOURCE_REQUIRED: pinned original bytes only"))
+        }
+        // A24: a direct caller cannot bypass AirCat's strict manifest preflight
+        // by invoking LinkTransferManager with requiresLibraryCommit=true.
+        // Reject before any cached reuse, network request, or journal creation.
+        if (item.requiresLibraryCommit &&
+            (item.remoteTrackId.isBlank() || item.size <= 0L ||
+                !TransferIntegrityPolicy.validSha256(checksum))) {
+            return@withContext Result.failure(IllegalArgumentException(
+                "AIRC_STRICT_MANAGED_SOURCE_REQUIRED: remote ID, size and SHA-256"))
+        }
         if (checksum.isNotEmpty() && !TransferIntegrityPolicy.validSha256(checksum)) {
             return@withContext Result.failure(
                 IllegalArgumentException("INVALID_CHECKSUM: SHA-256 must be 64 hexadecimal characters")
             )
         }
+        // A20: block unresolved journal before cached reuse or network activity.
+        if (AirCatRecoveryJournal(File(file.parentFile, ".aircat-journal")).hasJournal(file)) {
+            return@withContext Result.failure(IllegalStateException("AIRC_RECOVERY_REQUIRED"))
+        }
+
         // 1. Reuse only if hash is provided AND the expected size matches (when known).
         if (file.exists() && file.length() > 0) {
             val len = file.length()
-            if (TransferIntegrityPolicy.mayReuse(len, item.size, checksum) && verifyChecksum(file, checksum)) {
-                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(len))
+            if (!AirCatRecoveryJournal(File(file.parentFile, ".aircat-journal")).hasJournal(file) &&
+                TransferIntegrityPolicy.mayReuse(len, item.size, checksum) && verifyChecksum(file, checksum)
+            ) {
+                // A41: even a cached SHA match must not revive a revoked Home grant.
+                if (item.requiresLibraryCommit) {
+                    val permit = runCatching { beforeCommit!!.invoke() }
+                    if (permit.isFailure) return@withContext Result.failure(
+                        permit.exceptionOrNull() ?: IllegalStateException("AIRC_PRECOMMIT_REFUSED"))
+                }
+                _downloads.value = _downloads.value + (item.trackId to
+                    if (item.requiresLibraryCommit) DownloadProgress.Downloading(len)
+                    else DownloadProgress.Completed(len))
                 updateCheckpoint(item.effectiveTransferKey) {
                     TransferCheckpoint(
                         trackId = item.trackId,
@@ -77,7 +126,8 @@ class LinkTransferManager(
                         expectedSize = if (item.size > 0) item.size else len,
                         sha256Expected = item.checksum,
                         resumeMode = ResumeMode.NOT_APPLICABLE,
-                        state = TransferState.COMPLETED,
+                        state = if (item.requiresLibraryCommit) TransferState.COMMITTING
+                            else TransferState.COMPLETED,
                     )
                 }
                 return@withContext Result.success(file)
@@ -96,6 +146,23 @@ class LinkTransferManager(
                     checkpointRepository.getLatestCheckpointForTrack(item.trackId)
                 } else null
             if (persisted != null) {
+                // A25: the Room key lookup is NOT a receipt for the requested item.
+                // A stale/replaced row must not lend its offset to another file,
+                // remote ID, plan, digest, or managed destination.
+                if (persisted.transferKey != transferKey ||
+                    persisted.trackId != item.trackId ||
+                    persisted.remoteTrackId != item.remoteTrackId ||
+                    persisted.tempFilePath != tempFile.absolutePath ||
+                    persisted.finalFilePath != file.absolutePath ||
+                    persisted.expectedSize != item.size ||
+                    !persisted.expectedSha256.equals(checksum, ignoreCase = true) ||
+                    (item.requiresLibraryCommit &&
+                        (persisted.remoteDeviceId != item.remoteDeviceId ||
+                            persisted.destinationLibraryId != item.destinationLibraryId ||
+                            persisted.transferId != item.planId))) {
+                    return@withContext Result.failure(IllegalStateException(
+                        "AIRC_CHECKPOINT_IDENTITY_MISMATCH: existing partial preserved"))
+                }
                 savedCheckpoint = TransferCheckpoint(
                     trackId = persisted.trackId,
                     tempPath = persisted.tempFilePath,
@@ -118,16 +185,51 @@ class LinkTransferManager(
                 _checkpoints.value = _checkpoints.value + (transferKey to savedCheckpoint)
             }
         }
-        val expectedEtag = savedCheckpoint?.etag?.ifEmpty { null }
+        // The server's strong revision validator and a persisted verified offset
+        // are BOTH required before a .part may be appended to. Micro's current
+        // /download supports Range without ETag: restart such files from zero.
+        val expectedEtag = savedCheckpoint?.etag?.takeIf(TransferResumeBoundaryPolicy::strongEtag)
 
         var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
         var startOffset = 0L
         var shouldAppend = false
 
         if (existingPartBytes > 0) {
-            val recordedBytes = savedCheckpoint?.bytesVerified?.takeIf { it > 0L } ?: existingPartBytes
+            // A68-10: only an AirCat managed transfer can enforce the strong
+            // validator; the legacy Link /download protocol has none, and demanding
+            // one there turned every interrupted library sync into a full re-download.
+            // The legacy branch still requires the persisted checkpoint to describe
+            // this exact file, and the final SHA-256 still gates the commit.
+            val safeResume = if (item.requiresLibraryCommit) {
+                TransferResumeBoundaryPolicy.mayAppend(
+                    checkpoint = savedCheckpoint, partPath = tempFile.absolutePath,
+                    finalPath = file.absolutePath, expectedSize = item.size,
+                    expectedSha256 = checksum, actualPartBytes = existingPartBytes,
+                )
+            } else {
+                TransferResumeBoundaryPolicy.mayAppendWithoutValidator(
+                    checkpoint = savedCheckpoint, partPath = tempFile.absolutePath,
+                    finalPath = file.absolutePath, expectedSize = item.size,
+                    expectedSha256 = checksum, actualPartBytes = existingPartBytes,
+                )
+            }
+            // Missing checkpoint/strong ETag or mismatched file/identity means
+            // the partial is untrusted; never infer verified bytes from its size.
+            // A managed transfer resumes exactly what the server attested. The
+            // legacy /download protocol attests nothing per byte, so a checkpoint
+            // that recorded verified bytes still truncates to them, while a
+            // checkpoint that recorded none lets the physical .part length be the
+            // resume point - the final SHA-256 is what authorises the file. That
+            // only holds when the manifest declared a digest: safeResume refuses
+            // otherwise, and recordedBytes stays at zero so the next request asks
+            // for the whole file instead of gluing unauthenticated bytes together.
+            val recordedBytes = when {
+                !safeResume -> 0L
+                item.requiresLibraryCommit -> savedCheckpoint!!.bytesVerified
+                else -> savedCheckpoint?.bytesVerified?.takeIf { it > 0L } ?: existingPartBytes
+            }
             val sizeOverflow = item.size > 0 && existingPartBytes >= item.size
-            if (sizeOverflow || (recordedBytes > 0 && existingPartBytes < recordedBytes)) {
+            if (!safeResume || sizeOverflow || existingPartBytes < recordedBytes) {
                 // Inconsistent or overflowing partial file: purge to prevent corruption
                 tempFile.delete()
                 existingPartBytes = 0L
@@ -192,10 +294,15 @@ class LinkTransferManager(
             // Stream track with Range support
             var streamResult = try {
                 // If append mode, write to existing file; otherwise create new
-                FileOutputStream(tempFile, shouldAppend).use { outputStream ->
-                    client.streamTrackRange(
-                        trackId = item.trackId,
-                        outputStream = outputStream,
+                AirCatPartOutput.open(tempFile, append = shouldAppend, expectedOffset = startOffset).use { outputStream ->
+                    // A38: a compromised sender cannot write past manifest.size,
+                    // even with chunked HTTP and no Content-Length.
+                    val boundedOutput = if (item.requiresLibraryCommit)
+                        AirCatBoundedOutputStream(outputStream, item.size - startOffset, beforeWrite)
+                    else outputStream
+                    source.streamTrackRange(
+                        trackId = item.remoteTrackId,
+                        outputStream = boundedOutput,
                         startBytes = startOffset,
                         expectedEtag = expectedEtag,
                     ) { bytesRead, _ ->
@@ -219,10 +326,13 @@ class LinkTransferManager(
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(0L))
 
                 streamResult = try {
-                    FileOutputStream(tempFile, false).use { outputStream ->
-                        client.streamTrackRange(
-                            trackId = item.trackId,
-                            outputStream = outputStream,
+                    AirCatPartOutput.open(tempFile, append = false, expectedOffset = 0L).use { outputStream ->
+                        val boundedOutput = if (item.requiresLibraryCommit)
+                            AirCatBoundedOutputStream(outputStream, item.size, beforeWrite)
+                        else outputStream
+                        source.streamTrackRange(
+                            trackId = item.remoteTrackId,
+                            outputStream = boundedOutput,
                             startBytes = 0L,
                         ) { bytesRead, _ ->
                             _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(bytesRead))
@@ -273,10 +383,13 @@ class LinkTransferManager(
                 tempFile.delete()
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(0L))
                 
-                val restartedResult = FileOutputStream(tempFile, false).use { outputStream ->
-                    client.streamTrackRange(
-                        trackId = item.trackId,
-                        outputStream = outputStream,
+                val restartedResult = AirCatPartOutput.open(tempFile, append = false, expectedOffset = 0L).use { outputStream ->
+                    val boundedOutput = if (item.requiresLibraryCommit)
+                        AirCatBoundedOutputStream(outputStream, item.size, beforeWrite)
+                    else outputStream
+                    source.streamTrackRange(
+                        trackId = item.remoteTrackId,
+                        outputStream = boundedOutput,
                         startBytes = 0L,
                     ) { bytesRead, _ ->
                         _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(bytesRead))
@@ -287,6 +400,9 @@ class LinkTransferManager(
                     _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(err.message ?: "Failed"))
                     return@withContext Result.failure(err)
                 }
+                // The successful zero-offset retry may return a different revision.
+                // Persist its ETag, not the ignored 200 response's ETag.
+                responseEtag = restartedResult.getOrThrow().etag
             }
 
             // 3. Verifying stage
@@ -323,8 +439,15 @@ class LinkTransferManager(
             }
 
             // 4. Committing stage: Atomic promotion
+            // A41: close the gap after the last HTTP chunk and before the journal/rename.
+            // This also refuses paused/cancelled/expired sessions without changing final.
+            if (item.requiresLibraryCommit) {
+                val permit = runCatching { beforeCommit!!.invoke() }
+                if (permit.isFailure) return@withContext Result.failure(
+                    permit.exceptionOrNull() ?: IllegalStateException("AIRC_PRECOMMIT_REFUSED"))
+            }
             updateCheckpoint(transferKey) { it?.copy(state = TransferState.COMMITTING) }
-            val promoted = promoteDownload(tempFile, file)
+            val promoted = promoteDownload(tempFile, file, transferKey, checksum, item.requiresLibraryCommit)
             if (!promoted) {
                 val err = TransferPromotionException(item.trackId, "Atomic rename/replace failed")
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
@@ -332,12 +455,16 @@ class LinkTransferManager(
                 return@withContext Result.failure(err)
             }
 
-            // 5. Completed
-            _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(file.length()))
+            // The successful rename is NOT a Room/checkpoint commit. AirCat remains
+            // COMMITTING until its caller reads back the durable checkpoint receipt.
+            _downloads.value = _downloads.value + (item.trackId to
+                if (item.requiresLibraryCommit) DownloadProgress.Downloading(file.length())
+                else DownloadProgress.Completed(file.length()))
             updateCheckpoint(transferKey) {
                 it?.copy(
                     bytesVerified = file.length(),
-                    state = TransferState.COMPLETED,
+                    state = if (item.requiresLibraryCommit) TransferState.COMMITTING
+                        else TransferState.COMPLETED,
                     updatedAt = System.currentTimeMillis(),
                 )
             }
@@ -427,7 +554,8 @@ class LinkTransferManager(
             representationId = representationId,
         )
         val file = File(musicDir, fileName)
-        if (file.exists()) return file
+        // A22: no public file lookup may expose bytes awaiting Room/checkpoint commit.
+        if (file.isFile && !hasPendingRecovery(file)) return file
 
         return null
     }
@@ -452,149 +580,99 @@ class LinkTransferManager(
     }
 
     private fun calculateSha256(file: File): String {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            FileInputStream(file).use { fis ->
-                val buffer = ByteArray(8192)
-                var read: Int
-                while (fis.read(buffer).also { read = it } != -1) {
-                    digest.update(buffer, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (_: Exception) {
-            ""
-        }
+        // A50: secure NOFOLLOW hash also protects cached reuse and the final .part verification.
+        return AirCatSafeFileHash.sha256(file)
     }
 
     /**
-     * Promotes .part to final file atomically.
-     * If finalFile already exists and is valid, preserves it until promotion succeeds.
-     * The backup file (.bak) is preserved so callers can roll back if Room registration or post-transfer integrity fails.
-     * If a .bak already exists from an earlier interrupted cycle, it is safely preserved (never deleted blindly).
+     * Fail-closed .part promotion; A19 does not overwrite any unresolved .bak.
+     * The caller verifies SHA-256 before this step, commits Room afterwards,
+     * and discards the backup only after checkpoint+library success.
      */
-    private fun promoteDownload(tempFile: File, finalFile: File): Boolean {
-        if (!tempFile.exists() || tempFile.length() <= 0L) return false
-
-        val bak = File(finalFile.parentFile, "${finalFile.name}.bak")
-        val backupFile = if (finalFile.exists()) {
-            if (bak.exists()) {
-                // If a backup already exists (e.g. from an interrupted earlier attempt),
-                // verify if finalFile is identical or if we need to preserve both.
-                // In all cases, never delete an existing .bak before finalFile is successfully replaced.
-                val stagedBak = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
-                if (stagedBak.exists()) stagedBak.delete()
-                val movedToStaged = finalFile.renameTo(stagedBak)
-                if (!movedToStaged) return false
-                stagedBak
-            } else {
-                val moved = finalFile.renameTo(bak)
-                if (!moved) {
-                    // Moving existing file to backup failed: abort immediately without touching finalFile
-                    return false
-                }
-                bak
-            }
-        } else null
-
-        val renamed = tempFile.renameTo(finalFile)
-        if (renamed) {
-            // If we used a staged backup and finalFile was promoted, atomically consolidate to .bak
-            if (backupFile != null && backupFile.name.endsWith(".bak.staged")) {
-                if (bak.exists()) bak.delete()
-                backupFile.renameTo(bak)
-            }
-            // Keep backupFile on disk so callers can roll back via restoreBackup(finalFile)
-            // Callers that succeed in registration should call discardBackup(finalFile)
-            return true
-        } else {
-            // Restore previous good file if rename failed
-            if (backupFile != null) {
-                if (backupFile.name.endsWith(".bak.staged")) {
-                    backupFile.renameTo(finalFile)
-                } else {
-                    backupFile.renameTo(finalFile)
-                }
-            }
-            return false
-        }
+    private fun promoteDownload(
+        tempFile: File,
+        finalFile: File,
+        transferKey: String,
+        checksum: String,
+        requiresLibraryCommit: Boolean,
+    ): Boolean = if (requiresLibraryCommit) {
+        // Managed AirCat owns the durable Room + checkpoint journal lifecycle.
+        if (checksum.isBlank()) false else
+            AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal"))
+                .promote(tempFile, finalFile, transferKey, checksum)
+    } else {
+        // SyncWorker/legacy Link must never leave an AirCat journal that only
+        // a managed AirCat caller can finalize. Keep existing promotion semantics.
+        AirCatFilePromotion.promote(tempFile, finalFile)
     }
 
-    fun restoreBackup(finalFile: File): Boolean {
-        val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
-        val stagedBackup = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
-        val effectiveBackup = when {
-            backupFile.exists() && backupFile.length() > 0L -> backupFile
-            stagedBackup.exists() && stagedBackup.length() > 0L -> stagedBackup
-            backupFile.exists() -> backupFile
-            stagedBackup.exists() -> stagedBackup
-            else -> null
-        } ?: return false
+    /** Atomically replaces the uncommitted final without deleting it first. */
+    fun restoreBackup(finalFile: File): Boolean =
+        !AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal")).hasJournal(finalFile) &&
+            AirCatFilePromotion.restore(finalFile)
 
-        if (finalFile.exists()) finalFile.delete()
-        val restored = effectiveBackup.renameTo(finalFile)
-        if (stagedBackup.exists()) stagedBackup.delete()
-        return restored
-    }
-
-    fun discardBackup(finalFile: File): Boolean {
-        val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
-        val stagedBackup = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
-        var deleted = false
-        if (backupFile.exists()) {
-            deleted = backupFile.delete() || deleted
-        }
-        if (stagedBackup.exists()) {
-            deleted = stagedBackup.delete() || deleted
-        }
-        return deleted
-    }
+    /** A20: legacy discard MUST NOT bypass a pending recovery journal. */
+    fun discardBackup(finalFile: File): Boolean =
+        !AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal")).hasJournal(finalFile) &&
+            AirCatFilePromotion.discardAfterCommit(finalFile)
 
     /**
-     * Reconciles orphan .bak files remaining in musicDir after an unexpected process crash.
-     * If a target file is missing or corrupted/empty while its .bak exists, restores the .bak.
-     * If a target file is already present and non-empty, checks Room registration via [isRegisteredInDatabase]:
-     *   - If targetFile is confirmed registered in Room, the redundant .bak is safely purged.
-     *   - If targetFile is NOT registered in Room, targetFile is considered an uncommitted orphaned promotion
-     *     and the valid .bak is restored over it to prevent loss of the previously registered audio copy.
-     * Returns the count of restored files.
+     * Caller must prove that Room registration and persistent checkpoint writes succeeded.
+     * The journal re-hashes the bytes before releasing the previous valid file.
+     * An interrupted finalization remains visible to explicit repair, without polling.
+     */
+    fun finalizeAfterCommit(
+        finalFile: File,
+        transferKey: String,
+        expectedSha256: String,
+        libraryCommitted: Boolean,
+        checkpointCommitted: Boolean,
+    ): Boolean {
+        val committed = AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal"))
+            .finishCommitted(finalFile, transferKey, expectedSha256, libraryCommitted, checkpointCommitted)
+        if (committed) {
+            val trackId = _checkpoints.value[transferKey]?.trackId
+            updateCheckpoint(transferKey) {
+                it?.copy(state = TransferState.COMPLETED, updatedAt = System.currentTimeMillis())
+            }
+            if (trackId != null) {
+                _downloads.value = _downloads.value + (trackId to DownloadProgress.Completed(finalFile.length()))
+            }
+        }
+        return committed
+    }
+
+    /** Constant-time pending guard for trusted cached-file reuse. */
+    fun hasPendingRecovery(finalFile: File): Boolean =
+        AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal")).hasJournal(finalFile)
+
+    /** A24: corroborate exact journal ownership BEFORE changing any Room row.
+     * A matching digest alone is not enough when different plans share a path.
+     */
+    fun hasMatchingPendingJournal(finalFile: File, transferKey: String, expectedSha256: String): Boolean {
+        if (transferKey.isBlank() || !TransferIntegrityPolicy.validSha256(expectedSha256)) return false
+        val entry = AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal"))
+            .pending(finalFile) ?: return false
+        return entry.transferKey == transferKey &&
+            entry.expectedSha256.equals(expectedSha256, ignoreCase = true) &&
+            entry.phase != AirCatRecoveryJournal.Phase.PREPARED
+    }
+
+    /** Read-only diagnosis for the on-demand repair UI; never mutates or scans. */
+    fun diagnoseRecovery(finalFile: File, roomRegistered: Boolean?, checkpointCompleted: Boolean?): String =
+        AirCatRecoveryJournal(File(finalFile.parentFile, ".aircat-journal"))
+            .assess(finalFile, roomRegistered, checkpointCompleted).name
+
+    /**
+     * Restore an orphan only if it is missing/empty or the Room path is unregistered.
+     * Room registration by itself is not SHA-256 evidence: ambiguous backups
+     * and committed-looking files are preserved until explicit verification.
      */
     suspend fun reconcileOrphanBackups(
         targetDir: File = musicDir,
         isRegisteredInDatabase: (suspend (File) -> Boolean)? = null,
     ): Int = withContext(Dispatchers.IO) {
-        if (!targetDir.exists() || !targetDir.isDirectory) return@withContext 0
-        var reconciledCount = 0
-        val backupFiles = targetDir.listFiles { file ->
-            file.isFile && (file.name.endsWith(".bak") || file.name.endsWith(".bak.staged"))
-        } ?: return@withContext 0
-
-        for (backup in backupFiles) {
-            val targetName = backup.name.removeSuffix(".bak.staged").removeSuffix(".bak")
-            val targetFile = File(targetDir, targetName)
-
-            if (!targetFile.exists() || targetFile.length() == 0L) {
-                if (targetFile.exists()) targetFile.delete()
-                val restored = backup.renameTo(targetFile)
-                if (restored) reconciledCount++
-            } else if (targetFile.length() > 0L && backup.length() > 0L) {
-                val isRegistered = isRegisteredInDatabase?.invoke(targetFile)
-                if (isRegistered == true) {
-                    // Confirmed: target file is valid and registered in Room. Safe to purge backup.
-                    backup.delete()
-                } else if (isRegistered == false) {
-                    // Unconfirmed: target file is not registered in Room (interrupted before registration).
-                    // Roll back to previous good copy to preserve user's valid audio data.
-                    targetFile.delete()
-                    val restored = backup.renameTo(targetFile)
-                    if (restored) reconciledCount++
-                } else {
-                    // No verifier provided: if target exists and is non-empty, do not delete backup blindly;
-                    // preserve backup until caller explicitly validates registration.
-                }
-            }
-        }
-        reconciledCount
+        AirCatFilePromotion.reconcile(targetDir, isRegisteredInDatabase)
     }
 
     private fun safeFileName(value: String): String =

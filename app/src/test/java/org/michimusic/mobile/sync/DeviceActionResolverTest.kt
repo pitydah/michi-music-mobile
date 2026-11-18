@@ -194,4 +194,18 @@ class DeviceActionResolverTest {
         assertFalse(DeviceActionResolver.supportsAirCat(device(listOf("aircatapult", "streaming"))))
         assertTrue(DeviceActionResolver.supportsAirCat(device(listOf("AirCat-Transfer"))))
     }
+
+    @Test fun airCatActionRequiresTrustAndActiveConnectionEvenWhenAdvertised() {
+        val advertised = device(listOf("devices.aircat"))
+        val unpaired = advertised.copy(isPaired = false)
+        val offline = advertised.copy(connectionState = SyncConnectionState.DISCONNECTED)
+        val revoked = advertised.copy(isRevoked = true)
+        val stream = advertised.copy(deviceType = "michi_stream", roles = listOf("audio_receiver"))
+        for (blocked in listOf(unpaired, offline, revoked, stream)) {
+            assertFalse(DeviceActionResolver.resolveActions(blocked, false)
+                .any { it.type == DeviceActionType.AIRCAT_TRANSFER })
+        }
+        assertTrue(DeviceActionResolver.resolveActions(advertised, false)
+            .any { it.type == DeviceActionType.AIRCAT_TRANSFER })
+    }
 }

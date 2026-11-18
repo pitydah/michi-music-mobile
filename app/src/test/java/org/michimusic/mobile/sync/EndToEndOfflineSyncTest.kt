@@ -36,6 +36,7 @@ import org.michimusic.mobile.devices.aircat.AirCatManifest
 import org.michimusic.mobile.devices.aircat.AirCatManifestItem
 import org.michimusic.mobile.devices.aircat.DefaultAirCatTransferClient
 import org.michimusic.mobile.devices.aircat.FakeAirCatPeer
+import org.michimusic.mobile.devices.aircat.AirCatTestAuthority
 import org.michimusic.mobile.devices.aircat.TransferIntent
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -54,6 +55,9 @@ class EndToEndOfflineSyncTest {
     private lateinit var libraryRepo: MusicLibraryRepository
     private lateinit var transferManager: LinkTransferManager
     private lateinit var pairedRegistry: PairedDeviceRegistry
+
+    /** A27: no AirCat flow runs without a Home grant, so these tests mint real ones. */
+    private val authority = AirCatTestAuthority()
 
     @Before
     fun setUp() {
@@ -93,7 +97,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testCompleteOfflineSyncFlowWithRealRoomPersistence() = runBlocking {
-        val serverId = "trusted_desktop_studio"
+        val serverId = authority.mid("trusted_desktop_studio")
         val destLibId = "lib_phone_offline_synced"
 
         // Ensure destination library exists in Room
@@ -122,20 +126,24 @@ class EndToEndOfflineSyncTest {
         val hash2 = sha256(trackData2)
 
         val peer = FakeAirCatPeer(serverId)
-        peer.setupTrackStreaming("trk_lossless_1", trackData1)
-        peer.setupTrackStreaming("trk_lossless_2", trackData2)
+        authority.pin(peer.mockClient, token = "tok_master_999")
+        // The wire identity is the remote track id the manifest declares, not the
+        // local one: the producer streams rem_1 / rem_2.
+        peer.setupTrackStreaming("rem_1", trackData1)
+        peer.setupTrackStreaming("rem_2", trackData2)
 
         val aircatClient = DefaultAirCatTransferClient(
             transferManager = transferManager,
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+            signedGrantSecurity = authority.security,
         )
 
         val intent = TransferIntent(
             transferId = "xfer_e2e_resumable_001",
             sourceMichiId = serverId,
-            destinationMichiId = "client_pixel",
+            destinationMichiId = authority.mid("client_pixel"),
             sourceLibraryId = "lib_desktop_hifi",
             destinationLibraryId = destLibId,
         )
@@ -154,7 +162,7 @@ class EndToEndOfflineSyncTest {
 
         // Execute E2E transfer
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authority.authorized(intent, manifest),
             manifest = manifest,
             linkClient = peer.mockClient,
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
@@ -202,7 +210,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testProcessInterruptionRecoveryWithPersistentCheckpoint() = runBlocking {
-        val serverId = "desktop_node_interrupted"
+        val serverId = authority.mid("desktop_node_interrupted")
         val destLibId = "lib_phone_offline_synced"
         val trackId = "trk_resumable_long"
         val transferKey = trackId // used directly by LinkTransferManager preflight
@@ -230,7 +238,7 @@ class EndToEndOfflineSyncTest {
             receivedBytes = partialData.size.toLong(),
             verifiedBytes = partialData.size.toLong(),
             expectedSha256 = fullHash,
-            etag = "etag-v1-hash",
+            etag = "\"etag-v1-hash\"", // A67 needs a strong validator to resume
             transferState = TransferStatus.PAUSED,
             createdAt = System.currentTimeMillis() - 10000,
             updatedAt = System.currentTimeMillis() - 5000,
@@ -244,13 +252,14 @@ class EndToEndOfflineSyncTest {
 
         // 3. Setup peer with resume support (mock client returning the remaining slice)
         val peer = FakeAirCatPeer(serverId)
+        authority.pin(peer.mockClient)
         val mockClient = peer.mockClient
         val remainingData = fullData.copyOfRange(partialData.size, fullData.size)
 
         // Intercept streamTrackRange: write remaining bytes to outputStream
         io.mockk.coEvery {
             mockClient.streamTrackRange(
-                trackId = trackId,
+                trackId = "rem_resumable",
                 outputStream = any(),
                 startBytes = partialData.size.toLong(),
                 expectedEtag = any(),
@@ -264,7 +273,7 @@ class EndToEndOfflineSyncTest {
                     bytesRead = remainingData.size.toLong(),
                     statusCode = 206,
                     isPartialContent = true,
-                    etag = "etag-v1-hash",
+                    etag = "\"etag-v1-hash\"", // A67 needs a strong validator to resume
                 )
             )
         }
@@ -276,6 +285,9 @@ class EndToEndOfflineSyncTest {
             format = "flac",
             checksum = fullHash,
             size = fullData.size.toLong(),
+            // The preflight compares this against the persisted row: a resume that
+            // names a different remote track is not the same transfer.
+            remoteTrackId = "rem_resumable",
         )
 
         val res = freshTransferManager.downloadTrack(mockClient, downloadItem)
@@ -294,7 +306,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testTransactionIntegrityWhenLibraryRegistrationFails() = runBlocking {
-        val serverId = "trusted_desktop_failing"
+        val serverId = authority.mid("trusted_desktop_failing")
         val destLibId = "lib_phone_failing"
 
         every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
@@ -307,7 +319,8 @@ class EndToEndOfflineSyncTest {
         val trackData = "Song data".toByteArray()
         val hash = sha256(trackData)
         val peer = FakeAirCatPeer(serverId)
-        peer.setupTrackStreaming("trk_fail", trackData)
+        authority.pin(peer.mockClient, token = "tok_master_999")
+        peer.setupTrackStreaming("rem_fail", trackData)
 
         // Failing library repository
         val failingLibraryRepo = mockk<MusicLibraryRepository>(relaxed = true)
@@ -318,12 +331,13 @@ class EndToEndOfflineSyncTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = failingLibraryRepo,
             checkpointRepository = checkpointRepo,
+            signedGrantSecurity = authority.security,
         )
 
         val intent = TransferIntent(
             transferId = "xfer_fail_test",
             sourceMichiId = serverId,
-            destinationMichiId = "client_pixel",
+            destinationMichiId = authority.mid("client_pixel"),
             sourceLibraryId = "lib_desktop",
             destinationLibraryId = destLibId,
         )
@@ -340,7 +354,7 @@ class EndToEndOfflineSyncTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authority.authorized(intent, manifest),
             manifest = manifest,
             linkClient = peer.mockClient,
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
@@ -464,7 +478,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testAirCatInteractivePauseResumeCancel() = runBlocking {
-        val serverId = "desktop_node_aircat"
+        val serverId = authority.mid("desktop_node_aircat")
         val destLibId = "lib_phone_aircat"
 
         every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
@@ -479,6 +493,7 @@ class EndToEndOfflineSyncTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+            signedGrantSecurity = authority.security,
         )
 
         val transferId = "xfer_pause_resume_cancel"
@@ -490,10 +505,17 @@ class EndToEndOfflineSyncTest {
         assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED, pausedProgress?.state)
         assertEquals(transferId, pausedProgress?.transferId)
 
+        // A67: resuming a transfer that has no live session must NOT fabricate a
+        // running state. Before this guard the UI was told a paused transfer was
+        // moving again while nothing was on the wire.
         aircatClient.resumeTransfer(transferId)
         val resumedProgress = aircatClient.progressEvents.first()
         assertNotNull(resumedProgress)
-        assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING, resumedProgress?.state)
+        assertEquals(
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED,
+            resumedProgress?.state,
+        )
+        assertTrue(aircatClient.isTransferPaused(transferId))
 
         aircatClient.cancelTransfer(transferId)
         val cancelledProgress = aircatClient.progressEvents.first()
@@ -576,7 +598,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testAirCatRealtimeStreamingCancellation() = runBlocking {
-        val serverId = "active_stream_server"
+        val serverId = authority.mid("active_stream_server")
         val destLibId = "lib_phone_active"
         val trackId = "trk_infinite_stream"
 
@@ -584,6 +606,7 @@ class EndToEndOfflineSyncTest {
         val streamStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         val peer = FakeAirCatPeer(serverId)
+        authority.pin(peer.mockClient, token = "tok_stream_123")
         coEvery {
             peer.mockClient.streamTrackRange(
                 trackId = trackId,
@@ -623,13 +646,14 @@ class EndToEndOfflineSyncTest {
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+            signedGrantSecurity = authority.security,
         )
 
         val transferId = "xfer_realtime_cancel_test"
         val intent = TransferIntent(
             transferId = transferId,
             sourceMichiId = serverId,
-            destinationMichiId = "client_me",
+            destinationMichiId = authority.mid("client_me"),
             sourceLibraryId = "lib_source_remote",
             destinationLibraryId = destLibId,
         )
@@ -657,15 +681,29 @@ class EndToEndOfflineSyncTest {
         // Launch transfer in background coroutine
         val job = launch(Dispatchers.IO) {
             aircatClient.executeTransfer(
-                intent = intent,
+                intent = authority.authorized(intent, manifest),
                 manifest = manifest,
                 linkClient = peer.mockClient,
                 availableStorageBytes = 200L * 1024 * 1024,
             )
         }
 
-        // Wait until bytes are actually in-flight over the wire
-        streamStarted.await()
+        // Wait until bytes are actually in-flight over the wire. Bounded: a
+        // transfer that never reaches the wire must fail here with a reason, not
+        // park the test worker until the build is killed.
+        try {
+            kotlinx.coroutines.withTimeout(20_000) { streamStarted.await() }
+        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            // A refused transfer returns a Result instead of throwing, so the
+            // launched job can finish green without a single byte on the wire.
+            // Report what the client actually decided instead of a bare timeout.
+            val last = aircatClient.progressEvents.first()
+            throw AssertionError(
+                "the transfer never reached the wire: " +
+                    "state=${last?.state} error=${last?.error}",
+                timeout,
+            )
+        }
 
         // Cancel transfer while actively streaming
         aircatClient.cancelTransfer(transferId)
@@ -679,7 +717,7 @@ class EndToEndOfflineSyncTest {
 
     @Test
     fun testAirCatPauseAndResumeFromCheckpoint() = runBlocking {
-        val serverId = "desktop_node_resume"
+        val serverId = authority.mid("desktop_node_resume")
         val destLibId = "lib_phone_resume"
 
         database.libraryDao().insertLibrary(
@@ -707,21 +745,65 @@ class EndToEndOfflineSyncTest {
         val hash2 = sha256(trackData2)
 
         val peer = FakeAirCatPeer(serverId)
+        authority.pin(peer.mockClient, token = "tok_resume_123")
         peer.setupTrackStreaming("trk_p_1", trackData1)
         peer.setupTrackStreaming("trk_p_2", trackData2)
+
+        // Deterministic pause point. Track 2 announces that it is on the wire and
+        // then suspends; pausing cancels that call. Without it the test raced a
+        // three second poll and sometimes paused a batch that had already reported
+        // COMPLETED, which is why `isTransferPaused` was false.
+        val secondTrackInFlight = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var secondTrackAttempts = 0
+        coEvery {
+            peer.mockClient.streamTrackRange(
+                trackId = "trk_p_2",
+                outputStream = any(),
+                startBytes = any(),
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            secondTrackAttempts += 1
+            if (secondTrackAttempts == 1) {
+                secondTrackInFlight.complete(Unit)
+                // The mock answer is not a suspend lambda, so cancellation is
+                // delivered by unwinding this call rather than by suspension.
+                Thread.sleep(200)
+                throw kotlinx.coroutines.CancellationException("paused mid-stream")
+            }
+            val os = secondArg<java.io.OutputStream>()
+            val start = thirdArg<Long>().toInt()
+            val slice = trackData2.copyOfRange(start, trackData2.size)
+            os.write(slice)
+            Result.success(
+                StreamRangeResult(
+                    bytesRead = slice.size.toLong(),
+                    statusCode = if (start > 0) 206 else 200,
+                    isPartialContent = start > 0,
+                    etag = "test-etag",
+                    contentLength = slice.size.toLong(),
+                )
+            )
+        }
 
         val aircatClient = DefaultAirCatTransferClient(
             transferManager = transferManager,
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
             checkpointRepository = checkpointRepo,
+            // Resuming holds the same exclusivity gate as the original transfer.
+            // Without it the client can only refuse the resume.
+            resumeLease = org.michimusic.mobile.devices.aircat.AirCatLeaseCoordinator(appContext),
+            signedGrantSecurity = authority.security,
         )
 
         val transferId = "xfer_pause_resume_e2e"
         val intent = TransferIntent(
             transferId = transferId,
             sourceMichiId = serverId,
-            destinationMichiId = "client_me",
+            destinationMichiId = authority.mid("client_me"),
             sourceLibraryId = "lib_source_remote",
             destinationLibraryId = destLibId,
         )
@@ -759,7 +841,7 @@ class EndToEndOfflineSyncTest {
         // 1. Start transfer
         val job = launch(Dispatchers.IO) {
             aircatClient.executeTransfer(
-                intent = intent,
+                intent = authority.authorized(intent, manifest),
                 manifest = manifest,
                 linkClient = peer.mockClient,
                 availableStorageBytes = 200L * 1024 * 1024,
@@ -769,12 +851,9 @@ class EndToEndOfflineSyncTest {
         val key_p1 = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_p_1", transferId)
         val key_p2 = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_p_2", transferId)
 
-        // Wait with timeout until track 1 finishes
-        var attempts = 0
-        while (checkpointRepo.getCheckpoint(key_p1)?.transferState != TransferStatus.COMPLETED && attempts < 200) {
-            Thread.sleep(15)
-            attempts++
-        }
+        // The batch is sequential, so track 2 reaching the wire proves that track 1
+        // was already committed. Bounded: a stall fails instead of hanging.
+        kotlinx.coroutines.withTimeout(20_000) { secondTrackInFlight.await() }
 
         // Pause transfer
         aircatClient.pauseTransfer(transferId)
@@ -786,19 +865,40 @@ class EndToEndOfflineSyncTest {
         // 2. Resume transfer
         aircatClient.resumeTransfer(transferId)
 
-        // Wait with timeout until track 2 finishes
-        attempts = 0
-        while (checkpointRepo.getCheckpoint(key_p2)?.transferState != TransferStatus.COMPLETED && attempts < 200) {
-            Thread.sleep(15)
-            attempts++
+        // Event driven, not polled: wait for the resumed batch to report COMPLETED.
+        // A timeout reports what the client actually did instead of a bare failure.
+        try {
+            kotlinx.coroutines.withTimeout(20_000) {
+                aircatClient.progressEvents.first {
+                    it?.transferId == transferId &&
+                        it.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED
+                }
+            }
+        } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            val last = aircatClient.progressEvents.first()
+            val seen1 = checkpointRepo.getCheckpoint(key_p1)
+            val seen2 = checkpointRepo.getCheckpoint(key_p2)
+            throw AssertionError(
+                "resume never reported COMPLETED: progress=${last?.state}/${last?.error} " +
+                    "wireAttempts=$secondTrackAttempts paused=${aircatClient.isTransferPaused(transferId)} " +
+                    "cp1=${seen1?.transferState}(${seen1?.receivedBytes}/${seen1?.verifiedBytes}) " +
+                    "cp2=${seen2?.transferState}(${seen2?.receivedBytes}/${seen2?.verifiedBytes})",
+                timeout,
+            )
         }
 
         val cp1 = checkpointRepo.getCheckpoint(key_p1)
         val cp2 = checkpointRepo.getCheckpoint(key_p2)
-        assertNotNull(cp1)
-        assertNotNull(cp2)
-        assertEquals(TransferStatus.COMPLETED, cp1?.transferState)
-        assertEquals(TransferStatus.COMPLETED, cp2?.transferState)
+        val lastProgress = aircatClient.progressEvents.first()
+        val detail = "progress=${lastProgress?.state}/${lastProgress?.error} " +
+            "cp1=${cp1?.transferState}(${cp1?.receivedBytes}/${cp1?.verifiedBytes}) " +
+            "cp2=${cp2?.transferState}(${cp2?.receivedBytes}/${cp2?.verifiedBytes})"
+        assertNotNull(detail, cp1)
+        assertNotNull(detail, cp2)
+        assertEquals("first track must survive pause/resume; $detail",
+            TransferStatus.COMPLETED, cp1?.transferState)
+        assertEquals("second track must survive pause/resume; $detail",
+            TransferStatus.COMPLETED, cp2?.transferState)
 
         // Verify library contains both tracks
         val tracks = libraryRepo.observeTracks(LibraryScope.One(destLibId)).first()

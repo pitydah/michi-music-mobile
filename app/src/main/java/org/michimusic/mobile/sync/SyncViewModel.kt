@@ -41,12 +41,12 @@ import org.michimusic.link.dto.PairingStrategy
 import org.michimusic.link.dto.QrClaimRequest
 import org.michimusic.link.dto.ServerInfoDto
 import org.michimusic.link.errors.LinkException
-import org.michimusic.mobile.ui.components.parseManualEndpoint
-import org.michimusic.mobile.ui.components.sameDiscoveredEndpoint
-import org.michimusic.mobile.ui.components.matchesObservedPeer
-import org.michimusic.mobile.ui.components.isProvisionedMichiStream
+import org.michimusic.mobile.devices.link.parseManualEndpoint
+import org.michimusic.mobile.devices.link.sameDiscoveredEndpoint
+import org.michimusic.mobile.devices.link.matchesObservedPeer
+import org.michimusic.mobile.devices.link.isProvisionedMichiStream
 import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
-import org.michimusic.mobile.ui.components.refusesPhysicalButtonForMichiStream
+import org.michimusic.mobile.devices.link.refusesPhysicalButtonForMichiStream
 import java.net.URI
 
 
@@ -83,6 +83,8 @@ data class SyncUiState(
     val deviceSyncProgress: Map<String, SyncProgress> = emptyMap(),
     val planSyncProgress: Map<String, SyncProgress> = emptyMap(),
     val airCatProgress: org.michimusic.mobile.devices.aircat.AirCatProgressEvent? = null,
+    /** A31: independent UI receipts for paused/active AirCat sessions. */
+    val airCatProgressByTransfer: Map<String, org.michimusic.mobile.devices.aircat.AirCatProgressEvent> = emptyMap(),
     val availableStorageBytes: Long = 0L,
 )
 
@@ -98,11 +100,30 @@ class SyncViewModel(
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
     private val autoSyncScheduler: AutoSyncScheduler? = null,
+    // A68-08: releasing the multicast socket must survive this ViewModel's death,
+    // so the coordinator tears down on its own scope. Production uses IO; a test
+    // that drives discovery deterministically passes its own scheduler.
+    private val discoveryTeardownContext: kotlin.coroutines.CoroutineContext =
+        kotlinx.coroutines.Dispatchers.IO,
 ) : ViewModel() {
-    // Same-process authority is shared by every SyncViewModel instance. A file lock
-    // below provides cross-process exclusion for this transfer entry point.
-    private companion object {
-        val airCatSingleFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    // File-transfer exclusivity belongs to AirCat, not to the screen model.
+    private val airCatLease = org.michimusic.mobile.devices.aircat.AirCatLeaseCoordinator(context)
+    private val airCatOperations = org.michimusic.mobile.devices.aircat.AirCatOperationCoordinator(
+        context = context, registry = registry, connectionManager = connectionManager,
+        identityAuthority = identityAuthority, airCatClient = airCatClient, lease = airCatLease,
+    )
+    private val rosterProjector = org.michimusic.mobile.devices.link.LinkDeviceRosterProjector(registry)
+    private val discoveryCoordinator by lazy {
+        org.michimusic.mobile.devices.link.LinkDiscoveryCoordinator(
+            linkDiscovery = linkDiscovery,
+            scope = viewModelScope,
+            teardownContext = discoveryTeardownContext,
+            onWindowFinished = {
+                if (_connectionState.value == SyncConnectionState.DISCOVERING) {
+                    _connectionState.value = SyncConnectionState.DISCONNECTED
+                }
+            },
+        )
     }
 
     private val _wizardUiState = MutableStateFlow(WizardUiState())
@@ -118,6 +139,8 @@ class SyncViewModel(
     private val _deviceSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _planSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
+    // Device discovery has its own lifecycle, independent of Link pairing/sessions.
+    val isDiscoveryActive: StateFlow<Boolean> get() = discoveryCoordinator.isActive
     // A receiver's advertised service/type is not proof of identity, but it can
     // prevent offering an impossible physical-button workflow for Michi Stream.
     private var pairingTargetIsMichiStream = false
@@ -139,61 +162,8 @@ class SyncViewModel(
             Triple(peer, pairStart, strategy)
         },
     ) { (peers, connState, connStates), (peer, pairStart, strategy) ->
-        val registered = registry.getAllDevices()
-        val unified = mutableListOf<org.michimusic.core.models.UnifiedDevice>()
-        
-        // Add all registered devices first
-        registered.forEach { reg ->
-            val previousEndpoint = runCatching { URI(reg.lastUrl) }.getOrNull()
-            val hostFromUrl = previousEndpoint?.host.orEmpty()
-            val portFromUrl = previousEndpoint?.port?.takeIf { it in 1..65535 } ?: 8400
-            // A reused IP is NOT proof that a new Michi ID belongs to the old
-            // paired device. Prefer exact nonblank identity, else exact endpoint.
-            val dPeer = peers.find {
-                matchesObservedPeer(reg.deviceId, hostFromUrl, portFromUrl, it.deviceId, it.ip, it.port)
-            }
-            unified.add(
-                org.michimusic.core.models.UnifiedDevice(
-                    id = reg.deviceId,
-                    name = dPeer?.alias ?: reg.deviceName,
-                    ip = dPeer?.ip ?: hostFromUrl,
-                    port = dPeer?.port ?: portFromUrl,
-                    connectionState = connStates[reg.deviceId] ?: (if (dPeer != null) SyncConnectionState.DISCONNECTED else SyncConnectionState.OFFLINE),
-                    isPaired = true,
-                    deviceType = reg.serviceType.ifBlank { dPeer?.deviceType?.takeIf { it.isNotBlank() } ?: "unknown" },
-                    roles = reg.roles,
-                    features = reg.features,
-                    isRevoked = reg.isRevoked,
-                )
-            )
-        }
-        
-        // Add discovered devices that are not registered (roles remain empty/UNKNOWN until ServerInfo is queried)
-        peers.filter { p ->
-            registered.none { reg ->
-                val endpoint = runCatching { URI(reg.lastUrl) }.getOrNull()
-                matchesObservedPeer(
-                    reg.deviceId, endpoint?.host.orEmpty(),
-                    endpoint?.port?.takeIf { it in 1..65535 } ?: 8400,
-                    p.deviceId, p.ip, p.port,
-                )
-            }
-        }.forEach { p ->
-            val devId = if (p.deviceId.isNotBlank()) p.deviceId else "${p.ip}:${p.port}"
-            unified.add(
-                org.michimusic.core.models.UnifiedDevice(
-                    id = devId,
-                    name = p.alias,
-                    ip = p.ip,
-                    port = p.port,
-                    connectionState = SyncConnectionState.DISCONNECTED,
-                    isPaired = false,
-                    deviceType = p.deviceType,
-                    roles = emptyList(), // Strict: No functional roles granted prior to ServerInfo resolution
-                    features = emptyList()
-                )
-            )
-        }
+        // Roster projection is pure: UDP observations never grant pairing or roles.
+        val unified = rosterProjector.project(peers, connStates)
 
         val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
         val freeBytes = statFs?.availableBytes ?: 0L
@@ -201,7 +171,7 @@ class SyncViewModel(
         SyncUiState(
             state = connState,
             peers = peers,
-            unifiedDevices = unified.distinctBy { it.id },
+            unifiedDevices = unified,
             connectedPeer = peer,
             pairingStart = pairStart,
             pairingStrategy = strategy,
@@ -223,7 +193,9 @@ class SyncViewModel(
                 progress
             }
             listOf(err, effectiveProg, devMap, planMap, airCatEvt)
-        }
+        }.combine(airCatClient?.progressByTransfer
+            ?: MutableStateFlow<Map<String, org.michimusic.mobile.devices.aircat.AirCatProgressEvent>>(emptyMap())
+        ) { current, byTransfer -> current + listOf(byTransfer) }
     ) { state, items ->
         val err = items[0] as? String
         val progress = items[1] as SyncProgress
@@ -232,12 +204,15 @@ class SyncViewModel(
         @Suppress("UNCHECKED_CAST")
         val planMap = items[3] as Map<String, SyncProgress>
         val airCatEvt = items[4] as? org.michimusic.mobile.devices.aircat.AirCatProgressEvent
+        @Suppress("UNCHECKED_CAST")
+        val airCatTransfers = items[5] as Map<String, org.michimusic.mobile.devices.aircat.AirCatProgressEvent>
         state.copy(
             error = err,
             syncProgress = progress,
             deviceSyncProgress = devMap,
             planSyncProgress = planMap,
-            airCatProgress = airCatEvt
+            airCatProgress = airCatEvt,
+            airCatProgressByTransfer = airCatTransfers
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
 
@@ -314,20 +289,18 @@ class SyncViewModel(
 
 
     fun startDiscovery() {
+        if (!discoveryCoordinator.start()) return
         _error.value = null
-        if (_connectionState.value == SyncConnectionState.DISCONNECTED || _connectionState.value == SyncConnectionState.ERROR) {
+        if (_connectionState.value == SyncConnectionState.DISCONNECTED ||
+            _connectionState.value == SyncConnectionState.ERROR) {
             _connectionState.value = SyncConnectionState.DISCOVERING
         }
-        viewModelScope.launch { linkDiscovery.start() }
     }
 
-
-    fun stopDiscovery() {
-        viewModelScope.launch {
-            linkDiscovery.stop()
-            if (_connectionState.value == SyncConnectionState.DISCOVERING) {
-                _connectionState.value = SyncConnectionState.DISCONNECTED
-            }
+    fun stopDiscovery(preserveResults: Boolean = false) {
+        discoveryCoordinator.stop(preserveResults)
+        if (_connectionState.value == SyncConnectionState.DISCOVERING) {
+            _connectionState.value = SyncConnectionState.DISCONNECTED
         }
     }
 
@@ -375,6 +348,17 @@ class SyncViewModel(
 
             // Resolve pairing strategy from server info
             val serverInfo = client.getServerInfo().getOrNull()
+            // Signed discovery is only identity. Home requires a separate,
+            // verified Micro-issued membership session: never fall back to
+            // legacy password or button pairing for an advertised Home profile.
+            val authRefusal = org.michimusic.link.LinkAuthStrategyGate.refusal(serverInfo?.auth?.strategy)
+            if (authRefusal != null) {
+                _error.value = authRefusal
+                _connectionState.value = SyncConnectionState.ERROR
+                client.close()
+                if (currentClient === client) currentClient = null
+                return@launch
+            }
             val strategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY
             _pairingStrategy.value = strategy
 
@@ -463,6 +447,14 @@ class SyncViewModel(
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
             pairingTargetIsMichiStream = pairingTargetIsMichiStream ||
                 isProvisionedMichiStream(serverInfo?.service.orEmpty())
+            val authRefusal = org.michimusic.link.LinkAuthStrategyGate.refusal(serverInfo?.auth?.strategy)
+            if (authRefusal != null) {
+                _error.value = authRefusal
+                _connectionState.value = SyncConnectionState.ERROR
+                client.close()
+                if (currentClient === client) currentClient = null
+                return@launch
+            }
             val strategy = when {
                 serverInfo?.auth?.required == false -> PairingStrategy.ED25519_CHALLENGE
                 serverInfo != null && serverInfo.auth?.strategy?.isNotEmpty() == true -> serverInfo.effectiveAuthStrategy
@@ -1221,286 +1213,17 @@ class SyncViewModel(
         airCatClient?.clearProgress()
     }
 
-
-    /**
-     * Shared VM/process gate + OS advisory lock; no truncation of the lock file.
-     * Only APIs using this entry gate participate in its transaction policy.
-     */
-    private suspend fun acquireAirCatLease(): Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
-            val channel = java.io.RandomAccessFile(
-                java.io.File(context.filesDir, "michi_aircat_transfer.lock"), "rw",
-            ).channel
-            val lock = try {
-                channel.tryLock()
-            } catch (_: java.nio.channels.OverlappingFileLockException) {
-                null
-            } catch (e: Exception) {
-                channel.close()
-                throw e
-            }
-            if (lock == null) {
-                channel.close()
-                null
-            } else channel to lock
-        }
-
-    fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
-        val client = currentClient
-        val airCat = airCatClient
-        if (airCat == null) {
-            onResult(false, "Servicio AirCat no disponible")
-            return
-        }
-        val device = registry.getDevice(targetDeviceId)
-        if (device == null || device.isRevoked) {
-            onResult(false, "Dispositivo no encontrado o revocado")
-            return
-        }
-        if (!airCatSingleFlight.compareAndSet(false, true)) {
-            onResult(false, "AirCat está ocupado; no se puede recuperar ahora")
-            return
-        }
-        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-            var diskLease: Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? = null
-            try {
-                diskLease = acquireAirCatLease()
-                if (diskLease == null) {
-                    onResult(false, "Otra instancia de Michi está usando AirCat")
-                    return@launch
-                }
-                // The client id must be the real local identity. It is resolved on IO so
-                // the Keystore read never runs on the caller's thread.
-                val identity = identityAuthority.await()
-                if (identity == null) {
-                    onResult(false, "La identidad del dispositivo no está disponible. Reintentá en un momento.")
-                    return@launch
-                }
-                val effectiveClient = connectionManager.getClient(targetDeviceId)
-                    ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
-                        client
-                    } else {
-                        LinkClient(
-                            baseUrl = device.lastUrl,
-                            sessionToken = device.deviceToken,
-                            deviceToken = device.deviceToken,
-                            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
-                            pairedClientDeviceId = device.pairedClientDeviceId,
-                        )
-                    }
-                val recoveryResult = airCat.recoverIncompleteTransfers(targetDeviceId, effectiveClient)
-                if (recoveryResult.isSuccess) {
-                    val count = recoveryResult.getOrThrow().size
-                    onResult(true, "Recuperación completada (" +
-                            context.resources.getQuantityString(
-                                org.michimusic.mobile.R.plurals.aircat_recovered_tracks, count, count,
-                            ) + ")",
-                        )
-                } else {
-                    onResult(false, "Fallo en recuperación: ${recoveryResult.exceptionOrNull()?.message}")
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                onResult(false, "Recuperación AirCat cancelada")
-                throw e
-            } catch (e: Exception) {
-                onResult(false, "Error durante recuperación: ${e.message}")
-            } finally {
-                runCatching { diskLease?.second?.release() }
-                runCatching { diskLease?.first?.close() }
-                airCatSingleFlight.set(false)
-            }
-        }
+    fun dismissAirCatProgress(transferId: String) {
+        airCatClient?.dismissProgress(transferId)
     }
 
 
+    fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        airCatOperations.recover(targetDeviceId, viewModelScope, currentClient, onResult)
+    }
+
     fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
-        val client = currentClient
-        val airCat = airCatClient
-        if (airCat == null) {
-            onResult(false, "Servicio AirCat no disponible")
-            return
-        }
-
-
-        val device = registry.getDevice(targetDeviceId)
-        if (device == null) {
-            onResult(false, "Dispositivo no encontrado")
-            return
-        }
-
-        if (!airCatSingleFlight.compareAndSet(false, true)) {
-            onResult(false, "Ya existe una transferencia AirCat en curso")
-            return
-        }
-        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-            var diskLease: Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? = null
-            try {
-                diskLease = acquireAirCatLease()
-                if (diskLease == null) {
-                    onResult(false, "Otra instancia de Michi está transfiriendo por AirCat")
-                    return@launch
-                }
-                if (device.deviceToken.isEmpty() || device.lastUrl.isEmpty()) {
-                    onResult(false, "El dispositivo $targetDeviceId no posee credenciales o URL válidas")
-                    return@launch
-                }
-
-
-                // The client id must be the real local identity. It is resolved on IO so
-                // the Keystore read never runs on the caller's thread.
-                val identity = identityAuthority.await()
-                if (identity == null) {
-                    onResult(false, "La identidad del dispositivo no está disponible. Reintentá en un momento.")
-                    return@launch
-                }
-                // Strictly resolve client matching targetDeviceId to avoid cross-device token collision
-                val effectiveClient = connectionManager.getClient(targetDeviceId)
-                    ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
-                        client
-                    } else {
-                        LinkClient(
-                            baseUrl = device.lastUrl,
-                            sessionToken = device.deviceToken,
-                            deviceToken = device.deviceToken,
-                            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
-                            pairedClientDeviceId = device.pairedClientDeviceId,
-                        )
-                    }
-
-
-                // Verify remote session trust, active connection, and peer identity consistency
-                if (device.isRevoked) {
-                    onResult(false, "El dispositivo $targetDeviceId ha sido revocado")
-                    return@launch
-                }
-
-
-                val serverInfoRes = effectiveClient.getServerInfo()
-                if (serverInfoRes.isFailure) {
-                    onResult(false, "No se pudo verificar la sesión remota con $targetDeviceId: ${serverInfoRes.exceptionOrNull()?.message}")
-                    return@launch
-                }
-                val serverInfo = serverInfoRes.getOrThrow()
-                val remoteServerId = serverInfo.effectiveServerId
-                val remoteMichiId = serverInfo.michiId ?: ""
-                val remotePublicKey = serverInfo.publicKey ?: ""
-
-
-                // 1. Identity match validation: reject if expected attribute is present but missing or mismatched from peer
-                val expectedServerId = device.effectiveServerId
-                val expectedMichiId = device.effectiveMichiId
-                val expectedPublicKey = device.effectivePublicKey
-
-
-                if (expectedServerId.isNotEmpty()) {
-                    if (remoteServerId.isEmpty() || expectedServerId != remoteServerId) {
-                        onResult(false, "Inconsistencia de serverId remoto: esperado $expectedServerId pero respondió ${remoteServerId.ifEmpty { "<vacio>" }}")
-                        return@launch
-                    }
-                }
-
-
-                if (expectedMichiId.isNotEmpty()) {
-                    if (remoteMichiId.isEmpty() || expectedMichiId != remoteMichiId) {
-                        onResult(false, "Inconsistencia de MichiId remoto: esperado $expectedMichiId pero respondió ${remoteMichiId.ifEmpty { "<vacio>" }}")
-                        return@launch
-                    }
-                }
-
-
-                // 2. Cryptographic public key verification against pinned trusted registry
-                if (expectedPublicKey.isNotEmpty()) {
-                    if (remotePublicKey.isEmpty() || expectedPublicKey != remotePublicKey) {
-                        onResult(false, "Inconsistencia criptográfica: clave pública remota ${if (remotePublicKey.isEmpty()) "no provista" else "no coincide"} para $targetDeviceId")
-                        return@launch
-                    }
-                }
-
-
-                // 1. Fetch manifest
-                val manifestRes = effectiveClient.fetchSyncManifest(targetDeviceId)
-                if (manifestRes.isFailure) {
-                    onResult(false, "Error al obtener catálogo: ${manifestRes.exceptionOrNull()?.message}")
-                    return@launch
-                }
-
-
-                val manifestDto = manifestRes.getOrThrow()
-                val tracks = manifestDto.effectiveTracks
-                if (tracks.isEmpty()) {
-                    onResult(true, "No hay pistas disponibles para transferir")
-                    return@launch
-                }
-
-
-                val transferId = "aircat_${System.currentTimeMillis()}"
-                val destLibId = "lib_synced_${targetDeviceId}"
-                val manifestItems = tracks.map { t ->
-                    org.michimusic.mobile.devices.aircat.AirCatManifestItem(
-                        logicalTrackId = t.trackId,
-                        remoteTrackId = t.trackId,
-                        title = t.title,
-                        artist = t.artist,
-                        album = t.album,
-                        format = t.format,
-                        size = t.size,
-                        sha256 = t.checksum ?: "",
-                    )
-                }
-
-
-                val aircatManifest = org.michimusic.mobile.devices.aircat.AirCatManifest(
-                    manifestVersion = 1,
-                    transferId = transferId,
-                    sourceDeviceId = targetDeviceId,
-                    totalTracks = manifestItems.size,
-                    totalBytes = manifestItems.sumOf { it.size },
-                    items = manifestItems,
-                )
-
-
-                val intent = org.michimusic.mobile.devices.aircat.TransferIntent(
-                    transferId = transferId,
-                    sourceMichiId = targetDeviceId,
-                    destinationMichiId = identity.michiId,
-                    sourceLibraryId = targetDeviceId,
-                    destinationLibraryId = destLibId,
-                )
-
-
-                val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
-                val freeBytes = statFs?.availableBytes ?: (10L * 1024 * 1024 * 1024)
-
-
-                val result = airCat.executeTransfer(
-                    intent = intent,
-                    manifest = aircatManifest,
-                    linkClient = effectiveClient,
-                    availableStorageBytes = freeBytes,
-                )
-
-
-                if (result.isSuccess) {
-                    val transferred = result.getOrThrow().size
-                    onResult(true, "Transferencia AirCat completada (" +
-                        context.resources.getQuantityString(
-                            org.michimusic.mobile.R.plurals.aircat_transferred_tracks, transferred, transferred,
-                        ) + ")"
-                    )
-                } else {
-                    onResult(false, "Transferencia AirCat falló: ${result.exceptionOrNull()?.message}")
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                onResult(false, "Transferencia AirCat cancelada")
-                throw e
-            } catch (e: Exception) {
-                onResult(false, "Error en AirCat: ${e.message}")
-            } finally {
-                runCatching { diskLease?.second?.release() }
-                runCatching { diskLease?.first?.close() }
-                airCatSingleFlight.set(false)
-            }
-        }
+        airCatOperations.startTransfer(targetDeviceId, viewModelScope, currentClient, onResult)
     }
 
 
@@ -1642,6 +1365,7 @@ class SyncViewModel(
 
 
     override fun onCleared() {
+        discoveryCoordinator.close()
         super.onCleared()
         currentClient?.close()
     }

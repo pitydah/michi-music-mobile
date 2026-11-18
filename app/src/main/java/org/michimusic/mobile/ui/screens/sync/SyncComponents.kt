@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
@@ -381,11 +382,17 @@ fun AirCatTransferSafeLayout(
     val presentation = org.michimusic.mobile.ui.components.airCatUiPresentation(progress.state.name)
     val isError = progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED || presentation.isError
     val isCompleted = progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED
+    // A68-06: an empty selection is a finished, non-error outcome that transferred nothing.
+    val noFiles = progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.NO_FILES
     val currentStageIndex = when (progress.state) {
         org.michimusic.mobile.devices.aircat.AirCatTransferState.PENDING_AUTHORIZATION, org.michimusic.mobile.devices.aircat.AirCatTransferState.NEGOTIATING -> 0
         org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING, org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED -> 1
         org.michimusic.mobile.devices.aircat.AirCatTransferState.VERIFYING -> 2
         org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED -> 3
+        // A69-03: an empty selection finished no stage of a transfer. Pointing at
+        // the last stage would draw three green ticks for evidence that does not
+        // exist, so the stepper is not rendered for this state at all.
+        org.michimusic.mobile.devices.aircat.AirCatTransferState.NO_FILES -> 0
         org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED, org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED -> 1
     }
 
@@ -406,8 +413,12 @@ fun AirCatTransferSafeLayout(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 4-Stage Stepper: Preparación -> Transferencia -> Verificando -> Completado
-            AirCatStepperHeader(currentStage = currentStageIndex, isError = isError)
+            // 4-Stage Stepper: Preparación -> Transferencia -> Verificando -> Completado.
+            // A69-03: a NO_FILES receipt reports that nothing was selected, so it has
+            // no stages to advance and no ticks to earn.
+            if (!noFiles) {
+                AirCatStepperHeader(currentStage = currentStageIndex, isError = isError)
+            }
 
             if (isError) {
                 // V13_04_AIRCAT_ERROR layout
@@ -425,6 +436,8 @@ fun AirCatTransferSafeLayout(
                     libraryCommitted = progress.libraryCommitted,
                     onDismiss = onDismiss,
                 )
+            } else if (noFiles) {
+                AirCatNoFilesView(title = presentation.label, onDismiss = onDismiss)
             } else {
                 // V13_03_AIRCAT_SAFE_LAYOUT active layout
                 AirCatActiveTransferView(
@@ -626,6 +639,77 @@ private fun AirCatErrorView(
                     fontSize = 14.sp,
                 )
             }
+        }
+    }
+}
+
+/**
+ * A68-06/A69-03: a selection with nothing to transfer is finished, but it is not a
+ * completed file transfer. Reusing the completed layout would print "0 pistas
+ * sincronizadas" under a check mark and imply a verification that never happened.
+ *
+ * Everything here is deliberately neutral: an information glyph instead of a check,
+ * no four-stage stepper (there were no stages), no percentage, no synced bytes and no
+ * checksum or library claim. The only action is dismissal.
+ */
+@Composable
+private fun AirCatNoFilesView(title: String, onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("aircat_no_files_view"),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(org.michimusic.mobile.ui.theme.TertiaryCyan.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                // A69-03: a check mark reads as "verified". This receipt verified
+                // nothing, so it gets the neutral information glyph and the accent
+                // stays out of the success colour.
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = org.michimusic.mobile.ui.theme.TextSecondary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            Column {
+                Text(
+                    text = title,
+                    style = org.michimusic.mobile.ui.theme.MichiTypography.cardTitle,
+                    color = org.michimusic.mobile.ui.theme.PureWhite,
+                    fontSize = 17.sp,
+                )
+                Text(
+                    text = "La selección no tenía pistas que transferir.",
+                    style = org.michimusic.mobile.ui.theme.MichiTypography.metadata,
+                    color = org.michimusic.mobile.ui.theme.TextSecondary,
+                    modifier = Modifier.testTag("aircat_no_files_description"),
+                )
+            }
+        }
+
+        Button(
+            onClick = onDismiss,
+            colors = ButtonDefaults.buttonColors(containerColor = org.michimusic.mobile.ui.theme.PrimaryPinkContainer),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("aircat_no_files_button"),
+        ) {
+            Text(
+                text = "Aceptar",
+                color = org.michimusic.mobile.ui.theme.PureWhite,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                fontSize = 14.sp,
+            )
         }
     }
 }

@@ -348,6 +348,15 @@ class SyncWorkerIntegrationTest {
     @Test
     fun syncWorker_resumesPartialTrack_whenEstimatedDownloadBytesIsLessThanSourceSize() = runBlocking {
         val trackId = "trk_partial_resume"
+        // A69-02 case B: the legacy /download protocol publishes no revision
+        // validator, so a resume is only legitimate when the manifest declares the
+        // digest of the finished file. Without it the manager must restart from
+        // zero rather than concatenate bytes nobody vouched for.
+        val firstHalf = ByteArray(1000) { 0x41 }
+        val secondHalf = ByteArray(1000) { 0x42 }
+        val resumeDigest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(firstHalf + secondHalf)
+            .joinToString("") { "%02x".format(it) }
         val manifestTracks = listOf(
             ManifestTrackDto(
                 trackId = trackId,
@@ -357,7 +366,7 @@ class SyncWorkerIntegrationTest {
                 duration = 200,
                 size = 2000L, // Total file size is 2000 bytes
                 format = "mp3",
-                checksum = "",
+                checksum = resumeDigest,
             )
         )
 
@@ -376,7 +385,7 @@ class SyncWorkerIntegrationTest {
         val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
         val safeTrack = trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
         val partFile = File(syncedMusicDir, "${safeDev}_${safeLib}_${safeTrack}.mp3_plan_partial_resume.part")
-        partFile.writeBytes(ByteArray(1000) { 0x41 })
+        partFile.writeBytes(firstHalf)
 
         // Mock streamTrackRange resuming at offset 1000L
         coEvery {
@@ -391,8 +400,7 @@ class SyncWorkerIntegrationTest {
         } answers {
             val stream = secondArg<OutputStream>()
             val onProg = arg<((Long, Long?) -> Unit)?>(5)
-            val bytes = ByteArray(1000) { 0x42 }
-            stream.write(bytes)
+            stream.write(secondHalf)
             onProg?.invoke(2000L, 2000L)
             Result.success(
                 org.michimusic.link.StreamRangeResult(
@@ -820,6 +828,128 @@ class SyncWorkerIntegrationTest {
         // Plan lifecycle in Room must be FAILED
         val planInDb = db.approvedSyncPlanDao().getPlan(planId)
         assertEquals(TransferLifecycleState.FAILED.name, planInDb?.executionState)
+    }
+
+    @Test
+    fun syncWorker_restartsFromZero_whenTheLegacyManifestDeclaresNoChecksum() = runBlocking {
+        // A69-02 case C: with no digest there is no authenticated prefix, so the
+        // partial file must not be appended to. The whole file is requested again
+        // and the final length has to be the file's, never part + file.
+        val trackId = "trk_partial_no_digest"
+
+        coEvery { mockClient.fetchSyncManifest(testDeviceId) } returns Result.success(
+            SyncManifestDto(
+                version = 1,
+                tracks = listOf(
+                    ManifestTrackDto(
+                        trackId = trackId,
+                        title = "No Digest Track",
+                        artist = "Artist",
+                        album = "Album",
+                        duration = 200,
+                        size = 2000L,
+                        format = "mp3",
+                        checksum = "",
+                    )
+                ),
+                manifestId = "sha_partial_no_digest",
+            )
+        )
+
+        val syncedMusicDir = File(context.filesDir, "synced_music").also { it.mkdirs() }
+        val safeDev = testDeviceId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
+        val destLibId = "lib_synced_$safeDev"
+        val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
+        val safeTrack = trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
+        val planId = "plan_partial_no_digest"
+        val partFile = File(syncedMusicDir, "${safeDev}_${safeLib}_${safeTrack}.mp3_${planId}.part")
+        partFile.writeBytes(ByteArray(1000) { 0x41 })
+
+        var requestedStartBytes = -1L
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = any(),
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            requestedStartBytes = thirdArg<Long>()
+            val stream = secondArg<OutputStream>()
+            val onProg = arg<((Long, Long?) -> Unit)?>(5)
+            stream.write(ByteArray(2000) { 0x43 })
+            onProg?.invoke(2000L, 2000L)
+            Result.success(
+                org.michimusic.link.StreamRangeResult(
+                    bytesRead = 2000L,
+                    statusCode = 200,
+                    isPartialContent = false,
+                    etag = "etag_no_digest",
+                )
+            )
+        }
+
+        val approvedDecisions = listOf(
+            SyncItemDecision(
+                trackId = trackId,
+                title = "No Digest Track",
+                artist = "Artist",
+                album = "Album",
+                action = SyncItemAction.RESUME_PARTIAL,
+                sourceSizeBytes = 2000L,
+                estimatedDownloadBytes = 2000L,
+            )
+        )
+
+        db.approvedSyncPlanDao().insertPlan(
+            ApprovedSyncPlanEntity(
+                planId = planId,
+                endpointId = testDeviceId,
+                endpointName = "Production Desktop Node",
+                scope = "FULL_LIBRARY",
+                selectionJson = "{}",
+                deliveryChoiceJson = "{}",
+                itemsJson = json.encodeToString(approvedDecisions),
+                manifestVersion = 1,
+                manifestChecksum = "sha_partial_no_digest",
+                totalSelectedTracks = 1,
+                tracksToDownloadCount = 1,
+                totalDownloadBytes = 2000L,
+                status = "READY",
+                executionState = TransferLifecycleState.QUEUED.name,
+                createdAt = System.currentTimeMillis(),
+            )
+        )
+
+        val worker = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                    expectedBytes = 2000L,
+                )
+            )
+            .build()
+
+        val workResult = worker.doWork()
+
+        assertTrue(
+            "A digest-less legacy manifest must still transfer the whole file, but returned $workResult",
+            workResult is ListenableWorker.Result.Success
+        )
+        assertEquals(
+            "a checkpoint with no digest cannot authorise an append; the file must be asked for from zero",
+            0L,
+            requestedStartBytes,
+        )
+        val downloaded = db.trackDao().getDownloadedTracks().first()
+        assertEquals(1, downloaded.size)
+        val finalFile = File(downloaded.first().filepath)
+        assertEquals("the partial bytes must not survive the restart", 2000L, finalFile.length())
     }
 
     @Test

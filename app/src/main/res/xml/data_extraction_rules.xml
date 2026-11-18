@@ -14,10 +14,12 @@
         <exclude domain="sharedpref" path="michi_identity_store.xml" />
         <exclude domain="sharedpref" path="michi_link_secure.xml" />
         <exclude domain="sharedpref" path="michi_link_registry_secure.xml" />
+        <exclude domain="sharedpref" path="michi_aircat_home_anchors_secure.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="michi_identity_store.xml" />
         <exclude domain="sharedpref" path="michi_link_secure.xml" />
         <exclude domain="sharedpref" path="michi_link_registry_secure.xml" />
+        <exclude domain="sharedpref" path="michi_aircat_home_anchors_secure.xml" />
     </device-transfer>
 </data-extraction-rules>

@@ -62,7 +62,13 @@ data class ManifestTrackDto(
     @SerialName("cover_id") val coverId: String = "",
     val checksum: String? = null,
     @SerialName("download_path") val downloadPath: String = "",
+    /** AirCat v1 only: logical ID belongs to the receiving library, never the HTTP path. */
+    @SerialName("logical_track_id") val logicalTrackId: String = "",
+    /** AirCat v1 only: producer's opaque original-asset ID. Empty means track_id. */
+    @SerialName("remote_track_id") val remoteTrackId: String = "",
 ) {
+    val effectiveAirCatLogicalId: String get() = logicalTrackId.ifBlank { trackId }
+    val effectiveAirCatRemoteId: String get() = remoteTrackId.ifBlank { trackId }
     fun toTrackDto() = org.michimusic.core.models.TrackDto(
         id = trackId,
         title = title,

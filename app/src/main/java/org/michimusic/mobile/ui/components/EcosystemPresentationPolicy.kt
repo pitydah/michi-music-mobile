@@ -18,6 +18,8 @@ fun airCatUiPresentation(stateName: String): AirCatUiPresentation = when (stateN
     "VERIFYING" -> AirCatUiPresentation("Verificando integridad", showCancel = true)
     "PAUSED" -> AirCatUiPresentation("Transferencia pausada", showResume = true, showCancel = true)
     "COMPLETED" -> AirCatUiPresentation("Transferencia completada", isTerminal = true)
+    // A68-06: an empty selection finished, but it is not a completed file transfer.
+    "NO_FILES" -> AirCatUiPresentation("No había archivos que transferir", isTerminal = true)
     "FAILED" -> AirCatUiPresentation("Transferencia fallida", isTerminal = true, isError = true)
     "CANCELLED" -> AirCatUiPresentation("Transferencia cancelada", isTerminal = true)
     else -> AirCatUiPresentation("Estado no reconocido")

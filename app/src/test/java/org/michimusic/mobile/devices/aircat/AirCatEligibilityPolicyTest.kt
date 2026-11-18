@@ -131,6 +131,24 @@ class AirCatEligibilityPolicyTest {
     }
 
     @Test
+    fun isAirCatEligible_rejectsSubstringCapabilitiesAndFakeRoles() {
+        val misleadingFeatures = createDevice(
+            features = listOf("not_aircat", "aircat_disabled", "aircat_transfer_deprecated"),
+            roles = emptyList(),
+        )
+        assertFalse(AirCatEligibilityPolicy.isAirCatEligible(misleadingFeatures))
+
+        val misleadingRole = createDevice(
+            features = emptyList(),
+            roles = listOf("NOT_AIRCAT_RECEIVER"),
+        )
+        assertFalse(AirCatEligibilityPolicy.isAirCatEligible(misleadingRole))
+
+        val canonicalRole = createDevice(features = emptyList(), roles = listOf("AIRCAT_RECEIVER"))
+        assertTrue(AirCatEligibilityPolicy.isAirCatEligible(canonicalRole))
+    }
+
+    @Test
     fun filterEligibleDevices_filtersCorrectly() {
         val eligible1 = createDevice(id = "srv_1", deviceType = "SERVER", features = listOf("aircat"))
         val eligible2 = createDevice(id = "desk_1", deviceType = "DESKTOP", features = listOf("devices_aircat"))

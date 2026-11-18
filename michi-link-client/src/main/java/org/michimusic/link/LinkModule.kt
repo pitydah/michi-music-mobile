@@ -6,7 +6,6 @@ import org.koin.dsl.module
 val linkModule = module {
     single { LinkDiscovery(androidContext()) }
 
-    single { LinkTransferManager(androidContext(), getOrNull()) }
     single { LinkCoverCache(androidContext()) }
     single { TokenStore(androidContext()) }
     // Resolving the identity opens the Keystore, which must never happen while the

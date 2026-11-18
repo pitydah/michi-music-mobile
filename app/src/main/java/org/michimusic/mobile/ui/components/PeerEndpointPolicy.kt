@@ -3,12 +3,8 @@ package org.michimusic.mobile.ui.components
 /** Endpoint equality is for selecting already discovered metadata, NOT authentication.
  * A user-editable alias must never establish receiver identity or trust.
  */
-fun sameDiscoveredEndpoint(inputHost: String, inputPort: Int, discoveredHost: String, discoveredPort: Int): Boolean {
-    if (inputPort !in 1..65535 || discoveredPort !in 1..65535 || inputPort != discoveredPort) return false
-    val host = inputHost.trim().removePrefix("[").removeSuffix("]")
-    val observed = discoveredHost.trim().removePrefix("[").removeSuffix("]")
-    return host.isNotEmpty() && observed.isNotEmpty() && host.equals(observed, ignoreCase = true)
-}
+fun sameDiscoveredEndpoint(inputHost: String, inputPort: Int, discoveredHost: String, discoveredPort: Int): Boolean =
+    org.michimusic.mobile.devices.link.sameDiscoveredEndpoint(inputHost, inputPort, discoveredHost, discoveredPort)
 
 /** A manually supplied endpoint with no matching discovery metadata has no verified type.
  * Fail closed for the physical-button UX, but never bypass domain authentication.
@@ -27,9 +23,6 @@ const val UNVERIFIED_RECEIVER_GUIDANCE =
 fun matchesObservedPeer(
     knownId: String, knownHost: String, knownPort: Int,
     observedId: String, observedHost: String, observedPort: Int,
-): Boolean {
-    if (knownId.isNotBlank() && observedId.isNotBlank()) {
-        return knownId == observedId
-    }
-    return sameDiscoveredEndpoint(knownHost, knownPort, observedHost, observedPort)
-}
+): Boolean = org.michimusic.mobile.devices.link.matchesObservedPeer(
+    knownId, knownHost, knownPort, observedId, observedHost, observedPort,
+)

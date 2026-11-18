@@ -67,7 +67,10 @@ class SyncViewModelTest {
                 factory = { identity },
                 initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
             ),
-            trackRepository = trackRepository
+            trackRepository = trackRepository,
+            // A68-08: the socket teardown runs on its own scope, so the test has
+            // to own that scope to observe "stop then immediate start" in order.
+            discoveryTeardownContext = testDispatcher,
         )
     }
 
@@ -96,29 +99,50 @@ class SyncViewModelTest {
 
     @Test
     fun `startDiscovery updates connection state to DISCOVERING`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
         backgroundScope.launch { viewModel.uiState.collect { } }
         viewModel.startDiscovery()
         runCurrent()
-        
+
         assertEquals(SyncConnectionState.DISCOVERING, viewModel.uiState.value.state)
+        org.junit.Assert.assertTrue(viewModel.isDiscoveryActive.value)
         io.mockk.coVerify { linkDiscovery.start() }
+        viewModel.stopDiscovery()
+        runCurrent()
+    }
+
+    @Test
+    fun `manual stop preserves results and does not disconnect paired sessions`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        viewModel.startDiscovery()
+        runCurrent()
+        viewModel.stopDiscovery(preserveResults = true)
+        runCurrent()
+        org.junit.Assert.assertFalse(viewModel.isDiscoveryActive.value)
+        io.mockk.coVerify { linkDiscovery.stop(preservePeers = true) }
+        io.mockk.verify(exactly = 0) { connectionManager.disconnect(any()) }
     }
 
     @Test
     fun `stopDiscovery resets connection state`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
         backgroundScope.launch { viewModel.uiState.collect { } }
         viewModel.startDiscovery()
         runCurrent()
-        
+
         viewModel.stopDiscovery()
         runCurrent()
-        
+
         assertEquals(SyncConnectionState.DISCONNECTED, viewModel.uiState.value.state)
+        org.junit.Assert.assertFalse(viewModel.isDiscoveryActive.value)
         io.mockk.coVerify { linkDiscovery.stop() }
+        io.mockk.verify(exactly = 0) { connectionManager.disconnect(any()) }
     }
 
     @Test
     fun `startDiscovery preserves active connected peer session without disconnecting`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
         backgroundScope.launch { viewModel.uiState.collect { } }
 
         val connectedPeer = org.michimusic.core.models.DiscoveredPeer(
@@ -140,6 +164,44 @@ class SyncViewModelTest {
 
         assertEquals(connectedPeer, viewModel.uiState.value.connectedPeer)
         io.mockk.coVerify(atLeast = 1) { linkDiscovery.start() }
+        viewModel.stopDiscovery()
+        runCurrent()
+    }
+
+    @Test
+    fun `startDiscovery is single-flight within a discovery window`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        viewModel.startDiscovery()
+        viewModel.startDiscovery()
+        runCurrent()
+        io.mockk.coVerify(exactly = 1) { linkDiscovery.start() }
+        viewModel.stopDiscovery()
+        runCurrent()
+    }
+
+    @Test
+    fun `stop then immediate start serializes socket shutdown`() = runTest(testDispatcher) {
+        io.mockk.coEvery { linkDiscovery.start() } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        viewModel.startDiscovery()
+        runCurrent()
+        viewModel.stopDiscovery(preserveResults = true)
+        viewModel.startDiscovery()
+        runCurrent()
+        io.mockk.coVerify(exactly = 2) { linkDiscovery.start() }
+        org.junit.Assert.assertTrue(viewModel.isDiscoveryActive.value)
+        viewModel.stopDiscovery()
+        runCurrent()
+    }
+
+    @Test
+    fun `completed discovery releases discovering indicator`() = runTest(testDispatcher) {
+        backgroundScope.launch { viewModel.uiState.collect { } }
+        viewModel.startDiscovery()
+        runCurrent()
+        assertEquals(SyncConnectionState.DISCONNECTED, viewModel.uiState.value.state)
+        io.mockk.coVerify(exactly = 1) { linkDiscovery.start() }
     }
 
     @Test

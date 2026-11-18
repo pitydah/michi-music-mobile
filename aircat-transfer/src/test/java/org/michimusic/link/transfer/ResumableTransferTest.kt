@@ -20,6 +20,7 @@ import org.michimusic.core.models.DownloadItem
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.StreamRangeResult
+import org.michimusic.link.port.RemoteFileSource
 import java.io.File
 import java.io.OutputStream
 import java.nio.file.Files
@@ -45,6 +46,124 @@ class ResumableTransferTest {
     }
 
     @Test
+    fun narrowSourcePortFetchesRemoteIdWithoutChangingLocalIdentity() = runBlocking {
+        val bytes = "portable-transfer-port".toByteArray()
+        var requestedId: String? = null
+        val source = object : RemoteFileSource {
+            override suspend fun streamTrackRange(
+                trackId: String, outputStream: OutputStream, startBytes: Long,
+                expectedEtag: String?, bufferSize: Int,
+                onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+            ): Result<StreamRangeResult> {
+                requestedId = trackId
+                outputStream.write(bytes)
+                return Result.success(StreamRangeResult(
+                    bytesRead = bytes.size.toLong(), statusCode = 200, isPartialContent = false,
+                ))
+            }
+        }
+        val item = DownloadItem(
+            trackId = "local-track", remoteTrackId = "remote-track", title = "Song",
+            format = "flac", size = bytes.size.toLong(), checksum = sha256(bytes),
+        )
+        val file = transferManager.downloadTrack(source = source, item = item).getOrThrow()
+        assertEquals("remote-track", requestedId)
+        assertTrue(file.name.contains("local-track"))
+        assertEquals(sha256(bytes), sha256(file.readBytes()))
+    }
+
+    @Test
+    fun managedAirCatCannotUseUnmarkedPlaybackSourceEvenWithValidDigest() = runBlocking {
+        var requestCount = 0
+        val playbackSource = object : RemoteFileSource {
+            override suspend fun streamTrackRange(
+                trackId: String, outputStream: OutputStream, startBytes: Long,
+                expectedEtag: String?, bufferSize: Int,
+                onProgress: ((Long, Long?) -> Unit)?,
+            ): Result<StreamRangeResult> {
+                requestCount++
+                return Result.failure(IllegalStateException("Must not be reached"))
+            }
+        }
+        val item = DownloadItem(trackId="local", remoteTrackId="original", title="Song", format="flac",
+            size=1024L, checksum="a".repeat(64), requiresLibraryCommit=true)
+        assertTrue(transferManager.downloadTrack(source=playbackSource, item=item).isFailure)
+        assertEquals(0, requestCount)
+    }
+
+    @Test
+    fun managedAirCatRejectsMissingShaBeforeOpeningSource() = runBlocking {
+        var sourceCalls = 0
+        val source = object : RemoteFileSource {
+            override val servesOriginalBytes: Boolean get() = true
+            override suspend fun streamTrackRange(
+                trackId: String, outputStream: OutputStream, startBytes: Long,
+                expectedEtag: String?, bufferSize: Int,
+                onProgress: ((Long, Long?) -> Unit)?,
+            ): Result<StreamRangeResult> {
+                sourceCalls++
+                return Result.failure(IllegalStateException("No network must start"))
+            }
+        }
+        val managed = DownloadItem(trackId = "track", remoteTrackId = "remote-id",
+            title = "Song", format = "flac", checksum = "", size = 128,
+            remoteDeviceId = "peer", destinationLibraryId = "library",
+            planId = "tx", requiresLibraryCommit = true)
+        assertTrue(transferManager.downloadTrack(source = source, item = managed).isFailure)
+        assertTrue(transferManager.downloadTrack(source = source,
+            item = managed.copy(checksum = "invalid")).isFailure)
+        assertTrue(transferManager.downloadTrack(source = source,
+            item = managed.copy(checksum = "a".repeat(64), size = 0)).isFailure)
+        assertTrue(transferManager.downloadTrack(source = source,
+            item = managed.copy(checksum = "a".repeat(64), remoteTrackId = "")).isFailure)
+        assertEquals(0, sourceCalls)
+        assertFalse(File(transferManager.musicDir, ".aircat-journal").exists())
+    }
+
+    @Test
+    fun managedAirCatUsesOriginalPortAndDoesNotClaimDurableCommitEarly() = runBlocking {
+        val bytes = "unmodified original music bytes".toByteArray()
+        val client = mockk<LinkClient>()
+        val requestedIds = mutableListOf<String>()
+        val rawSource = object : RemoteFileSource {
+            override val servesOriginalBytes: Boolean get() = true
+            // A24/A67: `servesOriginalBytes` is a representation contract, not
+            // transport attestation; managed AirCat requires both.
+            override val verifiedTransport: Boolean get() = true
+            override suspend fun streamTrackRange(
+                trackId: String, outputStream: OutputStream, startBytes: Long,
+                expectedEtag: String?, bufferSize: Int,
+                onProgress: ((Long, Long?) -> Unit)?,
+            ): Result<StreamRangeResult> {
+                requestedIds.add(trackId)
+                outputStream.write(bytes)
+                return Result.success(StreamRangeResult(bytes.size.toLong(), 200, false))
+            }
+        }
+        every { client.originalFileSource() } returns rawSource
+        val item = DownloadItem(trackId = "local-track", remoteTrackId = "remote-asset",
+            title = "Song", format = "flac", checksum = sha256(bytes), size = bytes.size.toLong(),
+            remoteDeviceId = "peer", destinationLibraryId = "lib", planId = "plan",
+            requiresLibraryCommit = true)
+                // A40/A67: a managed transfer cannot bypass continuity guards, so the bare
+        // client overload must refuse it before any network work happens.
+        assertTrue(transferManager.downloadTrack(client, item).isFailure)
+        assertEquals(0, requestedIds.size)
+        val result = transferManager.downloadTrack(
+            source = requireNotNull(client.originalFileSource()),
+            item = item,
+            beforeWrite = { },
+            beforeCommit = { },
+        )
+        assertTrue(result.isSuccess)
+        assertEquals(listOf("remote-asset"), requestedIds)
+        val final = result.getOrThrow()
+        assertEquals(bytes.toList(), final.readBytes().toList())
+        assertTrue(transferManager.hasPendingRecovery(final))
+        assertFalse(transferManager.downloads.value[item.trackId] is org.michimusic.link.DownloadProgress.Completed)
+    }
+
+    @Test
     fun unverifiedLegacyDownloadCannotReclaimAnExistingFileWithoutStreaming() = runBlocking {
         val item = DownloadItem(trackId = "track", title = "Track", format = "flac",
             checksum = "", size = 5, remoteDeviceId = "remote_A", destinationLibraryId = "library_A")
@@ -65,6 +184,35 @@ class ResumableTransferTest {
     }
 
     @Test
+    fun remoteIdIsUsedForRequestButLocalIdForFile() = runBlocking {
+        val bytes = "Michi FLAC remote identity".toByteArray()
+        val client = mockk<LinkClient>()
+        every {
+            runBlocking {
+                client.streamTrackRange(
+                    trackId = "source-library-track",
+                    outputStream = any(),
+                    startBytes = any(), expectedEtag = any(),
+                    bufferSize = any(), onProgress = any(),
+                )
+            }
+        } answers {
+            secondArg<OutputStream>().write(bytes)
+            Result.success(StreamRangeResult(bytesRead = bytes.size.toLong(),
+                statusCode = 200, isPartialContent = false))
+        }
+        val item = DownloadItem(trackId = "local-library-track", remoteTrackId = "source-library-track",
+            title = "Song", format = "flac", size = bytes.size.toLong(), checksum = sha256(bytes))
+        val downloaded = transferManager.downloadTrack(client, item).getOrThrow()
+        val (expectedLocalFile, _) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+            musicDir = transferManager.musicDir, remoteDeviceId = item.remoteDeviceId,
+            destinationLibraryId = item.destinationLibraryId, trackId = item.trackId,
+            format = item.format, planId = item.planId, representationId = item.representationId)
+        assertEquals(expectedLocalFile.absolutePath, downloaded.absolutePath)
+        assertEquals(sha256(bytes), sha256(downloaded.readBytes()))
+    }
+
+    @Test
     fun partialDownloadResumesAtOffsetTest() = runBlocking {
         val fullData = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".toByteArray()
         val totalSize = fullData.size.toLong()
@@ -75,6 +223,27 @@ class ResumableTransferTest {
         val partFile = File(File(tempDir, "synced_music").also { it.mkdirs() }, "$trackId.mp3.part")
         partFile.writeBytes(fullData.sliceArray(0 until 10))
         assertEquals(10L, partFile.length())
+
+                val mockCheckpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val resumeKey = trackId
+        coEvery { mockCheckpointRepo.getCheckpoint(any()) } returns org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = resumeKey,
+            transferId = "plan_1",
+            remoteDeviceId = "",
+            sourceLibraryId = "",
+            destinationLibraryId = "",
+            trackId = trackId,
+            remoteTrackId = trackId,
+            tempFilePath = partFile.absolutePath,
+            finalFilePath = File(File(tempDir, "synced_music"), "$trackId.mp3").absolutePath,
+            expectedSize = totalSize,
+            receivedBytes = 10L,
+            verifiedBytes = 10L,
+            expectedSha256 = expectedHash,
+            etag = "\"etag-resume\"",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+        val resumeManager = LinkTransferManager(mockContext, mockCheckpointRepo)
 
         val mockClient = mockk<LinkClient>()
         every {
@@ -103,15 +272,15 @@ class ResumableTransferTest {
             )
         }
 
-        val item = DownloadItem(
+                val item = DownloadItem(
             trackId = trackId,
             title = "Resume Track",
             format = "mp3",
             size = totalSize,
             checksum = expectedHash,
-        )
-
-        val result = transferManager.downloadTrack(mockClient, item)
+        )        // A25/A67: resumption is only legitimate against a persisted checkpoint with a
+        // strong revision validator; the .part size alone never accredits bytes.
+        val result = resumeManager.downloadTrack(mockClient, item)
         assertTrue("Download should succeed", result.isSuccess)
 
         val finalFile = result.getOrThrow()
@@ -120,7 +289,7 @@ class ResumableTransferTest {
         assertEquals(expectedHash, sha256(finalFile.readBytes()))
         assertFalse(".part file was cleaned up after promotion", partFile.exists())
 
-        val checkpoint = transferManager.checkpoints.value[trackId]
+        val checkpoint = resumeManager.checkpoints.value[resumeKey]
         assertNotNull(checkpoint)
         assertEquals(ResumeMode.RESUMED_FROM_OFFSET, checkpoint?.resumeMode)
         assertEquals(TransferState.COMPLETED, checkpoint?.state)
@@ -136,6 +305,27 @@ class ResumableTransferTest {
         // Existing .part file of 5 bytes
         val partFile = File(File(tempDir, "synced_music").also { it.mkdirs() }, "$trackId.mp3.part")
         partFile.writeBytes(fullData.sliceArray(0 until 5))
+
+                val mockCheckpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val resumeKey = trackId
+        coEvery { mockCheckpointRepo.getCheckpoint(any()) } returns org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = resumeKey,
+            transferId = "plan_1",
+            remoteDeviceId = "",
+            sourceLibraryId = "",
+            destinationLibraryId = "",
+            trackId = trackId,
+            remoteTrackId = trackId,
+            tempFilePath = partFile.absolutePath,
+            finalFilePath = File(File(tempDir, "synced_music"), "$trackId.mp3").absolutePath,
+            expectedSize = totalSize,
+            receivedBytes = 5L,
+            verifiedBytes = 5L,
+            expectedSha256 = expectedHash,
+            etag = "\"etag-resume\"",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+        val resumeManager = LinkTransferManager(mockContext, mockCheckpointRepo)
 
         val mockClient = mockk<LinkClient>()
         // Server ignores Range: startBytes=5 and returns 200 OK with full stream
@@ -188,21 +378,21 @@ class ResumableTransferTest {
             )
         }
 
-        val item = DownloadItem(
+                val item = DownloadItem(
             trackId = trackId,
             title = "No Range Track",
             format = "mp3",
             size = totalSize,
             checksum = expectedHash,
-        )
-
-        val result = transferManager.downloadTrack(mockClient, item)
+        )        // A25/A67: resumption is only legitimate against a persisted checkpoint with a
+        // strong revision validator; the .part size alone never accredits bytes.
+        val result = resumeManager.downloadTrack(mockClient, item)
         assertTrue(result.isSuccess)
         val finalFile = result.getOrThrow()
         assertEquals(totalSize, finalFile.length())
         assertEquals(expectedHash, sha256(finalFile.readBytes()))
 
-        val checkpoint = transferManager.checkpoints.value[trackId]
+        val checkpoint = resumeManager.checkpoints.value[resumeKey]
         assertEquals(ResumeMode.RESTARTED_FROM_ZERO, checkpoint?.resumeMode)
     }
 
@@ -348,6 +538,27 @@ class ResumableTransferTest {
         val partFile = File(File(tempDir, "synced_music").also { it.mkdirs() }, "$trackId.mp3.part")
         partFile.writeBytes(fullData.sliceArray(0 until 20))
 
+                val mockCheckpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val resumeKey = trackId
+        coEvery { mockCheckpointRepo.getCheckpoint(any()) } returns org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = resumeKey,
+            transferId = "plan_1",
+            remoteDeviceId = "",
+            sourceLibraryId = "",
+            destinationLibraryId = "",
+            trackId = trackId,
+            remoteTrackId = trackId,
+            tempFilePath = partFile.absolutePath,
+            finalFilePath = File(File(tempDir, "synced_music"), "$trackId.mp3").absolutePath,
+            expectedSize = totalSize,
+            receivedBytes = 20L,
+            verifiedBytes = 20L,
+            expectedSha256 = expectedHash,
+            etag = "\"etag-resume\"",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+        val resumeManager = LinkTransferManager(mockContext, mockCheckpointRepo)
+
         val mockClient = mockk<LinkClient>()
         // Server rejects Range request with 416 Range Not Satisfiable
         every {
@@ -388,21 +599,21 @@ class ResumableTransferTest {
             )
         }
 
-        val item = DownloadItem(
+                val item = DownloadItem(
             trackId = trackId,
             title = "416 Recovery Track",
             format = "mp3",
             size = totalSize,
             checksum = expectedHash,
-        )
-
-        val result = transferManager.downloadTrack(mockClient, item)
+        )        // A25/A67: resumption is only legitimate against a persisted checkpoint with a
+        // strong revision validator; the .part size alone never accredits bytes.
+        val result = resumeManager.downloadTrack(mockClient, item)
         assertTrue("Transfer must recover from 416 by restarting honestly", result.isSuccess)
         val finalFile = result.getOrThrow()
         assertEquals(totalSize, finalFile.length())
         assertEquals(expectedHash, sha256(finalFile.readBytes()))
 
-        val checkpoint = transferManager.checkpoints.value[trackId]
+        val checkpoint = resumeManager.checkpoints.value[resumeKey]
         assertEquals(ResumeMode.RESTARTED_FROM_ZERO, checkpoint?.resumeMode)
         assertEquals(TransferState.COMPLETED, checkpoint?.state)
     }
@@ -436,7 +647,8 @@ class ResumableTransferTest {
             expectedSize = totalSize,
             receivedBytes = 400L,
             verifiedBytes = 400L,
-            expectedSha256 = expectedHash,
+                        expectedSha256 = expectedHash,
+            etag = "\"etag-align\"",
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
         )
         coEvery { mockCheckpointRepo.getCheckpoint(trackId) } returns cp
@@ -600,7 +812,7 @@ class ResumableTransferTest {
     }
 
     @Test
-    fun reconcileOrphanBackups_purgesBackup_whenTargetFileIsConfirmedRegisteredInRoom() = runBlocking {
+    fun reconcileOrphanBackups_preservesBackup_whenTargetFileIsConfirmedRegisteredInRoom() = runBlocking {
         val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
         val oldBackup = "old_backup_audio_content".toByteArray()
         val confirmedNew = "confirmed_registered_audio".toByteArray()
@@ -620,7 +832,11 @@ class ResumableTransferTest {
         assertEquals(0, restoredCount)
         assertTrue("Target file must remain intact", targetFile.exists())
         assertEquals(confirmedNew.size.toLong(), targetFile.length())
-        assertFalse("Redundant backup must be purged once confirmed in Room", backupFile.exists())
+        // A19-P0-03: a Room boolean is not a SHA-256 receipt. The recovery scanner
+        // restores when Room says "not registered" and preserves the backup
+        // otherwise; only an explicit, lease-guarded recovery may delete it.
+        assertTrue("A registered target must not authorise purging its backup", backupFile.exists())
+        assertEquals(oldBackup.size.toLong(), backupFile.length())
     }
 
     @Test
@@ -633,6 +849,10 @@ class ResumableTransferTest {
 
         var recordedReceived = -1L
         var recordedVerified = -1L
+        // A25/A67: a relaxed mock would answer the checkpoint lookup with a stub row,
+        // which the manager rightly rejects as an identity mismatch before streaming.
+        coEvery { mockCheckpointRepo.getCheckpoint(any()) } returns null
+        coEvery { mockCheckpointRepo.getLatestCheckpointForTrack(any()) } returns null
         coEvery {
             mockCheckpointRepo.updateProgress(
                 transferKey = trackId,
