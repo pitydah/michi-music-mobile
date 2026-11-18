@@ -101,12 +101,20 @@ internal class AirCatProgressLedger(private val maxEntries: Int = 64) {
         return entries.toMap()
     }
 
-    /** Hide one finished receipt without erasing a different active transfer. */
+    /**
+     * Hide one finished receipt without erasing a different active transfer.
+     *
+     * A69-01: NO_FILES is a terminal receipt too. The card offers "Aceptar", and a
+     * button that cannot remove the row it belongs to is a dead control. Dismissing
+     * a receipt is presentation only: it never cancels a job, deletes a checkpoint,
+     * a journal or a file, and the sealed id keeps late callbacks from reopening it.
+     */
     @Synchronized
     fun dismissTerminal(transferId: String): Map<String, AirCatProgressEvent>? {
         val event = entries[transferId] ?: return null
         if (event.state !in setOf(AirCatTransferState.COMPLETED,
-                AirCatTransferState.CANCELLED, AirCatTransferState.FAILED)) return null
+                AirCatTransferState.CANCELLED, AirCatTransferState.FAILED,
+                AirCatTransferState.NO_FILES)) return null
         entries.remove(transferId)
         return entries.toMap()
     }

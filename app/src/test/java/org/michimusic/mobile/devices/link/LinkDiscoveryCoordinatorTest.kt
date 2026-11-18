@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -101,5 +102,138 @@ class LinkDiscoveryCoordinatorTest {
         coVerify(exactly = 2) { discovery.start() }
         subject.stop()
         runCurrent()
+    }
+
+    /**
+     * A69-04: cancelling the caller's scope while the scan is listening must still release
+     * the multicast socket and lock. The scan's own finally does it, independent of who
+     * cancelled whom.
+     */
+    @Test fun cancellingTheCallerScopeMidScanReleasesTheSocket() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        val callerScope = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
+        val subject = LinkDiscoveryCoordinator(
+            discovery, callerScope, { }, StandardTestDispatcher(testScheduler),
+        )
+
+        subject.start()
+        runCurrent()
+        coVerify(exactly = 1) { discovery.start() }
+
+        callerScope.cancel()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { discovery.stop(preservePeers = false) }
+        assertFalse(subject.isActive.value)
+    }
+
+    /**
+     * A69-04: a scan cancelled before its dispatcher ever ran it completes only if
+     * something completes it. Joining that job would wedge the teardown that exists to
+     * release the socket, so it must be skipped and the release must still happen - and a
+     * later window must still be startable.
+     */
+    @Test fun aScanCancelledBeforeItWasDispatchedStillReleasesAndDoesNotWedge() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        val subject = LinkDiscoveryCoordinator(
+            discovery, this, { }, StandardTestDispatcher(testScheduler),
+        )
+
+        assertTrue(subject.start())
+        subject.stop(preserveResults = false) // before runCurrent: never dispatched
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { discovery.stop(preservePeers = false) }
+        assertFalse(subject.isActive.value)
+        assertTrue("a released window must not block the next one", subject.start())
+        subject.stop()
+        advanceUntilIdle()
+    }
+
+    @Test fun twoConsecutiveStopsAreIdempotentAndLeaveNoListener() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        val subject = LinkDiscoveryCoordinator(
+            discovery, this, { }, StandardTestDispatcher(testScheduler),
+        )
+
+        subject.start()
+        runCurrent()
+        subject.stop(preserveResults = false)
+        subject.stop(preserveResults = false)
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { discovery.stop(preservePeers = false) }
+        assertFalse(subject.isActive.value)
+        assertTrue("two stops must not spend the next window", subject.start())
+        subject.stop()
+        advanceUntilIdle()
+    }
+
+    /**
+     * A69-04 energy policy: the window ends by itself at 35 s. No listener may outlive it
+     * and no polling may follow.
+     */
+    @Test fun theWindowClosesItselfAfterThirtyFiveSeconds() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        var finished = 0
+        val subject = LinkDiscoveryCoordinator(
+            discovery, this, { finished++ }, StandardTestDispatcher(testScheduler),
+        )
+
+        subject.start()
+        runCurrent()
+        advanceTimeBy(34_000)
+        runCurrent()
+        assertTrue("the window must still be open one second before the budget", subject.isActive.value)
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+
+        assertFalse(subject.isActive.value)
+        assertEquals("a self-closed window reports itself exactly once", 1, finished)
+        coVerify(atLeast = 1) { discovery.stop(preservePeers = false) }
+        assertTrue("no listener may survive the window", subject.start())
+        subject.stop()
+        advanceUntilIdle()
+    }
+
+    @Test fun startingAfterCloseIsRefused() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        val subject = LinkDiscoveryCoordinator(
+            discovery, this, { }, StandardTestDispatcher(testScheduler),
+        )
+
+        subject.close()
+        advanceUntilIdle()
+        assertFalse("a closed coordinator must not open a window", subject.start())
+        advanceUntilIdle()
+        coVerify(exactly = 0) { discovery.start() }
+    }
+
+    @Test fun stoppingBeforeAnyScanStillReleasesAndReportsNoWindow() = runTest {
+        val discovery = mockk<LinkDiscovery>()
+        coEvery { discovery.start() } coAnswers { awaitCancellation() }
+        coEvery { discovery.stop(preservePeers = any()) } returns Unit
+        var finished = 0
+        val subject = LinkDiscoveryCoordinator(
+            discovery, this, { finished++ }, StandardTestDispatcher(testScheduler),
+        )
+
+        subject.stop(preserveResults = false)
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { discovery.stop(preservePeers = false) }
+        assertEquals("a stop that ended no window must not report one", 0, finished)
+        assertFalse(subject.isActive.value)
     }
 }

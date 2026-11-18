@@ -219,7 +219,10 @@ class LinkTransferManager(
             // legacy /download protocol attests nothing per byte, so a checkpoint
             // that recorded verified bytes still truncates to them, while a
             // checkpoint that recorded none lets the physical .part length be the
-            // resume point - the final SHA-256 is what authorises the file.
+            // resume point - the final SHA-256 is what authorises the file. That
+            // only holds when the manifest declared a digest: safeResume refuses
+            // otherwise, and recordedBytes stays at zero so the next request asks
+            // for the whole file instead of gluing unauthenticated bytes together.
             val recordedBytes = when {
                 !safeResume -> 0L
                 item.requiresLibraryCommit -> savedCheckpoint!!.bytesVerified

@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -185,5 +186,120 @@ class AirCatSafeLayoutTest {
         composeTestRule.onNodeWithText("Transferencia completada").assertIsDisplayed()
         // K47-05: Must show pending verification message, NOT fake "Todos los archivos pasaron la verificación SHA-256"
         composeTestRule.onNodeWithText("Archivos transferidos; verificación de integridad SHA-256 pendiente.").assertIsDisplayed()
+    }
+
+    // --- A69-03: an empty selection is finished, but it is not a completed transfer ---
+
+    @Test
+    fun noFilesReceiptNeverClaimsAVerifiedTransfer() {
+        val noFilesProgress = AirCatProgressEvent(
+            transferId = "xfer_empty",
+            currentTrackIndex = 0,
+            totalTracks = 0,
+            bytesTransferred = 0L,
+            totalBytes = 0L,
+            state = AirCatTransferState.NO_FILES,
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                AirCatTransferSafeLayout(progress = noFilesProgress, onDismiss = {})
+            }
+        }
+
+        composeTestRule.onNodeWithTag("aircat_no_files_view").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("aircat_no_files_description")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("La selección no tenía pistas que transferir.")
+            .assertIsDisplayed()
+
+        // No stage of a transfer happened, so no stage may be drawn.
+        listOf("Preparación", "Transferencia", "Verificando", "Completado").forEach { stage ->
+            assertTrue(
+                "a receipt that transferred nothing must not draw the '$stage' stage",
+                composeTestRule.onAllNodesWithText(stage).fetchSemanticsNodes().isEmpty(),
+            )
+        }
+        // And it must not borrow the completed wording either.
+        assertTrue(
+            "an empty receipt must not claim a completed transfer",
+            composeTestRule.onAllNodesWithText("Transferencia completada").fetchSemanticsNodes().isEmpty(),
+        )
+        assertTrue(
+            "an empty receipt must not report synced tracks",
+            composeTestRule.onAllNodesWithText("0 pistas sincronizadas · 0.0 MB").fetchSemanticsNodes().isEmpty(),
+        )
+    }
+
+    @Test
+    fun noFilesReceiptCanBeDismissed() {
+        var dismissed = false
+        val noFilesProgress = AirCatProgressEvent(
+            transferId = "xfer_empty_dismiss",
+            currentTrackIndex = 0,
+            totalTracks = 0,
+            bytesTransferred = 0L,
+            totalBytes = 0L,
+            state = AirCatTransferState.NO_FILES,
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                AirCatTransferSafeLayout(
+                    progress = noFilesProgress,
+                    onDismiss = { dismissed = true },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("aircat_no_files_button")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        assertTrue("the only action of a nothing-to-transfer receipt must work", dismissed)
+    }
+
+    @Test
+    fun aCompletedTransferKeepsItsStepperAndItsOwnLayout() {
+        val completedProgress = AirCatProgressEvent(
+            transferId = "xfer_done",
+            currentTrackIndex = 2,
+            totalTracks = 2,
+            bytesTransferred = 10_000_000L,
+            totalBytes = 10_000_000L,
+            state = AirCatTransferState.COMPLETED,
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                AirCatTransferSafeLayout(progress = completedProgress, onDismiss = {})
+            }
+        }
+
+        composeTestRule.onNodeWithText("Completado").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Transferencia completada").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("aircat_no_files_view").assertDoesNotExist()
+    }
+
+    @Test
+    fun aFailedTransferIsStillAnErrorAndNotAnEmptyReceipt() {
+        val failedProgress = AirCatProgressEvent(
+            transferId = "xfer_failed_not_empty",
+            currentTrackIndex = 0,
+            totalTracks = 3,
+            bytesTransferred = 0L,
+            totalBytes = 30_000_000L,
+            state = AirCatTransferState.FAILED,
+            error = "Pérdida de conexión Wi-Fi con el servidor",
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                AirCatTransferSafeLayout(progress = failedProgress, onDismiss = {})
+            }
+        }
+
+        composeTestRule.onNodeWithText("Error de transferencia").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("aircat_no_files_view").assertDoesNotExist()
     }
 }

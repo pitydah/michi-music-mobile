@@ -12,6 +12,60 @@ class AirCatProgressLedgerTest {
             checksumVerified = state == AirCatTransferState.COMPLETED,
             libraryCommitted = state == AirCatTransferState.COMPLETED)
 
+    /** An empty catalogue: zero of everything and no receipts, by contract. */
+    private fun noFiles(id: String) = AirCatProgressEvent(
+        id, 0, 0, 0L, 0L, AirCatTransferState.NO_FILES,
+        checksumVerified = false, libraryCommitted = false)
+
+    @Test fun anEmptySelectionReceiptCanBeDismissed() {
+        val book = AirCatProgressLedger()
+        book.record(noFiles("empty"))
+        assertEquals(emptyMap<String, AirCatProgressEvent>(), book.dismissTerminal("empty"))
+        assertNull(book.latest("empty"))
+    }
+
+    @Test fun dismissingNoFilesNeverTouchesAnotherActiveTransfer() {
+        val book = AirCatProgressLedger()
+        book.record(noFiles("empty"))
+        book.record(event("busy", AirCatTransferState.TRANSFERRING, 40))
+        assertEquals(setOf("busy"), book.dismissTerminal("empty")?.keys)
+        assertEquals(AirCatTransferState.TRANSFERRING, book.latest("busy")?.state)
+        assertEquals(40L, book.latest("busy")?.bytesTransferred)
+    }
+
+    @Test fun aDismissedEmptyReceiptCannotBeReopenedByALateCallback() {
+        val book = AirCatProgressLedger()
+        book.record(noFiles("empty"))
+        book.dismissTerminal("empty")
+        assertNull(book.record(event("empty", AirCatTransferState.TRANSFERRING, 10)))
+        assertNull(book.record(event("empty", AirCatTransferState.COMPLETED, 100)))
+        assertNull(book.latest("empty"))
+        assertTrue(book.snapshots().isEmpty())
+    }
+
+    @Test fun dismissingTheSameReceiptTwiceIsIdempotent() {
+        val book = AirCatProgressLedger()
+        book.record(noFiles("empty"))
+        assertEquals(emptyMap<String, AirCatProgressEvent>(), book.dismissTerminal("empty"))
+        assertNull(book.dismissTerminal("empty"))
+        assertTrue(book.snapshots().isEmpty())
+    }
+
+    @Test fun anActiveTransferCannotBeDismissed() {
+        val book = AirCatProgressLedger()
+        book.record(event("busy", AirCatTransferState.TRANSFERRING, 40))
+        assertNull(book.dismissTerminal("busy"))
+        assertEquals(AirCatTransferState.TRANSFERRING, book.latest("busy")?.state)
+    }
+
+    @Test fun clearingTheHistoryLeavesAFinishedEmptyReceiptUnreopenable() {
+        val book = AirCatProgressLedger()
+        book.record(noFiles("empty"))
+        book.clear()
+        assertNull(book.record(event("empty", AirCatTransferState.TRANSFERRING, 10)))
+        assertTrue(book.snapshots().isEmpty())
+    }
+
     @Test fun twoLanesPreserveIndependentProgress() {
         val book = AirCatProgressLedger()
         book.record(event("a", AirCatTransferState.TRANSFERRING, 20))
