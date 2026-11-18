@@ -35,6 +35,12 @@ RECEIPT_LINE = re.compile(
 # gate were wired back onto pre<Variant>Build this would be absent, and a refusal
 # that never compiled anything cannot be certified as "only waiting for art".
 RELEASE_TECHNICAL_WORK = re.compile(r"^:app:(?:compile|minify)\S*Release\S*$")
+# The artifact itself. Certification is only meaningful if something was about to
+# be produced: the gate guards package/bundle, so a certified build must show it.
+RELEASE_PACKAGE = re.compile(r"^:app:(?:package|bundle)\S*Release\S*$")
+BUILD_SUCCESS = re.compile(r"^BUILD SUCCESSFUL", re.MULTILINE)
+# A gate task that did not actually run cannot vouch for the packaged bytes.
+NOT_AN_EXECUTION = frozenset({"SKIPPED", "NO-SOURCE", "UP-TO-DATE", "FROM-CACHE"})
 
 
 def parse_tasks(log: str) -> dict[str, str]:
@@ -70,10 +76,30 @@ def classify(log: str, exit_code: int) -> tuple[str, str]:
         if failed:
             return REGRESSION, "exit code 0 but the log records failed tasks: " + \
                 ", ".join(sorted(failed))
+        if not BUILD_SUCCESS.search(log):
+            return REGRESSION, "exit code 0 without a BUILD SUCCESSFUL line to corroborate it"
+        if not any(RELEASE_TECHNICAL_WORK.match(name) for name in tasks):
+            return REGRESSION, "release code was never compiled"
+        if not any(RELEASE_PACKAGE.match(name) for name in tasks):
+            return REGRESSION, "no release package or bundle task was part of the build"
         missing = sorted(task for task in CERTIFICATION_TASKS if task not in tasks)
         if missing:
             return REGRESSION, "release compiled but the certification gate never ran: " + \
                 ", ".join(missing)
+        # A task that appears in the log but was skipped, cached or up to date did
+        # not verify the bytes being packaged now. Naming a gate is not running it.
+        not_run = sorted(
+            f"{task} ({tasks[task]})" for task in CERTIFICATION_TASKS
+            if tasks[task] in NOT_AN_EXECUTION
+        )
+        if not_run:
+            return REGRESSION, "certification gate did not verify the packaged artwork: " + \
+                ", ".join(not_run)
+        if receipts:
+            return REGRESSION, "certification receipts report pending artwork on a build that succeeded: " + \
+                ", ".join(f"{view}={count}" for view, count in sorted(receipts.items()))
+        if re.search(r"^e: file://", log, re.MULTILINE):
+            return REGRESSION, "Kotlin compilation errors are present in the log"
         return CERTIFIED_GO, "release artifact produced and both certification gates passed"
 
     if not failed:

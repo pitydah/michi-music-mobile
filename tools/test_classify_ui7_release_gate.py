@@ -50,6 +50,52 @@ class CertifiedGoTests(unittest.TestCase):
         state, _ = classifier.classify(log, 0)
         self.assertEqual(classifier.REGRESSION, state)
 
+    def test_a_gate_that_was_skipped_cannot_certify(self):
+        # Naming the gate is not running it. A skipped task verified nothing.
+        log = TECHNICAL + f"> Task {MOSAIC} SKIPPED\n> Task {POSTERS}\nBUILD SUCCESSFUL\n"
+        state, reason = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+        self.assertIn("did not verify the packaged artwork", reason)
+        self.assertIn("SKIPPED", reason)
+
+    def test_a_gate_that_was_up_to_date_cannot_certify(self):
+        # UP-TO-DATE means Gradle reused an earlier outcome, not that these bytes
+        # were checked now; certification has to verify the packaged artwork.
+        log = TECHNICAL + f"> Task {MOSAIC} UP-TO-DATE\n> Task {POSTERS}\nBUILD SUCCESSFUL\n"
+        state, _ = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+
+    def test_a_gate_restored_from_cache_cannot_certify(self):
+        log = TECHNICAL + f"> Task {MOSAIC}\n> Task {POSTERS} FROM-CACHE\nBUILD SUCCESSFUL\n"
+        state, _ = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+
+    def test_a_gate_with_no_source_cannot_certify(self):
+        log = TECHNICAL + f"> Task {MOSAIC} NO-SOURCE\n> Task {POSTERS}\nBUILD SUCCESSFUL\n"
+        state, _ = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+
+    def test_a_success_without_build_successful_is_a_regression(self):
+        log = TECHNICAL + f"> Task {MOSAIC}\n> Task {POSTERS}\n"
+        state, reason = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+        self.assertIn("BUILD SUCCESSFUL", reason)
+
+    def test_a_success_without_packaging_is_a_regression(self):
+        # Certification without an artifact is not a certification.
+        log = ("> Task :app:compileNormalReleaseKotlin\n"
+               f"> Task {MOSAIC}\n> Task {POSTERS}\nBUILD SUCCESSFUL\n")
+        state, reason = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+        self.assertIn("package or bundle", reason)
+
+    def test_a_success_that_still_reports_pending_artwork_is_a_regression(self):
+        log = (TECHNICAL + f"> Task {MOSAIC}\n> Task {POSTERS}\n"
+               + RECEIPT_MOSAIC + "\nBUILD SUCCESSFUL\n")
+        state, reason = classifier.classify(log, 0)
+        self.assertEqual(classifier.REGRESSION, state)
+        self.assertIn("pending artwork on a build that succeeded", reason)
+
 
 class ApprovalPendingTests(unittest.TestCase):
     def test_pending_artwork_alone_is_reported_as_pending(self):

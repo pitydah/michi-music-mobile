@@ -293,10 +293,25 @@ jobs:
           fi
           echo "TECHNICAL_INTEGRATION_GO"
       # A green run means the code is sound. It does not mean the catalogue may be
-      # distributed, and this is the line that says so out loud.
+      # distributed, and this is the line that says so out loud. Only the two states
+      # the classifier is allowed to emit are accepted here: anything else — an empty
+      # output, a missing job, an unrecognised word, a regression verdict dressed as a
+      # success — fails the gate instead of being published as "waiting for review".
       - name: Publish the release posture
         run: |
           classification="${{ needs.release-gate.outputs.classification }}"
+          result="${{ needs.release-gate.result }}"
+          case "$classification" in
+            RELEASE_CERTIFIED_GO|ARTISTIC_APPROVAL_PENDING) ;;
+            *)
+              echo "unrecognised release classification: '${classification}' (job result: ${result})"
+              exit 1
+              ;;
+          esac
+          if [ "$result" != "success" ]; then
+            echo "release gate job finished as '${result}' but reported '${classification}'"
+            exit 1
+          fi
           if [ "$classification" = "RELEASE_CERTIFIED_GO" ]; then
             echo "RELEASE_CERTIFIED_GO"
             echo "RELEASE_CERTIFIED_GO" >> "$GITHUB_STEP_SUMMARY"
@@ -308,7 +323,7 @@ jobs:
               echo "ARTISTIC_APPROVAL_PENDING"
               echo "RELEASE_NO_GO"
               echo ""
-              echo "The 353 imported artwork pairs per view still await visual review."
+              echo "Some packaged artwork still awaits visual review."
               echo "No release APK or AAB is produced or uploaded while that holds."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
