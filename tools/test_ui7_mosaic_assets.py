@@ -241,9 +241,11 @@ class ShippedMosaicPackTests(unittest.TestCase):
         self.assertEqual(sorted(gate.EXPECTED_POSITIONS), numbers)
         self.assertEqual(665, len(numbers))
         self.assertFalse(set(numbers) & set(gate.WITHDRAWN_POSITIONS))
+        # Approved by the user on 2026-11-18. The pending state stays supported for
+        # future imports; it is simply not what the shipped pack claims any more.
         states = [line.split("\t")[5] for line in lines]
-        self.assertEqual(312, states.count(gate.APPROVAL))
-        self.assertEqual(353, states.count(gate.PENDING_APPROVAL))
+        self.assertEqual(665, states.count(gate.APPROVAL))
+        self.assertEqual(0, states.count(gate.PENDING_APPROVAL))
 
 
 if __name__ == "__main__":

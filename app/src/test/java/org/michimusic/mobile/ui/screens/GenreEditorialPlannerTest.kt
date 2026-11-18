@@ -215,8 +215,13 @@ class GenreEditorialPlannerTest {
 
     @Test fun theApproved312InventoryKeepsItsContractTotals() {
         // Historical contract of the reviewed pack: the imported batch must not
-        // reshuffle how the originals were classified.
-        val rows = realPosterRows().filter { it[6] == "USER_CONFIRMED_COMPLETE" }
+        // reshuffle how the originals were classified. On 2026-11-18 the user
+        // approved the import, so the approval column no longer separates the two
+        // generations; the optical table still does, because it only ever measured
+        // the 312 originals.
+        val measured = measuredPosterFiles()
+        assertEquals(312, measured.size)
+        val rows = realPosterRows().filter { it[1] in measured }
         assertEquals(312, rows.size)
         val classes = rows.map { editorialPosterClass(it[3].toInt() / it[4].toFloat()) }
         val counts = classes.groupingBy { it }.eachCount()
@@ -291,6 +296,19 @@ class GenreEditorialPlannerTest {
                 }
             }
         }
+    }
+
+    /** Slugs the optical table measured: exactly the 312 originally approved posters. */
+    /** The optical table is keyed by asset filename, not by genre slug. */
+    private fun measuredPosterFiles(): Set<String> {
+        val cwd = File(System.getProperty("user.dir") ?: ".")
+        val module = if (File(cwd, "src/main/java").isDirectory) cwd
+        else File(cwd, "app").takeIf { File(it, "src/main/java").isDirectory } ?: cwd
+        val optical = File(module, "src/main/assets/ui7/editorial/posters/optical.tsv")
+        return optical.readLines()
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .map { it.split('\t').first() }
+            .toSet()
     }
 
     private fun realPosterRows(): List<List<String>> {

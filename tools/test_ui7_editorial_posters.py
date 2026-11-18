@@ -121,10 +121,12 @@ class ShippedPosterPackTests(unittest.TestCase):
         self.assertEqual(gate.EXPECTED_POSTERS, len({row[0] for row in rows}))
         self.assertEqual(gate.EXPECTED_POSTERS, len({row[1] for row in rows}))
         self.assertEqual(gate.gate.source_keys(), {row[0] for row in rows})
+        # Approved by the user on 2026-11-18; the pending pair stays supported for
+        # future imports but is no longer what the shipped pack declares.
         approved = [row for row in rows if row[6] == gate.APPROVAL]
         pending = [row for row in rows if row[6] == gate.PENDING_APPROVAL]
-        self.assertEqual(312, len(approved))
-        self.assertEqual(353, len(pending))
+        self.assertEqual(665, len(approved))
+        self.assertEqual(0, len(pending))
         for row in approved:
             self.assertEqual(gate.PRESENTATION, row[7])
         for row in pending:

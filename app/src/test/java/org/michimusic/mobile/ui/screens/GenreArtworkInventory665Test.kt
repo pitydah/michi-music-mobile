@@ -65,13 +65,15 @@ class GenreArtworkInventory665Test {
         assertEquals("Editorial poster slugs", 665, posters.map { it[0] }.toSet().size)
         assertTrue(mosaic.all { it.size == 6 })
         assertTrue(posters.all { it.size == 8 })
-        // Packaging is not approval: exactly the reviewed rows claim it.
-        assertEquals(312, mosaic.count { it[5] == "USER_CONFIRMED_COMPLETE" })
-        assertEquals(312, posters.count {
+        // Packaging is not approval, and approval is not packaging: on 2026-11-18 the
+        // user confirmed the 353 imported pairs, so the whole inventory is approved
+        // now while the state machinery that separates the two axes stays in place.
+        assertEquals(665, mosaic.count { it[5] == "USER_CONFIRMED_COMPLETE" })
+        assertEquals(665, posters.count {
             it[6] == "USER_CONFIRMED_COMPLETE" && it[7] == "POSTER_COMPLETE"
         })
-        assertEquals(353, mosaic.count { it[5] == "IMPORTED_PENDING_VISUAL_APPROVAL" })
-        assertEquals(353, posters.count {
+        assertEquals(0, mosaic.count { it[5] == "IMPORTED_PENDING_VISUAL_APPROVAL" })
+        assertEquals(0, posters.count {
             it[6] == "IMPORTED_PENDING_VISUAL_APPROVAL" && it[7] == "POSTER_IMPORTED_PENDING"
         })
         assertEquals(0, mosaic.count { it[5] == "REJECTED" })

@@ -111,8 +111,8 @@ class MichiGenreCsvAuditTest {
         )
         listOf("Electronic", "Jangle Pop").forEach { label ->
             assertEquals(
-                "$label arrived with the pending batch, not with an approval",
-                mosaicPendingApprovalState,
+                "$label arrived with the imported batch and is approved today",
+                mosaicApprovalState,
                 mosaicArtworkForGenre(label, artwork)?.approval,
             )
         }

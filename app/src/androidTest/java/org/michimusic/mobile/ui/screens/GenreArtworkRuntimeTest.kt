@@ -42,10 +42,10 @@ class GenreArtworkRuntimeTest {
         assertEquals("UI7_MOSAICO_312_Timba.webp", mosaicArtworkForGenre("timba", mosaic)?.filename)
         assertEquals("UI7_MOSAICO_275_VisualKei.webp",
             mosaicArtworkForGenre("visual kei", mosaic)?.filename)
-        // Imported on 2026-11-17: available in the APK, still awaiting art review.
+        // Imported on 2026-11-17 and approved by the user on 2026-11-18.
         assertEquals("UI7_MOSAICO_313_JanglePop.webp",
             mosaicArtworkForGenre("jangle pop", mosaic)?.filename)
-        assertEquals("IMPORTED_PENDING_VISUAL_APPROVAL",
+        assertEquals("USER_CONFIRMED_COMPLETE",
             mosaicArtworkForGenre("jangle pop", mosaic)?.approval)
 
         val posterFiles = context.assets.list(editorialPosterFolder).orEmpty().toSet()
@@ -77,7 +77,7 @@ class GenreArtworkRuntimeTest {
             editorialPosterForTitle("Visual Kei", posters)?.filename)
         assertEquals("genre_jangle_pop_editorial.webp",
             editorialPosterForTitle("Jangle Pop", posters)?.filename)
-        assertEquals("IMPORTED_PENDING_VISUAL_APPROVAL",
+        assertEquals("USER_CONFIRMED_COMPLETE",
             editorialPosterForTitle("Jangle Pop", posters)?.approval)
     }
 

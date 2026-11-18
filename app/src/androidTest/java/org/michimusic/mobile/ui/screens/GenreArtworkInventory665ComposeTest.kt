@@ -49,7 +49,8 @@ import org.michimusic.mobile.ui.theme.VisualPreferences
  * packaged Mosaico manifest, so both views resolve real assets instead of a drawn
  * fixture. Availability is separate from quality and from approval: every packaged
  * WebP paints, the 14 Mosaico / 85 Editorial `verified=0` rows are QA debt, and the
- * 353 crops imported on 2026-11-17 still carry IMPORTED_PENDING_VISUAL_APPROVAL.
+ * 353 crops imported on 2026-11-17 were approved by the user on 2026-11-18, so the
+ * approval axis and the optical-debt axis stay separate.
  * The same harness captures Mosaico and Editorial evidence at 320/360/390/411/480
  * dp when `-e michiGenreEvidence true` is passed.
  */
