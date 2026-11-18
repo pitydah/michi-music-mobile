@@ -318,8 +318,32 @@ val verifyUi7EditorialCertification =
         inputs.dir(file("src/main/assets/ui7/editorial/posters"))
     }
 
-// Matches preNormalReleaseBuild, preFdroidReleaseBuild and prePlaystoreReleaseBuild:
-// every real release variant of every flavor, not just one assembleRelease alias.
-tasks.matching { it.name.matches(Regex("pre[A-Za-z]*ReleaseBuild")) }.configureEach {
+// Certification guards artifact creation, not compilation. Hooking it on
+// pre<Variant>Build refused a release before a single Kotlin file was compiled,
+// which hides a real compile, R8 or packaging regression behind the approval
+// block. Every distributable artifact comes out of package<Variant> (APK) or
+// bundle<Variant> (AAB), so gating those keeps the refusal — no APK and no AAB
+// can exist while artwork is pending — and lets the whole technical pipeline run
+// and prove itself first.
+tasks.matching { it.name.matches(Regex("package[A-Za-z]*Release")) }.configureEach {
     dependsOn(verifyUi7MosaicCertification, verifyUi7EditorialCertification)
+}
+tasks.matching { it.name.matches(Regex("bundle[A-Za-z]*Release")) }.configureEach {
+    dependsOn(verifyUi7MosaicCertification, verifyUi7EditorialCertification)
+}
+
+// Ordering matters as much as the dependency: every dependency of package is a
+// sibling, so Gradle is free to run the gate first — and it did, refusing a
+// release that had not compiled a single file. The gate has to speak last, once
+// the technical pipeline already proved itself.
+listOf(verifyUi7MosaicCertification, verifyUi7EditorialCertification).forEach { gate ->
+    gate.configure {
+        mustRunAfter(
+            tasks.matching {
+                it.name.matches(
+                    Regex("(compile|minify|merge|process|lintVital)[A-Za-z]*Release[A-Za-z]*"),
+                )
+            },
+        )
+    }
 }

@@ -318,6 +318,15 @@ def validate(folder: Path = ASSETS, certified: bool = False) -> list[str]:
     return errors
 
 
+def pending_count(folder: Path) -> int | None:
+    """How many packaged rows wait for art review, or None if the pack is unreadable."""
+    try:
+        rows = rows_from_text((folder / "manifest.tsv").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - an unreadable pack has no count to report
+        return None
+    return sum(1 for row in rows if len(row) == FIELDS and row[5] == PENDING_APPROVAL)
+
+
 if __name__ == "__main__":
     arguments = sys.argv[1:]
     folder = ASSETS
@@ -326,8 +335,17 @@ if __name__ == "__main__":
     if "--write" in arguments:
         write_manifest(folder)
         print(f"UI7 Mosaico manifest rewritten ({EXPECTED_ASSETS} entries)")
-    problems = validate(folder, certified="--certified" in arguments)
+    certified = "--certified" in arguments
+    problems = validate(folder, certified=certified)
     if problems:
+        # Structured receipt for the CI release gate. The exit code still fails, so
+        # nothing can be published; this line only lets the workflow tell an approval
+        # wait apart from a broken build instead of guessing from prose.
+        if certified:
+            count = pending_count(folder)
+            if count is not None:
+                print(f"UI7_RELEASE_GATE view=mosaic status=ARTISTIC_APPROVAL_PENDING "
+                      f"pending={count}")
         print("UI7 Mosaico FAIL\n" + "\n".join(problems), file=sys.stderr)
         sys.exit(1)
     rows = build_rows(folder)

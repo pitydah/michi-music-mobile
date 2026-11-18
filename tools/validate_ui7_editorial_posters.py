@@ -206,6 +206,15 @@ def validate(folder: Path = POSTERS, certified: bool = False) -> list[str]:
     return errors
 
 
+def pending_count(folder: Path) -> int | None:
+    """How many packaged rows wait for art review, or None if the pack is unreadable."""
+    try:
+        rows = rows_from_text((folder / "manifest.tsv").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - an unreadable pack has no count to report
+        return None
+    return sum(1 for row in rows if len(row) == FIELDS and row[6] == PENDING_APPROVAL)
+
+
 if __name__ == "__main__":
     arguments = sys.argv[1:]
     source_csv: Path | None = None
@@ -221,8 +230,15 @@ if __name__ == "__main__":
             sheets=sheets_from_csv(source_csv) if source_csv else None,
         )
         print(f"UI7 Editorial poster manifest rewritten ({EXPECTED_POSTERS} entries)")
-    problems = validate(folder, certified="--certified" in arguments)
+    certified = "--certified" in arguments
+    problems = validate(folder, certified=certified)
     if problems:
+        # Structured receipt for the CI release gate; see the Mosaico validator.
+        if certified:
+            count = pending_count(folder)
+            if count is not None:
+                print(f"UI7_RELEASE_GATE view=posters status=ARTISTIC_APPROVAL_PENDING "
+                      f"pending={count}")
         print("UI7 Editorial POSTER FAIL\n" + "\n".join(problems), file=sys.stderr)
         sys.exit(1)
     rows = rows_from_text((folder / "manifest.tsv").read_text(encoding="utf-8"))
