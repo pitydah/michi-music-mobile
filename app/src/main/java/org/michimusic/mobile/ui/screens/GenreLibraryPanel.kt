@@ -542,6 +542,7 @@ private fun loadMosaicCatalog(context: android.content.Context): Ui7Catalog<Mosa
             GenreArtworkDiagnostics.catalogLoaded(
                 "MOSAIC", approved.size, files.count { it.endsWith(".webp") },
             )
+            GenreArtworkDiagnostics.catalogApproval(mosaicPackReport(approved))
             Ui7Catalog.Ready(approved)
         }
     } catch (cancel: CancellationException) {
@@ -582,6 +583,7 @@ private fun loadEditorialCatalog(
             GenreArtworkDiagnostics.catalogLoaded(
                 "EDITORIAL", approved.size, files.count { it.endsWith(".webp") },
             )
+            GenreArtworkDiagnostics.catalogApproval(editorialPackReport(approved))
             Ui7Catalog.Ready(approved)
         }
     } catch (cancel: CancellationException) {

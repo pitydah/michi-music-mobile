@@ -213,8 +213,10 @@ class GenreEditorialPlannerTest {
         }
     }
 
-    @Test fun theReal312InventoryClassifiesOnceWithTheContractTotals() {
-        val rows = realPosterRows()
+    @Test fun theApproved312InventoryKeepsItsContractTotals() {
+        // Historical contract of the reviewed pack: the imported batch must not
+        // reshuffle how the originals were classified.
+        val rows = realPosterRows().filter { it[6] == "USER_CONFIRMED_COMPLETE" }
         assertEquals(312, rows.size)
         val classes = rows.map { editorialPosterClass(it[3].toInt() / it[4].toFloat()) }
         val counts = classes.groupingBy { it }.eachCount()
@@ -228,6 +230,25 @@ class GenreEditorialPlannerTest {
         assertEquals(0, counts[EditorialPosterClass.INTERMEDIO_FUTURO] ?: 0)
         assertEquals("each entry is classified exactly once", 312, classes.size)
         assertEquals("78 banners + 234 compacts", 78,
+            (counts[EditorialPosterClass.BANNER_PANORAMICO] ?: 0) +
+                (counts[EditorialPosterClass.BANNER_FINO] ?: 0))
+    }
+
+    @Test fun theFull665InventoryClassifiesOnceWithoutInventingAPortrait() {
+        val rows = realPosterRows()
+        assertEquals(665, rows.size)
+        val classes = rows.map { editorialPosterClass(it[3].toInt() / it[4].toFloat()) }
+        val counts = classes.groupingBy { it }.eachCount()
+        assertEquals(75, counts[EditorialPosterClass.COMPACTO_ALTO] ?: 0)
+        assertEquals(329, counts[EditorialPosterClass.COMPACTO_MEDIO] ?: 0)
+        assertEquals(93, counts[EditorialPosterClass.COMPACTO_ANCHO] ?: 0)
+        assertEquals(66, counts[EditorialPosterClass.BANNER_PANORAMICO] ?: 0)
+        assertEquals(102, counts[EditorialPosterClass.BANNER_FINO] ?: 0)
+        // Not one vertical crop exists in the source batch, so none may be invented.
+        assertEquals(0, counts[EditorialPosterClass.RETRATO_FUTURO] ?: 0)
+        assertEquals(0, counts[EditorialPosterClass.INTERMEDIO_FUTURO] ?: 0)
+        assertEquals(665, classes.size)
+        assertEquals("168 banners + 497 compacts", 168,
             (counts[EditorialPosterClass.BANNER_PANORAMICO] ?: 0) +
                 (counts[EditorialPosterClass.BANNER_FINO] ?: 0))
     }
@@ -248,8 +269,8 @@ class GenreEditorialPlannerTest {
                     is EditorialRow.Pair -> listOf(row.leading.genre.id, row.trailing.genre.id)
                 }
             }
-            assertEquals("[$width] every genre appears once", 312, ids.size)
-            assertEquals("[$width] no duplicate", 312, ids.toSet().size)
+            assertEquals("[$width] every genre appears once", 665, ids.size)
+            assertEquals("[$width] no duplicate", 665, ids.toSet().size)
             assertFalse("[$width] no asset-less fallback", plan.any {
                 it.kind == EditorialRowKind.FALLBACK
             })

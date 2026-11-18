@@ -1,18 +1,28 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.core.intelligence.MichiGenreAbsencePolicy
+
 /**
- * UI7 "Mosaico destacado" local crops (312 approved WebP files).
+ * UI7 "Mosaico destacado" local crops (665 imported WebP files).
  *
  * The pack is a visual inventory, never a music taxonomy: a row can only claim the
  * genre that its own approved filename suffix spells, so a hand-edited manifest
  * cannot attach artwork to a genre the pack did not name. Rows are cross-checked
  * against installed assets and the whole catalog fails closed atomically.
+ *
+ * Two approval states are accepted and they are not interchangeable: the 312 rows
+ * reviewed before 2026-11-14 keep [mosaicApprovalState], and the 353 rows imported
+ * from the UI7 pending batch carry [mosaicPendingApprovalState], which means exactly
+ * "bytes verified, artwork not yet reviewed". Carrying the state in the model is what
+ * lets a later publisher refuse to present pending crops as approved ones.
  */
 internal data class MosaicArtworkAsset(
     val genreKey: String,
     val filename: String,
     val widthPx: Int,
     val heightPx: Int,
+    /** [mosaicApprovalState] or [mosaicPendingApprovalState]; never invented. */
+    val approval: String = mosaicApprovalState,
     /** Offline-measured baked frame; null when the optical table has no row. */
     val opticalMask: Ui7OpticalMask? = null,
     /** Verified bottom-end chip region for this resource, when recorded. */
@@ -20,21 +30,58 @@ internal data class MosaicArtworkAsset(
 ) {
     /** Declared source proportions; the renderer never distorts the artwork. */
     val ratio: Float get() = widthPx.toFloat() / heightPx.toFloat()
+
+    /** True only for the 312 crops that passed art review. */
+    val isVisuallyApproved: Boolean get() = approval == mosaicApprovalState
 }
 
 internal const val mosaicManifestHeader = "# UI7_MOSAICO_MANIFEST_V1"
 internal const val mosaicFolder = "ui7/mosaic"
 internal const val mosaicApprovalState = "USER_CONFIRMED_COMPLETE"
-private const val maxMosaicManifestChars = 96_000
+/** Bytes verified and published, artwork still awaiting visual review. */
+internal const val mosaicPendingApprovalState = "IMPORTED_PENDING_VISUAL_APPROVAL"
+/** Never publishable: a rejected crop has no business in the pack. */
+internal const val mosaicRejectedState = "REJECTED"
+/** The pack may hold both, and the row says which one applies. */
+private val mosaicAcceptedStates = setOf(mosaicApprovalState, mosaicPendingApprovalState)
+private const val maxMosaicManifestChars = 131_072
 private const val maxMosaicPixels = 3_686_400L
 private val mosaicFilenamePattern = Regex("UI7_MOSAICO_[0-9]{3}_([A-Za-z0-9]+)\\.webp")
 private val mosaicSha256Pattern = Regex("[a-f0-9]{64}")
 
 /**
- * The only suffix the CamelCase tokenizer cannot split on its own. Everything else
- * must resolve from plain words; there is no fuzzy or prefix matching.
+ * Suffixes the CamelCase tokenizer cannot split into the exact canonical label.
+ *
+ * Everything else must resolve from plain words; there is no fuzzy or prefix
+ * matching. These 18 entries are hand-checked one by one, because [genreGroupingKey]
+ * keeps the hyphen of a label the file name spells without one: "ProtoPunk" tokenizes
+ * to "proto punk", and MI-26 folds "Proto-Punk" to "proto-punk". A general rule that
+ * dropped every hyphen would also merge identities that must stay apart, so the
+ * exception is enumerated instead of generalised.
  */
-private val mosaicSuffixAliases = mapOf("RnB" to "r&b")
+private val mosaicSuffixAliases = mapOf(
+    "RnB" to "r&b",
+    "ProtoPunk" to "proto-punk",
+    "LoFiHouse" to "lo-fi house",
+    "AbstractHipHop" to "abstract hip-hop",
+    "ExperimentalHipHop" to "experimental hip-hop",
+    "SouthernHipHop" to "southern hip-hop",
+    "PostBop" to "post-bop",
+    "VPop" to "v-pop",
+    "TPop" to "t-pop",
+    "LoFiHipHop" to "lo-fi hip-hop",
+    "BatuqueCaboVerdiano" to "batuque cabo-verdiano",
+    "NeoPsychedelia" to "neo-psychedelia",
+    "AvantGardeMetal" to "avant-garde metal",
+    "GoGo" to "go-go",
+    "AfroPeruvian" to "afro-peruvian",
+    "AfroBrazilian" to "afro-brazilian",
+    "DBeat" to "d-beat",
+    "PinoyHipHop" to "pinoy hip-hop",
+    // The unclassified bucket is not a genre: its label resolves to no key at all,
+    // so the crop is bound to the internal identity instead of the Spanish words.
+    "SinClasificar" to MichiGenreAbsencePolicy.UNCLASSIFIED_KEY,
+)
 
 internal fun mosaicArtworkGeometryValid(widthPx: Int, heightPx: Int): Boolean {
     if (widthPx !in 320..4096 || heightPx !in 240..4096) return false
@@ -126,7 +173,8 @@ internal fun mosaicApprovedArtwork(
         val filenameCanonical = mosaicGenreKeyFromFilename(filename)
         if (canonical.isEmpty() || filenameCanonical != canonical)
             return reject("line_${lineNumber}_genre_identity")
-        if (!mosaicSha256Pattern.matches(sha) || approval != mosaicApprovalState)
+        // Both published states are accepted; "approved" is not inferred from presence.
+        if (!mosaicSha256Pattern.matches(sha) || approval !in mosaicAcceptedStates)
             return reject("line_${lineNumber}_integrity_or_approval")
         if (!mosaicArtworkGeometryValid(width, height)) return reject("line_${lineNumber}_geometry")
         if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
@@ -140,6 +188,7 @@ internal fun mosaicApprovedArtwork(
             filename = filename,
             widthPx = width,
             heightPx = height,
+            approval = approval,
             opticalMask = mask,
             counterSafeRect = ui7MosaicCounterSafeRegion,
         )

@@ -215,15 +215,18 @@ class GenreDetailHeaderComposeTest {
     }
 
     @Test fun missingApprovedArtworkUsesOnlyTheSameViewFallback() {
+        // Barbershop is a legitimate style the packaged inventory does not cover, so
+        // both views must fall back to their own placeholder. The batch imported on
+        // 2026-11-17 replaced the previous example (Microhouse), which now owns a crop.
         val track = org.michimusic.core.models.Track(
-            id = "micro1",
-            title = "Micro One",
+            id = "barber1",
+            title = "Barber One",
             artist = "Michi QA",
-            album = "Micro Album",
-            albumId = "micro_album",
-            genre = "Microhouse",
+            album = "Barber Album",
+            albumId = "barber_album",
+            genre = "Barbershop",
             sourceId = "local",
-            filepath = "content://michi/micro1.flac",
+            filepath = "content://michi/barber1.flac",
         )
         rule.setContent {
             MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
@@ -239,26 +242,26 @@ class GenreDetailHeaderComposeTest {
             }
         }
         rule.waitForIdle()
-        waitForTag(mosaicTileTag("Microhouse"))
-        rule.onNodeWithTag(mosaicTileTag("Microhouse")).performClick()
-        waitForTag("genre_detail_header_mosaico_fallback_microhouse")
-        rule.onNodeWithTag("genre_detail_header_mosaico_fallback_microhouse")
+        waitForTag(mosaicTileTag("Barbershop"))
+        rule.onNodeWithTag(mosaicTileTag("Barbershop")).performClick()
+        waitForTag("genre_detail_header_mosaico_fallback_barbershop")
+        rule.onNodeWithTag("genre_detail_header_mosaico_fallback_barbershop")
             .assertIsDisplayed()
         assertTrue("A missing Mosaico asset never borrows an Editorial poster",
-            rule.onAllNodesWithTag("genre_detail_header_poster_microhouse", useUnmergedTree = true)
+            rule.onAllNodesWithTag("genre_detail_header_poster_barbershop", useUnmergedTree = true)
                 .fetchSemanticsNodes().isEmpty())
         goBackToOverview()
 
         openView(GenreViewMode.EDITORIAL)
-        waitForTag(editorialTileTag("Microhouse"))
-        rule.onNodeWithTag(editorialTileTag("Microhouse")).performClick()
-        waitForTag("genre_detail_header_editorial_fallback_microhouse")
-        rule.onNodeWithTag("genre_detail_header_editorial_fallback_microhouse")
+        waitForTag(editorialTileTag("Barbershop"))
+        rule.onNodeWithTag(editorialTileTag("Barbershop")).performClick()
+        waitForTag("genre_detail_header_editorial_fallback_barbershop")
+        rule.onNodeWithTag("genre_detail_header_editorial_fallback_barbershop")
             .assertIsDisplayed()
         assertTrue("A missing Editorial asset never borrows a Mosaico crop",
-            rule.onAllNodesWithTag("genre_detail_header_mosaico_microhouse", useUnmergedTree = true)
+            rule.onAllNodesWithTag("genre_detail_header_mosaico_barbershop", useUnmergedTree = true)
                 .fetchSemanticsNodes().isEmpty())
-        rule.onNodeWithTag("genre_detail_title").assertTextEquals("Microhouse")
+        rule.onNodeWithTag("genre_detail_title").assertTextEquals("Barbershop")
     }
 
     @Test fun changingGenreNeverLeavesThePreviousHeaderImage() {

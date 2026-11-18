@@ -51,12 +51,12 @@ class MichiUi7ConsolidatedContractTest {
     private fun key(label: String): String = genreGroupingKey(label)
 
     @Test
-    fun the312IdentitiesRouteToExactlyOneApprovedAssetPerView() {
-        assertEquals("Mosaico rejects or trims the approved pack", 312, artwork.size)
-        assertEquals(312, posterRows.size)
-        assertEquals(312, posterRows.map { it[0] }.toSet().size)
+    fun theFullInventoryRoutesToExactlyOneAssetPerView() {
+        assertEquals("Mosaico rejects or trims the packaged inventory", 665, artwork.size)
+        assertEquals(665, posterRows.size)
+        assertEquals(665, posterRows.map { it[0] }.toSet().size)
         // No two catalog identities may collapse into one canonical key.
-        assertEquals(312, artwork.keys.size)
+        assertEquals(665, artwork.keys.size)
 
         val mosaicSlugs = mutableSetOf<String>()
         artwork.entries.forEach { (canonicalId, asset) ->
@@ -107,18 +107,24 @@ class MichiUi7ConsolidatedContractTest {
         assertTrue(key("Afrobeat") in artwork)
         assertTrue(key("Afrobeats") in artwork)
 
-        // Electronic has no resource of its own; Electronica keeps its own artwork.
+        // Electronic and Electronica stay two identities, and both now own artwork:
+        // the imported batch added position 329 without merging it into Electronica.
         assertEquals("electronic", key("Electronic"))
         assertEquals("electronica", key("Electronica"))
-        assertNull(mosaicArtworkForGenre("Electronic", artwork))
+        assertNotEquals(key("Electronic"), key("Electronica"))
+        assertNotNull(mosaicArtworkForGenre("Electronic", artwork))
         assertNotNull(mosaicArtworkForGenre("Electronica", artwork))
-        assertNull(editorialArtworkSlug("Electronic"))
-        assertNotNull(editorialArtworkSlug("Electronica"))
+        assertNotEquals(
+            mosaicArtworkForGenre("Electronic", artwork)?.filename,
+            mosaicArtworkForGenre("Electronica", artwork)?.filename,
+        )
+        assertEquals("electronic", editorialArtworkSlug("Electronic"))
+        assertEquals("electronica", editorialArtworkSlug("Electronica"))
 
-        // Jangle Pop is a legitimate label with no approved artwork.
-        assertEquals("jangle pop", key("Jangle Pop"))
-        assertNull(mosaicArtworkForGenre("Jangle Pop", artwork))
-        assertNull(editorialArtworkSlug("Jangle Pop"))
+        // A legitimate style outside the 665 keeps no artwork at all.
+        assertEquals("barbershop", key("Barbershop"))
+        assertNull(mosaicArtworkForGenre("Barbershop", artwork))
+        assertNull(editorialArtworkSlug("Barbershop"))
 
         // Approved word-order exception only for Pop Rock.
         assertEquals("pop rock", key("Pop Rock"))

@@ -87,6 +87,51 @@ internal val editorialSourceKeys: Set<String> = setOf(
     "russian_folk", "russian_post_punk", "russian_rock", "russian_romance", "sevdalinka", "soca",
     "soukous", "soul_jazz", "soviet_pop", "sovietwave", "spiritual_jazz", "tarab",
     "thai_luk_thung", "thumri", "timba", "turkish_classical", "visual_kei", "zouk",
+
+    // UI7-665 (catalog positions 313-672, minus the seven withdrawn ones): imported
+    // from the pending batch on 2026-11-17. Bytes, dimensions and SHA-256 were verified
+    // against the integration CSV; art review is still pending, so every one of these
+    // rows carries IMPORTED_PENDING_VISUAL_APPROVAL in the pack manifest.
+    "aak", "abhang", "aboriginal_australian_music", "abstract_hip_hop", "acid_rock", "acid_techno", "acousmatic", "afro_brazilian", "afro_peruvian",
+    "albanian_iso_polyphony", "albazo", "alegrias", "anarcho_punk", "andalusian_classical", "apala", "arabic_classical", "ars_nova", "ars_subtilior",
+    "assiko", "avant_garde_metal", "axe", "baiao", "bal_musette", "baltimore_club", "bambuco", "bangladeshi_rock", "barber_beats",
+    "bassline", "batuque_cabo_verdiano", "bhojpuri_pop", "big_room_house", "bikutsi", "blackgaze", "bleep_techno", "bomba", "bongo_flava",
+    "boogie_woogie", "bouyon", "brega_funk", "breton_folk", "broken_beat", "buleria", "bulgarian_horo", "bullerengue", "burmese_classical",
+    "cakewalk", "cambodian_rock", "campursari", "cante_alentejano", "canterbury_scene", "canzone_napoletana", "caporales", "carimbo", "carnavalito",
+    "celtic_punk", "chaabi", "chakacha", "chalga", "chamber_jazz", "charleston", "chicago_footwork", "chicha_peruana", "chilena_guerrerense",
+    "chimurenga", "choro", "cocek", "coladeira", "copla_espanola", "coupe_decale", "crunk", "crust_punk", "csardas",
+    "currulao", "dandiya", "dark_cabaret", "dark_jazz", "d_beat", "descarga", "desert_rock", "digital_hardcore", "djent",
+    "dungeon_synth", "egyptian_belly_dance", "electroacoustic", "electronic", "emoviolence", "entekhno", "estampie", "ethno_jazz", "ethnotronica",
+    "eurobeat", "experimental_hip_hop", "extratone", "fado_de_coimbra", "fandango", "finnish_humppa", "foxtrot", "freak_folk", "free_funk",
+    "free_improvisation", "frevo", "fuji", "funana", "funeral_doom_metal", "future_funk", "future_garage", "gaana", "gabber",
+    "gagaku", "gaita_zuliana", "gangsta_rap", "garage_house", "garba", "gato_argentino", "georgian_polyphonic_singing", "ghetto_house", "global_bass",
+    "goa_trance", "go_go", "gong_kebyar", "gregorian_chant", "grindcore", "guaguanco", "gufeng", "gugak", "gumbe",
+    "hapa_haole", "happy_hardcore", "hardanger_fiddle_music", "hardbass", "hardgroove_techno", "hawaiian_slack_key", "hiplife", "honky_tonk", "hsaing_waing",
+    "huapango_arribeno", "huaylarsh", "huayno_con_arpa", "hula_chant", "hyphy", "iraqi_maqam", "irish_traditional", "isicathamiya", "jaipongan",
+    "jangle_pop", "jazz_house", "jeongak", "jiangnan_sizhu", "joropo", "jota", "juju", "juke", "kacapi_suling",
+    "kaneka", "kansas_city_jazz", "kayokyoku", "kazakh_kui", "keroncong", "khayal", "koplo", "kulintang", "kurdish_pop",
+    "kuthu", "kwaito", "kyrgyz_kuu", "laiko", "lavani", "lied", "lo_fi_hip_hop", "lo_fi_house", "lovers_rock",
+    "luk_krung", "madchester", "madrigal", "mahori", "makina", "malambo", "malhun", "mande_music", "manele",
+    "maori_waiata", "mapale", "maracatu", "maskandi", "memphis_rap", "mento", "merecumbe", "merengue_tipico", "merseybeat",
+    "miami_bass", "microhouse", "milonga", "minimalism", "minnesang", "minyo", "mizrahi_music", "mongolian_khoomei", "moombahton",
+    "morin_khuur_music", "mor_lam", "morna", "motet", "muneira", "murga_uruguaya", "musica_de_quena", "musica_de_sikus", "musica_sefardi",
+    "musica_vasca", "musique_concrete", "nanyin", "ndombolo", "neoperreo", "neo_psychedelia", "nepali_folk", "neurofunk", "new_orleans_bounce",
+    "new_orleans_jazz", "nwobhm", "oi", "old_time", "orchestral_jazz", "organic_house", "oriental_fusion", "outlaw_country", "ozgun_muzik",
+    "pacific_reggae", "paisley_underground", "pakistani_pop", "palm_wine", "palo_de_mayo", "parranda_garifuna", "partido_alto", "pasacalle_andino", "pasillo_ecuatoriano",
+    "pasodoble", "persian_dastgah", "persian_pop", "piedmont_blues", "pinoy_hip_hop", "pinoy_rock", "pinpeat", "plena", "polynesian_pop",
+    "porro_colombiano", "post_bop", "powerviolence", "proto_punk", "psychobilly", "punta_garifuna", "quickstep", "rabindra_sangeet", "radif",
+    "raga_rock", "ragga_jungle", "refalosa", "riot_grrrl", "rkt", "rock_andaluz", "rock_in_opposition", "romanian_doina", "rumba_catalana",
+    "sajuriana", "sakara", "salsa_dura", "samba_cancao", "samba_de_roda", "samba_enredo", "samba_rock", "sami_joik", "samulnori",
+    "sanjuanito", "sardana", "saya_afroboliviana", "schlager", "schottische", "schranz", "scottish_folk", "sea_shanty", "sega",
+    "seguiriya", "semba", "serialism", "sevillanas", "shaabi", "shangaan_electro", "shashmaqom", "shibuya_kei", "shidaiqu",
+    "sin_clasificar", "singeli", "sirilla_chilota", "ska_punk", "slowcore", "sludge_metal", "solea", "songo", "son_huasteco",
+    "son_istmeno", "son_jarocho", "son_montuno", "southern_hip_hop", "southern_rock", "space_rock", "spectralism", "speedcore", "speed_metal",
+    "suomisaundi", "sutartines", "swedish_polska", "taarab", "tappa", "taquirari", "tarana", "tarantella", "technical_death_metal",
+    "techstep", "tecnobrega", "texas_blues", "third_stream", "tinku", "tizita", "tondero", "t_pop", "trap_soul",
+    "tropicalia", "trot", "tsonga_disco", "tsugaru_jamisen", "turbo_folk", "turkish_arabesque", "turkish_folk", "turkish_pop", "uk_drill",
+    "uk_funky", "uk_hardcore", "ukrainian_dumy", "urtiin_duu", "uyghur_muqam", "vals_chilote", "vocal_jazz", "v_pop", "welsh_folk",
+    "west_african_griot", "west_coast_jazz", "western_swing", "witch_house", "xaxado", "xote", "yaravi", "yayue", "zamba_argentina",
+    "zarzuela", "zeuhl",
 )
 
 private val approvedSlugPattern = Regex("[a-z0-9]+(?:_[a-z0-9]+)*")
@@ -115,10 +160,26 @@ internal enum class EditorialProductionVariant(val suffix: String) {
     PORTRAIT_RIGHT("portrait_right"), SINGLE_COLUMN("single")
 }
 
+/** The only poster the absence bucket can ever own. It is not a music genre. */
+private const val absenceEditorialSlug = "sin_clasificar"
+
 /** Exact approved slug used by both complete posters and derived Editorial art. */
 internal fun editorialArtworkSlug(genreTitle: String): String? {
+    // The unclassified bucket owns a poster, but it is not a genre: MI-26 resolves its
+    // label to no key at all, so the binding is named here instead of being derived from
+    // words that describe an absence. No musical style can ever claim this slug.
+    // Only the absence identity itself owns this poster: the bare internal key or the
+    // visible bucket label. Other absence markers (empty, "Unknown", "N/A") are not a
+    // genre either, but letting them all borrow this crop would make the bucket look
+    // like a style that every unlabelled value falls into.
+    if (genreTitle.trim() == MichiGenreAbsencePolicy.UNCLASSIFIED_KEY ||
+        MichiGenreAbsencePolicy.fold(genreTitle) ==
+        MichiGenreAbsencePolicy.fold(MichiGenreAbsencePolicy.UNCLASSIFIED_LABEL)
+    ) {
+        return absenceEditorialSlug.takeIf { it in editorialSourceKeys }
+    }
     val id = genreGroupingKey(genreTitle)
-    if (id.isBlank() || MichiGenreAbsencePolicy.isMissing(id)) return null
+    if (id.isBlank()) return null
     val slug = when (id) {
         "r&b" -> "rn_b"
         "edm" -> "e_d_m"

@@ -31,7 +31,7 @@ class GenreArtworkRuntimeTest {
             opticalMasks = mosaicOptical,
         )
         assertNull("Mosaico rejected: $mosaicFailure", mosaicFailure)
-        assertEquals("Mosaico published entries", 312, mosaic.size)
+        assertEquals("Mosaico published entries", 665, mosaic.size)
         assertEquals("Mosaico optical rows", 312, mosaicOptical.size)
         assertEquals("Mosaico verified optical rows", 298,
             mosaic.values.count { it.opticalMask?.verified == true })
@@ -42,6 +42,11 @@ class GenreArtworkRuntimeTest {
         assertEquals("UI7_MOSAICO_312_Timba.webp", mosaicArtworkForGenre("timba", mosaic)?.filename)
         assertEquals("UI7_MOSAICO_275_VisualKei.webp",
             mosaicArtworkForGenre("visual kei", mosaic)?.filename)
+        // Imported on 2026-11-17: available in the APK, still awaiting art review.
+        assertEquals("UI7_MOSAICO_313_JanglePop.webp",
+            mosaicArtworkForGenre("jangle pop", mosaic)?.filename)
+        assertEquals("IMPORTED_PENDING_VISUAL_APPROVAL",
+            mosaicArtworkForGenre("jangle pop", mosaic)?.approval)
 
         val posterFiles = context.assets.list(editorialPosterFolder).orEmpty().toSet()
         val posterText = context.assets.open("$editorialPosterFolder/manifest.tsv")
@@ -56,7 +61,7 @@ class GenreArtworkRuntimeTest {
             opticalMasks = posterOptical,
         )
         assertNull("Editorial rejected: $posterFailure", posterFailure)
-        assertEquals("Editorial published entries", 312, posters.size)
+        assertEquals("Editorial published entries", 665, posters.size)
         assertEquals("Editorial optical rows", 312, posterOptical.size)
         assertEquals("Editorial verified optical rows", 227,
             posters.values.count { it.opticalMask?.verified == true })
@@ -70,6 +75,10 @@ class GenreArtworkRuntimeTest {
         assertEquals("genre_timba_editorial.webp", editorialPosterForTitle("Timba", posters)?.filename)
         assertEquals("genre_visual_kei_editorial.webp",
             editorialPosterForTitle("Visual Kei", posters)?.filename)
+        assertEquals("genre_jangle_pop_editorial.webp",
+            editorialPosterForTitle("Jangle Pop", posters)?.filename)
+        assertEquals("IMPORTED_PENDING_VISUAL_APPROVAL",
+            editorialPosterForTitle("Jangle Pop", posters)?.approval)
     }
 
     @Test fun coilDecodesInstalledWebpsFromBothViews() = runBlocking {

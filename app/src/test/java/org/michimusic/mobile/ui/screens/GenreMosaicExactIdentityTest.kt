@@ -22,7 +22,7 @@ class GenreMosaicExactIdentityTest {
             installed = installed,
             onRejected = { rejected += it },
         )
-        assertEquals("rejected=$rejected", 312, artwork.size)
+        assertEquals("rejected=$rejected", 665, artwork.size)
         return artwork
     }
 
@@ -33,8 +33,16 @@ class GenreMosaicExactIdentityTest {
         assertNull(mosaicArtworkForGenre("Hip/Hop", artwork))
         assertNull(mosaicArtworkForGenre("R B", artwork))
         assertNull(mosaicArtworkForGenre("Rock/Pop", artwork))
-        assertNull(mosaicArtworkForGenre("Electronic", artwork))
-        assertNull(mosaicArtworkForGenre("Jangle Pop", artwork))
+        // A style outside the packaged 665 keeps no crop at all.
+        assertNull(mosaicArtworkForGenre("Barbershop", artwork))
+        // Electronic and Jangle Pop now own their imported crop, and it is their own:
+        // proximity to Electronica or to any pop style never hands them a neighbour's.
+        assertEquals("UI7_MOSAICO_329_Electronic.webp",
+            mosaicArtworkForGenre("Electronic", artwork)?.filename)
+        assertEquals("UI7_MOSAICO_010_Electronica.webp",
+            mosaicArtworkForGenre("Electronica", artwork)?.filename)
+        assertEquals("UI7_MOSAICO_313_JanglePop.webp",
+            mosaicArtworkForGenre("Jangle Pop", artwork)?.filename)
 
         assertEquals(
             "UI7_MOSAICO_009_HipHop.webp",

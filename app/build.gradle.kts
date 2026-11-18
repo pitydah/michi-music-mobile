@@ -280,3 +280,46 @@ val verifyUi7MosaicAssets = tasks.register<Exec>("verifyUi7MosaicAssets") {
     inputs.dir(file("src/main/assets/ui7/mosaic"))
 }
 tasks.named("preBuild").configure { dependsOn(verifyUi7MosaicAssets) }
+
+// UI7-665 approval gate. DEBUG may package and render artwork that is still awaiting
+// art review, so the checks above stay as they are. A distributable build may not:
+// these two tasks re-run the same validators with `--certified`, which additionally
+// refuses every row whose approval state is not USER_CONFIRMED_COMPLETE. Because the
+// gate is attached to `pre<Variant>Build`, assemble, bundle, install and publish all
+// pass through it — there is no release path that can skip certification.
+val verifyUi7MosaicCertification = tasks.register<Exec>("verifyUi7MosaicCertification") {
+    group = "verification"
+    description = "Refuse a release build while any UI7 Mosaico crop awaits art review"
+    workingDir = rootProject.rootDir
+    commandLine(
+        "python3",
+        rootProject.file("tools/validate_ui7_mosaic_assets.py").absolutePath,
+        "--certified",
+    )
+    inputs.file(rootProject.file("tools/validate_ui7_mosaic_assets.py"))
+    inputs.file(rootProject.file("tools/validate_ui7_editorial_assets.py"))
+    inputs.file(file("src/main/java/org/michimusic/mobile/ui/screens/GenreMosaicArtworkPolicy.kt"))
+    inputs.dir(file("src/main/assets/ui7/mosaic"))
+}
+
+val verifyUi7EditorialCertification =
+    tasks.register<Exec>("verifyUi7EditorialPosterCertification") {
+        group = "verification"
+        description = "Refuse a release build while any UI7 Editorial poster awaits art review"
+        workingDir = rootProject.rootDir
+        commandLine(
+            "python3",
+            rootProject.file("tools/validate_ui7_editorial_posters.py").absolutePath,
+            "--certified",
+        )
+        inputs.file(rootProject.file("tools/validate_ui7_editorial_posters.py"))
+        inputs.file(rootProject.file("tools/validate_ui7_editorial_assets.py"))
+        inputs.file(file("src/main/java/org/michimusic/mobile/ui/screens/GenreEditorialArtworkPolicy.kt"))
+        inputs.dir(file("src/main/assets/ui7/editorial/posters"))
+    }
+
+// Matches preNormalReleaseBuild, preFdroidReleaseBuild and prePlaystoreReleaseBuild:
+// every real release variant of every flavor, not just one assembleRelease alias.
+tasks.matching { it.name.matches(Regex("pre[A-Za-z]*ReleaseBuild")) }.configureEach {
+    dependsOn(verifyUi7MosaicCertification, verifyUi7EditorialCertification)
+}

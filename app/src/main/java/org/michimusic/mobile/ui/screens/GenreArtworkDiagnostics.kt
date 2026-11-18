@@ -60,6 +60,15 @@ internal object GenreArtworkDiagnostics {
         if (BuildConfig.DEBUG) Log.e(TAG, "$view $MANIFEST_REJECTED=$reason")
     }
 
+    /**
+     * Why a parsed pack is or is not certified. Separate from [CATALOG_LOADED] on purpose:
+     * a pack can load perfectly and still hold artwork nobody reviewed, and merging the two
+     * facts into one line is how "it parsed" starts reading as "it was approved".
+     */
+    fun catalogApproval(report: Ui7ArtworkPackReport) {
+        if (BuildConfig.DEBUG) Log.d(TAG, report.summary())
+    }
+
     fun catalogError(view: String, error: Throwable) {
         record(MANIFEST_REJECTED)
         if (BuildConfig.DEBUG) Log.e(TAG, "$view manifest_read_failed", error)

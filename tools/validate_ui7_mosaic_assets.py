@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Fail-closed gate for the UI7 "Mosaico destacado" local artwork pack.
 
-The 312 WebP crops are copied byte-for-byte from the approved Mosaico source.
-This gate never re-crops, renames, re-encodes or reorders them: it only hashes,
-measures and cross-checks the checked-in manifest. Run with ``--write`` to
-regenerate ``manifest.tsv`` deterministically from the packaged files.
+The 665 WebP crops are copied byte-for-byte from the Mosaico source. This gate never
+re-crops, renames, re-encodes or reorders them: it only hashes, measures and
+cross-checks the checked-in manifest. Run with ``--write`` to regenerate
+``manifest.tsv`` deterministically from the packaged files.
+
+Approval is a separate axis from integrity. The 312 crops reviewed before 2026-11-14
+carry ``USER_CONFIRMED_COMPLETE``; the 353 imported from the UI7-665 pending batch
+carry ``IMPORTED_PENDING_VISUAL_APPROVAL``, which means "bytes verified, artwork not
+yet reviewed". ``--write`` never promotes a file to approved on its own: a row keeps
+the state it already had, and a newly packaged file enters as pending. Run with
+``--certified`` to demand that nothing is left pending, which is the only state that
+may be described as reviewed artwork.
 
 Genre keys are derived from the filename suffix only (``UI7_MOSAICO_NNN_<Genre>.webp``)
 so an asset can never be attached to a genre that the source pack did not name.
@@ -27,16 +35,55 @@ MANIFEST = ASSETS / "manifest.tsv"
 HEADER = "# UI7_MOSAICO_MANIFEST_V1"
 FIELDS = 6
 APPROVAL = "USER_CONFIRMED_COMPLETE"
-EXPECTED_ASSETS = 312
+PENDING_APPROVAL = "IMPORTED_PENDING_VISUAL_APPROVAL"
+REJECTED = "REJECTED"
+ACCEPTED_APPROVALS = frozenset({APPROVAL, PENDING_APPROVAL})
+
+# The source catalog is numbered 1..672. Seven positions were withdrawn because they
+# duplicated artwork already published in 1..312, so the exact inventory is the range
+# minus those seven: 665 entries, with the original numbers kept and never renumbered.
+WITHDRAWN_POSITIONS = frozenset({557, 576, 589, 590, 591, 592, 607})
+EXPECTED_POSITIONS = frozenset(range(1, 673)) - WITHDRAWN_POSITIONS
+EXPECTED_ASSETS = len(EXPECTED_POSITIONS)
+
 MAX_WEBP = 1_572_864
 MAX_PIXELS = 3_686_400
-MAX_MANIFEST_CHARS = 96_000
+# 665 rows of key\tname\tsha\twidth\theight\tapproval measure 95_625 characters today.
+# 128 Ki leaves room for a longer approval word without ever becoming unbounded.
+MAX_MANIFEST_CHARS = 131_072
 
 FILENAME_RE = re.compile(r"UI7_MOSAICO_([0-9]{3})_([A-Za-z0-9]+)\.webp")
 
 # Suffixes the CamelCase tokenizer cannot prove on its own. Every other suffix
 # must split into plain words; there is no fuzzy fallback.
-SUFFIX_ALIASES = {"RnB": "r&b"}
+#
+# MI-26 keeps the hyphen of a canonical label, while CamelCase tokenizing turns the
+# same file suffix into two bare words: "ProtoPunk" -> "proto punk" never matches
+# "proto-punk". Each exception is enumerated because a blanket rule that dropped every
+# hyphen would also merge identities that must stay distinct.
+SUFFIX_ALIASES = {
+    "RnB": "r&b",
+    "ProtoPunk": "proto-punk",
+    "LoFiHouse": "lo-fi house",
+    "AbstractHipHop": "abstract hip-hop",
+    "ExperimentalHipHop": "experimental hip-hop",
+    "SouthernHipHop": "southern hip-hop",
+    "PostBop": "post-bop",
+    "VPop": "v-pop",
+    "TPop": "t-pop",
+    "LoFiHipHop": "lo-fi hip-hop",
+    "BatuqueCaboVerdiano": "batuque cabo-verdiano",
+    "NeoPsychedelia": "neo-psychedelia",
+    "AvantGardeMetal": "avant-garde metal",
+    "GoGo": "go-go",
+    "AfroPeruvian": "afro-peruvian",
+    "AfroBrazilian": "afro-brazilian",
+    "DBeat": "d-beat",
+    "PinoyHipHop": "pinoy hip-hop",
+    # The absence bucket is not a genre: its label resolves to no key, so the crop is
+    # bound to the internal identity instead of the Spanish words that describe absence.
+    "SinClasificar": "__ui7_unknown_genre__",
+}
 
 # Mirror of genreGroupingKey() in GenreClassificationPolicy.kt, so a manifest key
 # is the same key the Kotlin resolver derives from a real Track.genre label.
@@ -130,18 +177,45 @@ def rows_from_text(manifest: str) -> list[list[str]]:
             if row and not (len(row) == 1 and (not row[0] or row[0].startswith("#")))]
 
 
+def published_approvals(folder: Path) -> dict[str, str]:
+    """Approval already recorded per filename. Read-only: never invents a state."""
+    path = folder / "manifest.tsv"
+    if not path.is_file():
+        return {}
+    try:
+        rows = rows_from_text(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError, OSError, csv.Error):
+        return {}
+    states: dict[str, str] = {}
+    for row in rows:
+        if len(row) == FIELDS:
+            states[row[1]] = row[5]
+    return states
+
+
 def build_rows(folder: Path = ASSETS) -> list[list[str]]:
-    """Deterministic inventory: ascending NNN, unchanged bytes, derived key."""
+    """Deterministic inventory: ascending NNN, unchanged bytes, derived key.
+
+    Approval is inherited from the published manifest, and only for files that were
+    already in it. A rejected file is never republished, and a file that is new to the
+    pack enters as pending review: packaging is not approval.
+    """
+    previous = published_approvals(folder)
     rows: list[list[str]] = []
     for path in sorted(folder.glob("*.webp")):
         key = genre_key(path.name)
         if key is None:
             raise ValueError(f"unresolved genre suffix: {path.name}")
+        state = previous.get(path.name)
+        if state == REJECTED:
+            raise ValueError(f"rejected artwork is still packaged: {path.name}")
+        if state not in ACCEPTED_APPROVALS:
+            state = PENDING_APPROVAL
         payload = path.read_bytes()
         width, height = gate.webp_size(payload)
         rows.append([
             key, path.name, hashlib.sha256(payload).hexdigest(),
-            str(width), str(height), APPROVAL,
+            str(width), str(height), state,
         ])
     rows.sort(key=lambda row: row[1])
     return rows
@@ -154,7 +228,7 @@ def write_manifest(folder: Path = ASSETS) -> None:
         encoding="utf-8", newline="\n")
 
 
-def validate(folder: Path = ASSETS) -> list[str]:
+def validate(folder: Path = ASSETS, certified: bool = False) -> list[str]:
     errors: list[str] = []
     path = folder / "manifest.tsv"
     if folder.is_symlink() or not folder.is_dir() or path.is_symlink() or not path.is_file():
@@ -167,6 +241,7 @@ def validate(folder: Path = ASSETS) -> list[str]:
     used_files: set[str] = set()
     used_keys: set[str] = set()
     numbers: list[int] = []
+    pending: list[str] = []
     for number, cells in enumerate(records, 2):
         if len(cells) != FIELDS:
             errors.append(f"row {number}: expected {FIELDS} fields")
@@ -189,8 +264,12 @@ def validate(folder: Path = ASSETS) -> list[str]:
             errors.append(f"row {number}: duplicate genre_key '{key}'")
         used_keys.add(key)
         # MI-26: used_keys above already enforces exact canonical uniqueness.
-        if approval != APPROVAL:
-            errors.append(f"row {number}: not user-confirmed complete")
+        if approval == REJECTED:
+            errors.append(f"row {number}: rejected artwork must not be packaged")
+        elif approval not in ACCEPTED_APPROVALS:
+            errors.append(f"row {number}: unknown approval state '{approval}'")
+        elif approval == PENDING_APPROVAL:
+            pending.append(filename)
         if not re.fullmatch(r"[a-f0-9]{64}", sha):
             errors.append(f"row {number}: malformed SHA-256")
         target = folder / filename
@@ -217,19 +296,41 @@ def validate(folder: Path = ASSETS) -> list[str]:
     missing = used_files - installed
     if missing:
         errors.append("declared but not packaged: " + ", ".join(sorted(missing)))
-    if numbers != list(range(1, len(numbers) + 1)):
-        errors.append("mosaic numbering must be unique, ascending and gap-free")
+    # The inventory is the authorized position set, not 1..N: seven positions were
+    # withdrawn and must stay absent, while their neighbours keep their own numbers.
+    duplicated = sorted({str(number) for number in numbers if numbers.count(number) > 1})
+    if duplicated:
+        errors.append("duplicate mosaic positions: " + ", ".join(duplicated))
+    unauthorized = sorted(set(numbers) - EXPECTED_POSITIONS)
+    if unauthorized:
+        errors.append("unauthorized mosaic positions: " + ", ".join(str(n) for n in unauthorized))
+    absent = sorted(EXPECTED_POSITIONS - set(numbers))
+    if absent:
+        errors.append("missing mosaic positions: " + ", ".join(str(n) for n in absent))
+    if numbers != sorted(numbers):
+        errors.append("mosaic numbering must be ascending")
     if len(numbers) != EXPECTED_ASSETS:
-        errors.append(f"expected exactly {EXPECTED_ASSETS} approved mosaics, found {len(numbers)}")
+        errors.append(f"expected exactly {EXPECTED_ASSETS} packaged mosaics, found {len(numbers)}")
+    if certified and pending:
+        errors.append(
+            f"{len(pending)} mosaics are still pending visual approval, starting with "
+            + ", ".join(sorted(pending)[:3]))
     return errors
 
 
 if __name__ == "__main__":
-    if "--write" in sys.argv[1:]:
-        write_manifest()
+    arguments = sys.argv[1:]
+    folder = ASSETS
+    if "--folder" in arguments:
+        folder = Path(arguments[arguments.index("--folder") + 1])
+    if "--write" in arguments:
+        write_manifest(folder)
         print(f"UI7 Mosaico manifest rewritten ({EXPECTED_ASSETS} entries)")
-    problems = validate()
+    problems = validate(folder, certified="--certified" in arguments)
     if problems:
         print("UI7 Mosaico FAIL\n" + "\n".join(problems), file=sys.stderr)
         sys.exit(1)
-    print(f"UI7 Mosaico PASS (approved assets: {len(build_rows())})")
+    rows = build_rows(folder)
+    approved = sum(1 for row in rows if row[5] == APPROVAL)
+    print(f"UI7 Mosaico PASS (assets: {len(rows)}, approved: {approved}, "
+          f"pending: {len(rows) - approved})")

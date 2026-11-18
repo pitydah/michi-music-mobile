@@ -58,9 +58,11 @@ class GenreEditorialArtworkPolicyTest {
         assertTrue(!editorialProductionGeometryValid("cover", 4096, 4096))
     }
 
-    @Test fun inventoryContainsOnlyThe312VerifiedEditorialSources() {
-        // The reconciled UI7 editorial pack ships one verified source per Mosaico genre.
-        assertEquals(312, editorialSourceKeys.size)
+    @Test fun inventoryContainsOnlyTheVerifiedEditorialSources() {
+        // One verified source per Mosaico genre: 312 reviewed before 2026-11-14 plus
+        // the 353 imported from the pending batch. The allowlist is what stops an
+        // unapproved punctuation variant from borrowing somebody else's poster.
+        assertEquals(665, editorialSourceKeys.size)
         assertTrue("new_wave" in editorialSourceKeys)
         assertTrue("afrobeat" in editorialSourceKeys)
         assertTrue("afrobeats" in editorialSourceKeys)
@@ -69,6 +71,23 @@ class GenreEditorialArtworkPolicyTest {
             "gqom", "visual_kei", "chiptune", "chacarera", "modal_jazz",
             "guajira_cubana", "cha_cha_cha", "timba",
         ).forEach { assertTrue("missing approved slug $it", it in editorialSourceKeys) }
+        listOf(
+            "jangle_pop", "slowcore", "proto_punk", "abstract_hip_hop", "lo_fi_house",
+            "go_go", "afro_peruvian", "batuque_cabo_verdiano", "sin_clasificar",
+        ).forEach { assertTrue("missing imported slug $it", it in editorialSourceKeys) }
+    }
+
+    @Test fun theAbsenceBucketOwnsOnePosterAndNeverAGenreName() {
+        // "Sin clasificar" is a metadata state, not a music style. It resolves to its
+        // own poster through the internal bucket id, and to nothing else.
+        assertEquals("sin_clasificar", editorialArtworkSlug("Sin clasificar"))
+        assertEquals(
+            "sin_clasificar",
+            editorialArtworkSlug(org.michimusic.core.intelligence.MichiGenreAbsencePolicy.UNCLASSIFIED_KEY),
+        )
+        // It is not a synonym for any real genre, and no genre slug is invented.
+        assertNull(editorialArtworkSlug("Some Unknown New Style"))
+        assertNotEquals("sin_clasificar", editorialArtworkSlug("Rock"))
     }
 
     @Test fun theAddedGenresResolveToTheirOwnApprovedSlugs() {
@@ -112,7 +131,8 @@ class GenreEditorialArtworkPolicyTest {
     }
 
     @Test fun unknownLabelsNeverSelectIncorrectArt() {
-        assertNull(editorialProductionAssetPath("Sin clasificar", GenreEditorialTreatment.COVER, 2))
+        // "Sin clasificar" is deliberately absent from this list: it has its own
+        // poster since UI7-665, and asserting a placeholder would deny that.
         assertNull(editorialProductionAssetPath("Some Unknown New Style", GenreEditorialTreatment.COVER, 2))
         assertNull(editorialProductionAssetPath("Metal!!!", GenreEditorialTreatment.COVER, 2))
         assertNull(editorialProductionAssetPath("R&B/Soul", GenreEditorialTreatment.COVER, 2))

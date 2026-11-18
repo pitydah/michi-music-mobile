@@ -83,7 +83,7 @@ class MichiGenreCsvAuditTest {
             installed = installed,
             onRejected = { rejected += it },
         )
-        assertEquals("rejections=$rejected", 312, artwork.size)
+        assertEquals("rejections=$rejected", 665, artwork.size)
         catalog.forEach { row ->
             val number = row[col("numero_catalogo")]
             val target = row[col("clave_grupo_objetivo")]
@@ -97,8 +97,25 @@ class MichiGenreCsvAuditTest {
         assertNull(mosaicArtworkForGenre("Hip/Hop", artwork))
         assertNull(mosaicArtworkForGenre("R B", artwork))
         assertNull(mosaicArtworkForGenre("Rock/Pop", artwork))
-        assertNull(mosaicArtworkForGenre("Electronic", artwork))
-        assertNull(mosaicArtworkForGenre("Jangle Pop", artwork))
+        // These two rows were recorded as legitimate labels with no approved resource.
+        // The pending batch gives each its own imported crop, so what this audit must
+        // prove now is that neither borrows a neighbour's art and that arriving in the
+        // pack never reads as approved.
+        assertEquals(
+            "UI7_MOSAICO_329_Electronic.webp",
+            mosaicArtworkForGenre("Electronic", artwork)?.filename,
+        )
+        assertEquals(
+            "UI7_MOSAICO_313_JanglePop.webp",
+            mosaicArtworkForGenre("Jangle Pop", artwork)?.filename,
+        )
+        listOf("Electronic", "Jangle Pop").forEach { label ->
+            assertEquals(
+                "$label arrived with the pending batch, not with an approval",
+                mosaicPendingApprovalState,
+                mosaicArtworkForGenre(label, artwork)?.approval,
+            )
+        }
         assertEquals(
             "UI7_MOSAICO_219_Darkwave.webp",
             mosaicArtworkForGenre("Dark Wave", artwork)?.filename,
@@ -107,9 +124,9 @@ class MichiGenreCsvAuditTest {
         val posterLines = File(moduleDir, "src/main/assets/ui7/editorial/posters/manifest.tsv")
             .readLines()
             .filter { it.isNotBlank() && !it.startsWith("#") }
-        assertEquals(312, posterLines.size)
+        assertEquals(665, posterLines.size)
         val posterSlugs = posterLines.map { it.split('\t').first() }.toSet()
-        assertEquals(312, posterSlugs.size)
+        assertEquals(665, posterSlugs.size)
         catalog.forEach { row ->
             val slug = row[col("identidad_manifest_editorial")]
             assertTrue(
@@ -117,8 +134,8 @@ class MichiGenreCsvAuditTest {
                 slug in posterSlugs,
             )
         }
-        assertFalse("electronic" in posterSlugs)
-        assertFalse("jangle pop" in posterSlugs)
+        assertTrue("electronic" in posterSlugs)
+        assertTrue("jangle_pop" in posterSlugs)
     }
 
     private fun parseCsv(text: String): List<List<String>> {
