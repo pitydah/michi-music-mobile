@@ -87,80 +87,16 @@ internal fun SettingsLibraryDetails(
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsSectionCard(
-            icon = Icons.Default.FolderSpecial,
-            title = "Carpeta de música",
-            subtitle = "Ubicación seleccionada y permisos actuales",
-            accent = TertiaryCyan,
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(GlassFillLow)
-                    .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                    .clickable(enabled = !busy) {
-                        onSelectTree()
-                    }
-                    .padding(14.dp)
-                    .testTag("settings_library_root"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Carpeta de música",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = PureWhite,
-                        ),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = when {
-                            busy -> "Actualizando biblioteca… ${progress.coerceAtLeast(0)} pista(s)"
-                            else -> currentRoot.label
-                        },
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
-                    )
-                }
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = TertiaryCyan,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-
-            if (!permissionReady) {
-                Text("Comprobando permisos de esta carpeta…",
-                    style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
-            }
-            if (permissionError) {
-                Text("No se pudo verificar el permiso de esta carpeta. Escritura deshabilitada.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFFFB4AB)),
-                    modifier = Modifier.testTag("settings_library_permission_unknown"))
-            }
-            if (permissionRevoked) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "El permiso de esta carpeta se revocó. Vuelve a elegirla para recuperar el acceso.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFFFB4AB)),
-                )
-            }
-
-
-            if (message != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = message!!,
-                    style = MaterialTheme.typography.bodySmall.copy(color = TertiaryCyan),
-                )
-            }
-
-
-        }
+        SettingsLibraryRootSection(
+            currentRoot = currentRoot,
+            busy = busy,
+            progress = progress,
+            message = message,
+            permissionRevoked = permissionRevoked,
+            permissionError = permissionError,
+            permissionReady = permissionReady,
+            onSelectTree = onSelectTree,
+        )
         SettingsSectionCard(
             icon = Icons.Default.Storage,
             title = "Espacio de Michi Link",
