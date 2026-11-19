@@ -64,15 +64,22 @@ internal fun AirCatAeroHeader(
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("aircat_aero_back")) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = PureWhite)
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                modifier = Modifier.weight(1f).testTag("aircat_aero_header"),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                // A71-S9: at 2.0x a single line cut "Michi Link · Seguridad" down to
+                // "MICHI LINK · SEGURI…", and two subtitle lines cut "…compartir tu
+                // biblioteca". Losing words at 200% is a WCAG 1.4.4 failure, so both are
+                // allowed to wrap; the ellipsis stays only as a last-resort guard.
                 Text(eyebrow.uppercase(), color = TertiaryCyan, fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 // At 2.0x the title needs a second line on a 360dp screen; one line
                 // truncated "Explorar música" into an unusable ellipsis.
                 Text(title, color = PureWhite, fontSize = 23.sp,
                     fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, color = TextSecondary, fontSize = 12.sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
         }
     }
