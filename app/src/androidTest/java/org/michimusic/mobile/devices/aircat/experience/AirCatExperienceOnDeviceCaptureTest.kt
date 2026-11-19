@@ -15,18 +15,29 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -34,6 +45,8 @@ import org.junit.runner.RunWith
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource
 import org.michimusic.mobile.devices.aircat.AirCatTransferState
+import org.michimusic.mobile.ui.components.QrScannerDialog
+import org.michimusic.mobile.ui.components.QrScannerPurpose
 import org.michimusic.mobile.ui.theme.MichiTheme
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 
@@ -165,6 +178,11 @@ private fun captureTrustState(pending: Boolean): MichiLinkTrustState {
  * transfer and result are captured from their real production composables with
  * explicit state, not from a live peer session. EXTERNAL_INTEROP stays
  * BLOCKED_EXTERNAL.
+ *
+ * The Home administration QR is the ninth surface. It is a `Dialog`, so it is
+ * captured by [theHomeAdministrationQrIsCapturedAtEveryPromisedWidthAndScale]
+ * from its own window; see that test for why its measured width is recorded
+ * instead of asserted against the dp column.
  */
 @RunWith(AndroidJUnit4::class)
 class AirCatExperienceOnDeviceCaptureTest {
@@ -251,7 +269,7 @@ class AirCatExperienceOnDeviceCaptureTest {
                     )
                     clickables.forEach { node ->
                         val heightDp = node.size.height / effectiveDensity
-            val identity = node.config.toString().take(1000)
+                        val identity = node.config.toString().take(1000)
                         assertTrue(
                             "$target at ${width}dp/${fontScale}x: clickable ${identity} is " +
                                 "${heightDp}dp tall, below the 48dp target",
@@ -275,6 +293,33 @@ class AirCatExperienceOnDeviceCaptureTest {
                         "$target\t$width\t$fontScale\t${bitmap.width}x${bitmap.height}\t" +
                             "${file.absolutePath}",
                     )
+                    // A71-S9: text that loses words behind an ellipsis at 200% is broken
+                    // content, not a styling detail. TextLayoutResult.didOverflowWidth is
+                    // not the signal here: it compares the node width (337px) against a
+                    // paragraph laid out at the full 729px constraint, so it fires on text
+                    // that renders complete. didExceedMaxLines is the layout's own verdict
+                    // that words were dropped, so a hopeful maxLines bump cannot fake it.
+                    val headerTexts = compose.onAllNodes(
+                        hasAnyAncestor(hasTestTag("aircat_aero_header")) and
+                            SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult),
+                    ).fetchSemanticsNodes()
+                    headerTexts.forEach { textNode ->
+                        val layouts = mutableListOf<TextLayoutResult>()
+                        textNode.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+                        val layout = layouts.firstOrNull()
+                        val paragraph = layout?.let { "${it.multiParagraph.width}x${it.multiParagraph.height}" }
+                        val detail = "size=${layout?.size} lines=${layout?.lineCount} " +
+                            "paragraph=$paragraph overflowW=${layout?.didOverflowWidth} " +
+                            "overflowH=${layout?.didOverflowHeight} " +
+                            "maxLines=${layout?.layoutInput?.maxLines} " +
+                            "constraints=${layout?.layoutInput?.constraints}"
+                        assertFalse(
+                            "$target at ${width}dp/${fontScale}x: header text " +
+                                "\"${layout?.layoutInput?.text}\" was cut off ($detail)",
+                            layout?.multiParagraph?.didExceedMaxLines == true,
+                        )
+                    }
+
                     captures++
                     bitmap.recycle()
                 }
@@ -285,6 +330,164 @@ class AirCatExperienceOnDeviceCaptureTest {
             "screen\twidthDp\tfontScale\tpixels\tpath\n" + manifest,
         )
         println("A71_S7_DEVICE_CAPTURES captures=$captures dir=${directory.absolutePath}")
+    }
+
+    /**
+     * A71-S7 ninth surface: the Home administration QR dialog.
+     *
+     * This surface is a `Dialog`, so Compose composes it into its own window. Two consequences
+     * are recorded here rather than papered over:
+     *
+     * 1. The window is sized and densified by the platform from the real display, so the
+     *    `LocalDensity` override the eight inline surfaces use never reaches this content. A
+     *    first attempt drove the 4x4 matrix that way and produced sixteen byte-identical PNGs;
+     *    the duplicate hash is what exposed it. The matrix for this surface is therefore driven
+     *    by the device itself (`wm size` for the width, `settings put system font_scale` for the
+     *    scale), and every run captures the one configuration the device is really in.
+     * 2. The dialog is never asked to reflow to an arbitrary dp width, because the platform
+     *    dialog container always picks the width. What is certified for each real configuration
+     *    is that the dialog fits the display, that every action keeps the 48 dp touch target,
+     *    and that the frame carries real drawn pixels.
+     *
+     * The file name carries the measured configuration, so a set of captures cannot silently
+     * collapse into duplicates without the names colliding too.
+     */
+    @Test
+    fun theHomeAdministrationQrIsCapturedAtTheRealDeviceConfiguration() {
+        compose.setContent {
+            MichiTheme {
+                QrScannerDialog(
+                    onScanSuccess = {},
+                    onDismiss = {},
+                    purpose = QrScannerPurpose.HOME_ADMIN,
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        val metrics = context.resources.displayMetrics
+        val configuration = context.resources.configuration
+        val density = metrics.density
+        val widthDp = configuration.screenWidthDp
+        val fontScale = configuration.fontScale
+        val scaleLabel = String.format(Locale.US, "%.1f", fontScale)
+
+        compose.onNodeWithTag("qr_scanner_dialog").assertIsDisplayed()
+        // A71-S9: the close action is a contract, not a decoration. A title without weight
+        // pushes it outside the row, where the scroll viewport clips it out of sight.
+        compose.onNodeWithContentDescription("Cerrar").assertIsDisplayed()
+
+        val node = compose.onNodeWithTag("qr_scanner_dialog").fetchSemanticsNode()
+        assertTrue(
+            "QR dialog at ${widthDp}dp/${scaleLabel}x measured " +
+                "${node.size.width}x${node.size.height}px, beyond the " +
+                "${metrics.widthPixels}x${metrics.heightPixels}px display",
+            node.size.width <= metrics.widthPixels && node.size.height <= metrics.heightPixels,
+        )
+
+        val clickables = compose.onAllNodes(hasClickAction()).fetchSemanticsNodes()
+        assertTrue(
+            "QR dialog at ${widthDp}dp/${scaleLabel}x produced no clickable node",
+            clickables.isNotEmpty(),
+        )
+        clickables.forEach { clickable ->
+            val heightDp = clickable.size.height / density
+            val identity = clickable.config.toString().take(1000)
+            assertTrue(
+                "QR dialog at ${widthDp}dp/${scaleLabel}x: clickable $identity is " +
+                    "${heightDp}dp tall, below the 48dp target",
+                heightDp + 0.5f >= 48f,
+            )
+        }
+
+        val bitmap = compose.onNodeWithTag("qr_scanner_dialog").captureToImage().asAndroidBitmap()
+
+        val directory = File(context.getExternalFilesDir(null), "a71-s7-qr").apply { mkdirs() }
+        val manifest = File(directory, "manifest.tsv")
+        if (!manifest.exists()) {
+            manifest.writeText(
+                "widthDp\tfontScale\tdensity\tmeasuredPx\tbitmapPx\tstate\tpath\n",
+            )
+        }
+        val prefix = "qr_admin_w${widthDp}_fs${scaleLabel}"
+        saveCapture(
+            directory = directory,
+            manifest = manifest,
+            name = "$prefix.png",
+            state = "top",
+            node = node,
+            bitmap = bitmap,
+            widthDp = widthDp,
+            scaleLabel = scaleLabel,
+            density = density,
+        )
+
+        // The content scrolls once it is taller than the dialog window, so the action has to be
+        // proved reachable at every configuration instead of assumed visible when it opens.
+        compose.onNodeWithTag("pairing_link_field").performScrollTo().assertIsDisplayed()
+        val confirm = compose.onNodeWithTag("home_admin_qr_confirm").performScrollTo()
+        confirm.assertIsDisplayed()
+        // Visible is not the same as fully reachable: a node can report a size and still be
+        // half outside the surface. The confirmation action must end up entirely inside it.
+        val confirmBounds = confirm.fetchSemanticsNode().boundsInRoot
+        val surfaceBounds = compose.onNodeWithTag("qr_scanner_dialog")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(
+            "QR dialog at ${widthDp}dp/${scaleLabel}x: confirm action $confirmBounds is not " +
+                "fully inside the dialog $surfaceBounds after scrolling it into view",
+            confirmBounds.left >= surfaceBounds.left &&
+                confirmBounds.top >= surfaceBounds.top &&
+                confirmBounds.right <= surfaceBounds.right &&
+                confirmBounds.bottom <= surfaceBounds.bottom,
+        )
+        val scrolled = compose.onNodeWithTag("qr_scanner_dialog")
+            .captureToImage()
+            .asAndroidBitmap()
+        saveCapture(
+            directory = directory,
+            manifest = manifest,
+            name = "$prefix-bottom.png",
+            state = "bottom",
+            node = node,
+            bitmap = scrolled,
+            widthDp = widthDp,
+            scaleLabel = scaleLabel,
+            density = density,
+        )
+        println(
+            "A71_S7_QR_CAPTURE widthDp=$widthDp fontScale=$scaleLabel " +
+                "px=${node.size.width}x${node.size.height} dir=${directory.absolutePath}",
+        )
+    }
+
+    /** Writes one QR capture plus its manifest row; a blank or zero-byte frame fails. */
+    private fun saveCapture(
+        directory: File,
+        manifest: File,
+        name: String,
+        state: String,
+        node: SemanticsNode,
+        bitmap: Bitmap,
+        widthDp: Int,
+        scaleLabel: String,
+        density: Float,
+    ) {
+        val colors = sampledColors(bitmap)
+        assertTrue(
+            "QR dialog at ${widthDp}dp/${scaleLabel}x ($state) drew only $colors sampled colours",
+            colors >= 3,
+        )
+        val file = File(directory, name)
+        FileOutputStream(file).use {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        assertTrue("empty capture: ${file.absolutePath}", file.length() > 0)
+        manifest.appendText(
+            "$widthDp\t$scaleLabel\t$density\t${node.size.width}x${node.size.height}\t" +
+                "${bitmap.width}x${bitmap.height}\t$state\t${file.absolutePath}\n",
+        )
+        bitmap.recycle()
     }
 
     /** Samples a fixed grid so a blank or single-colour frame cannot pass. */
