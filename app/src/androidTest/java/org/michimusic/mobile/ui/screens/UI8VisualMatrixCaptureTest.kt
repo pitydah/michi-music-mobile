@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -214,8 +215,41 @@ class UI8VisualMatrixCaptureTest {
         )
     }
 
+    /**
+     * A whole-window screenshot needs a live display. The CI emulator can start with
+     * the screen off, and Compose draws offscreen captures regardless, so only this
+     * path has to wake the device before asking UiAutomation for pixels.
+     */
+    private fun wakeDisplay() {
+        val automation = instrumentation.uiAutomation
+        // CI can start the instrumentation with the display asleep. Keeping the
+        // display on is a prerequisite for whole-window screenshots.
+        runCatching { automation.executeShellCommand("svc power stayon true").close() }
+        runCatching {
+            automation.executeShellCommand("settings put system screen_off_timeout 1800000").close()
+        }
+        runCatching { automation.executeShellCommand("input keyevent KEYCODE_WAKEUP").close() }
+        runCatching { automation.executeShellCommand("wm dismiss-keyguard").close() }
+        instrumentation.waitForIdleSync()
+    }
+
+    private fun captureWholeWindow(): Bitmap {
+        wakeDisplay()
+        var last: Bitmap? = null
+        repeat(12) {
+            last = runCatching { instrumentation.uiAutomation.takeScreenshot() }.getOrNull()
+            if (last != null && distinctColors(last) >= 2) return last!!
+            SystemClock.sleep(250)
+            wakeDisplay()
+        }
+        return last ?: instrumentation.uiAutomation.takeScreenshot()
+    }
+
     @Test
     fun albumModeMenuAtEveryWidthAndScale() {
+        // Wake before the activity launches so Compose has a real hierarchy even
+        // when the test process starts with the display asleep.
+        wakeDisplay()
         var mode by mutableStateOf(LibraryViewMode.MOSAIC)
         var density by mutableStateOf(baseDensity)
         var scale by mutableStateOf(1f)
@@ -244,7 +278,7 @@ class UI8VisualMatrixCaptureTest {
             rule.onNodeWithTag("library_view_mode_toggle").performClick()
             rule.onNodeWithTag("library_view_mode_menu").assertExists()
             rule.waitForIdle()
-            val bitmap = instrumentation.uiAutomation.takeScreenshot()
+            val bitmap = captureWholeWindow()
             val dir = File(outRoot, "${width}dp-fs$fontScale")
             dir.mkdirs()
             FileOutputStream(File(dir, "album_mode_menu.png")).use {
