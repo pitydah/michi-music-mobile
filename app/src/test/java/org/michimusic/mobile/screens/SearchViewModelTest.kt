@@ -169,13 +169,14 @@ class SearchViewModelTest {
 
         viewModel.loadLocalTracks()
         testScheduler.runCurrent()
-        assertTrue(viewModel.isSearching.value)
+        // The first scan is in flight: its MediaStore read already started.
+        coVerify(exactly = 1) { localRepo.loadAlbums() }
 
         // A retry arrives while the first catalog scan is still running.
         viewModel.loadLocalTracks()
         testScheduler.runCurrent()
         // The in-flight scan keeps ownership instead of being cancelled and restarted.
-        assertTrue(viewModel.isSearching.value)
+        coVerify(exactly = 1) { localRepo.loadAlbums() }
 
         testScheduler.advanceUntilIdle()
         assertFalse(viewModel.isSearching.value)
@@ -192,6 +193,7 @@ class SearchViewModelTest {
                 tracks = listOf(rock),
             ),
         )
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
         viewModel.loadLocalTracks()
         testScheduler.advanceUntilIdle()
 
@@ -230,7 +232,7 @@ class SearchViewModelTest {
 
         scopedViewModel.loadLocalTracks()
         testScheduler.runCurrent()
-        assertTrue(scopedViewModel.isSearching.value)
+        coVerify(exactly = 1) { localRepo.loadAlbums() }
 
         // The shared root authority confirms a new root while the old scan is running.
         revisions.value = 1L
