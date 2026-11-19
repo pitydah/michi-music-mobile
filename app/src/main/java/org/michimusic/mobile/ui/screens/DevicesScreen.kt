@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.lazy.LazyColumn
@@ -82,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import org.michimusic.mobile.devices.aircat.experience.AirCatExperienceHost
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -186,6 +189,10 @@ fun DevicesScreen(
     var showAirCatTargetPicker by remember { mutableStateOf(false) }
     var airCatPickerForRecovery by remember { mutableStateOf(false) }
     var showNoEligibleAirCatNotice by remember { mutableStateOf(false) }
+    // A71-P0-01: no AirCat entry point transfers the whole catalogue on a
+    // single tap. Every one of them opens the experience, where the source
+    // and the tracks are chosen deliberately.
+    var showAirCatExperience by remember { mutableStateOf(false) }
 
     // Discovery belongs to the Devices screen, not the application lifetime.
     // OnStart starts exactly once; no second LaunchedEffect listener.
@@ -320,7 +327,7 @@ fun DevicesScreen(
                 onNavigateToSyncWizard(device.id)
             }
             org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
-                startAirCatSafely(device.id)
+                showAirCatExperience = true
             }
             org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
             org.michimusic.mobile.sync.DeviceActionType.CONTROL_PLAYBACK -> {
@@ -378,6 +385,7 @@ fun DevicesScreen(
                 onQrClick = { showQrDialog = true },
                 onSettingsClick = onNavigateToSettings,
                 onRemoteClick = onNavigateToRemote,
+                onAirCatClick = { showAirCatExperience = true },
             )
 
             LazyColumn(
@@ -411,7 +419,7 @@ fun DevicesScreen(
                                     }
                                     eligibleAirCatDevices.size == 1 -> {
                                         val target = eligibleAirCatDevices.first()
-                                        startAirCatSafely(target.id)
+                                        showAirCatExperience = true
                                     }
                                     else -> {
                                         showAirCatTargetPicker = true
@@ -1057,7 +1065,7 @@ fun DevicesScreen(
                                         val recovery = airCatPickerForRecovery
                                         airCatPickerForRecovery = false
                                         if (recovery) recoverAirCatSafely(dev.id)
-                                        else startAirCatSafely(dev.id)
+                                        else showAirCatExperience = true
                                     }
                                     .padding(horizontal = 14.dp, vertical = 12.dp)
                                     .testTag("aircat_target_${dev.id}"),
@@ -1172,6 +1180,30 @@ fun DevicesScreen(
                 },
             )
         }
+
+        if (showAirCatExperience) {
+            Dialog(
+                onDismissRequest = { showAirCatExperience = false },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                ),
+            ) {
+                AirCatExperienceHost(
+                    devices = uiState.unifiedDevices,
+                    engine = viewModel.airCatExperienceEngine(),
+                    onClose = { showAirCatExperience = false },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(org.michimusic.mobile.ui.theme.SurfaceObsidian)
+                        // A71: the dialog opts out of decor fitting, so the screen
+                        // owns the insets. Without this the hub title is drawn under
+                        // the status bar and the last control under the gesture bar.
+                        .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.Companion.safeDrawing)
+                        .testTag("aircat_experience_overlay"),
+                )
+            }
+        }
     }
 }
 
@@ -1185,6 +1217,10 @@ internal fun DevicesTopBar(
     onQrClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onRemoteClick: () -> Unit = {},
+    // A71: AirCat is a first-class capability of Devices, not a hidden
+    // consequence of a discovered peer. Reaching it must not depend on
+    // there being an eligible server in range right now.
+    onAirCatClick: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -1315,6 +1351,14 @@ internal fun DevicesTopBar(
                         // A68-07: Home trust is not a compact-layout convenience. Revoking
                         // a paired source is the only way out of a bad pairing, so the entry
                         // stays in the overflow menu at every width and font scale.
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Transferencias AirCat") },
+                            onClick = { showMenu = false; onAirCatClick() },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan)
+                            },
+                            modifier = Modifier.testTag("menu_aircat_experience"),
+                        )
                         androidx.compose.material3.DropdownMenuItem(
                             text = { Text("Administrar confianza Home") },
                             onClick = { showMenu = false; onHomeTrustClick() },

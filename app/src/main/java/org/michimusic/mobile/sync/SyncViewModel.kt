@@ -26,6 +26,8 @@ import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkClient
+import org.michimusic.mobile.devices.aircat.experience.AirCatExperienceEngine
+import org.michimusic.mobile.devices.aircat.experience.AirCatOperationEngine
 import org.michimusic.link.LinkDiscovery
 
 
@@ -1225,6 +1227,15 @@ class SyncViewModel(
     fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         airCatOperations.startTransfer(targetDeviceId, viewModelScope, currentClient, onResult)
     }
+
+    /**
+     * A71: the experience screen talks to the same coordinator and the same
+     * engine that already enforce Home, the lease and the receipts. It borrows
+     * no authority of its own.
+     */
+    internal fun airCatExperienceEngine(): AirCatExperienceEngine =
+        AirCatOperationEngine(airCatOperations, airCatClient) { currentClient }
+
 
 
     fun pairWithQr(qrData: String, pin: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {

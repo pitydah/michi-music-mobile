@@ -91,9 +91,15 @@ object DeviceActionResolver {
         }
         if (caps.isSyncHost) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar", isPrimary = (primaryType == DeviceActionType.SYNC_LIBRARY)))
-            if (AirCatEligibilityPolicy.isAirCatEligible(device)) {
-                actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat", isPrimary = false))
-            }
+        }
+        // A71-02: AirCat is not a sub-feature of sync_host. A device that is
+        // paired, connected and explicitly AirCat-eligible has to be able to
+        // receive music even when it never advertised sync_host; hiding the
+        // action behind that capability made a compatible source unreachable.
+        // This only decides what the UI may offer: the Home/Ed25519 boundary
+        // still refuses the operation on its own.
+        if (AirCatEligibilityPolicy.isAirCatEligible(device)) {
+            actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat", isPrimary = false))
         }
         if (caps.isPlaybackHost) {
             actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = (primaryType == DeviceActionType.CONTROL_PLAYBACK)))

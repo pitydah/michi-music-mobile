@@ -23,6 +23,38 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
 /**
+ * A71-03: what the user saw on screen when they picked tracks. It is the
+ * only thing allowed to constrain a batch, and it is re-checked against a
+ * fresh manifest before any grant is requested.
+ */
+data class SelectionEntry(
+    val remoteTrackId: String,
+    val logicalTrackId: String,
+    val title: String,
+    val format: String,
+    val size: Long,
+    val sha256: String,
+)
+
+/** A71-03: read-only catalogue of one source. Carries no grant and no lease. */
+data class CataloguePreview(
+    val sourceDeviceId: String,
+    val deviceName: String,
+    val tracks: List<CatalogTrack>,
+)
+
+data class CatalogTrack(
+    val remoteTrackId: String,
+    val logicalTrackId: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val format: String,
+    val size: Long,
+    val sha256: String,
+)
+
+/**
  * AM5B: screen-scoped AirCat use cases. No ViewModel, polling, audio engine,
  * retained application scope or new identity. The caller owns [scope].
  */
@@ -165,11 +197,96 @@ internal class AirCatOperationCoordinator(
         }
     }
 
+    /**
+     * A71-03: read the source catalogue without starting a transfer.
+     *
+     * It runs the same pinned-HTTPS and Home preflight as a real transfer, but
+     * it takes no transfer lease and requests no grant: exploring a catalogue
+     * must never reserve the device or authorise a byte. The temporary session
+     * is closed before returning, so a user who spends ten minutes choosing
+     * tracks holds no socket and no lock.
+     */
+    suspend fun exploreCatalog(
+        targetDeviceId: String,
+        currentClient: LinkClient?,
+    ): Result<CataloguePreview> {
+        val transfer = airCatClient
+            ?: return Result.failure(IllegalStateException("Servicio AirCat no disponible"))
+        val device = registry.getDevice(targetDeviceId)
+            ?: return Result.failure(IllegalStateException("Dispositivo no encontrado"))
+        if (device.isRevoked) {
+            return Result.failure(IllegalStateException("El dispositivo $targetDeviceId ha sido revocado"))
+        }
+        val canonicalSourceId = device.effectiveMichiId
+        val enrolledPin = withContext(Dispatchers.IO) {
+            if (canonicalSourceId.isBlank()) null
+            else transfer.enrolledSourceTlsPin(canonicalSourceId, device.lastUrl)
+        } ?: return Result.failure(IllegalStateException(
+            "AirCat seguro requiere vinculación Home, certificado HTTPS fijado y proveedor autorizado"))
+        if (device.deviceToken.isBlank() || device.lastUrl.isBlank()) {
+            return Result.failure(IllegalStateException(
+                "El dispositivo $targetDeviceId no posee credenciales o URL válidas"))
+        }
+        val identity = identityAuthority.await()
+            ?: return Result.failure(IllegalStateException(
+                "La identidad del dispositivo no está disponible. Reintentá en un momento."))
+        val selected = resolveClient(targetDeviceId, device, identity, currentClient)
+        var privateClient: LinkClient? = null
+        return try {
+            val directRefusal = AirCatDirectEndpointPolicy.refusal(
+                device.lastUrl, selected.client.baseUrl, enrolledPin)
+            if (directRefusal != null) {
+                return Result.failure(IllegalStateException(
+                    "La ubicación segura del dispositivo cambió; vuelva a vincularlo en Home"))
+            }
+            val secureClient = try {
+                selected.client.pinnedAirCatSession(enrolledPin)
+            } finally {
+                if (selected.owned) runCatching { selected.client.close() }
+            }
+            privateClient = secureClient
+            val mismatch = checkRemoteIdentity(targetDeviceId, device, secureClient)
+            if (mismatch != null) return Result.failure(IllegalStateException(mismatch))
+            val manifest = secureClient.fetchAirCatManifest().getOrElse {
+                return Result.failure(IllegalStateException("Error al obtener catálogo: ${it.message}"))
+            }
+            if (manifest.deviceId != canonicalSourceId) {
+                return Result.failure(IllegalStateException(
+                    "El manifiesto AirCat pertenece a otro Michi ID"))
+            }
+            Result.success(
+                CataloguePreview(
+                    sourceDeviceId = canonicalSourceId,
+                    deviceName = device.deviceName.ifBlank { targetDeviceId },
+                    tracks = manifest.effectiveTracks.map { track ->
+                        CatalogTrack(
+                            remoteTrackId = track.effectiveAirCatRemoteId,
+                            logicalTrackId = track.effectiveAirCatLogicalId,
+                            title = track.title,
+                            artist = track.artist,
+                            album = track.album,
+                            format = track.format,
+                            size = track.size,
+                            sha256 = track.checksum.orEmpty(),
+                        )
+                    },
+                ),
+            )
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            Result.failure(IllegalStateException("Error al leer el catálogo: ${error.message}", error))
+        } finally {
+            runCatching { privateClient?.close() }
+        }
+    }
+
     fun startTransfer(
         targetDeviceId: String,
         scope: CoroutineScope,
         currentClient: LinkClient?,
         onResult: (Boolean, String) -> Unit,
+        selection: List<SelectionEntry>? = null,
     ) {
         val terminal = TerminalResult(onResult)
         val transfer = airCatClient ?: return terminal.send(false, "Servicio AirCat no disponible")
@@ -245,10 +362,39 @@ internal class AirCatOperationCoordinator(
                     terminal.send(false, "El manifiesto AirCat pertenece a otro Michi ID")
                     return@launch
                 }
-                val tracks = manifest.effectiveTracks
-                if (tracks.isEmpty()) {
+                val catalogue = manifest.effectiveTracks
+                if (catalogue.isEmpty()) {
                     terminal.send(true, "No hay pistas disponibles para transferir")
                     return@launch
+                }
+                // A71-04: the grant must cover exactly the batch the user saw.
+                // The preview cannot be trusted as authority, so every chosen
+                // track is re-checked against the manifest that is about to be
+                // signed. A silent substitution would transfer files the user
+                // never approved.
+                val tracks = if (selection == null) {
+                    catalogue
+                } else {
+                    if (selection.isEmpty()) {
+                        terminal.send(false, "No seleccionaste ninguna pista para recibir")
+                        return@launch
+                    }
+                    val byRemoteId = catalogue.associateBy { it.effectiveAirCatRemoteId }
+                    val changed = selection.firstOrNull { wanted ->
+                        val actual = byRemoteId[wanted.remoteTrackId]
+                        actual == null ||
+                            actual.size != wanted.size ||
+                            !actual.checksum.orEmpty().equals(wanted.sha256, ignoreCase = true) ||
+                            !actual.format.equals(wanted.format, ignoreCase = true) ||
+                            actual.effectiveAirCatLogicalId != wanted.logicalTrackId
+                    }
+                    if (changed != null) {
+                        terminal.send(false,
+                            "El catálogo cambió: «${changed.title}» ya no coincide con la vista previa. " +
+                                "Revisá nuevamente tu selección")
+                        return@launch
+                    }
+                    selection.map { byId -> byRemoteId.getValue(byId.remoteTrackId) }
                 }
                 val prepared = AirCatManifestFactory.prepare(
                     sourceDeviceId = canonicalSourceId,
