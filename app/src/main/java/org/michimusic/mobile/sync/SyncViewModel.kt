@@ -1280,7 +1280,11 @@ class SyncViewModel(
         sourceId: String, transferId: String,
     ): List<org.michimusic.mobile.devices.aircat.experience.AirCatFileEvidenceUi> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val rows = checkpointRepository?.getCheckpointsForDevice(sourceId).orEmpty()
+            // A null repository must not look like an empty receipt. Prefer the
+            // effective Koin binding and fail loudly when none is available.
+            val repository = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
+                ?: error("Checkpoint repository unavailable")
+            val rows = repository.getCheckpointsForDevice(sourceId)
             org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
                 .fileEvidence(sourceId, transferId, rows)
         }
@@ -1289,9 +1293,12 @@ class SyncViewModel(
         sourceIds: Set<String>,
     ): List<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // A missing repository is an unavailable store, not "no checkpoints".
+            val repository = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
+                ?: error("Checkpoint repository unavailable")
             val candidates = mutableListOf<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi>()
             for (id in sourceIds.filter { it.isNotBlank() }.take(64)) {
-                val rows = checkpointRepository?.getCheckpointsForDevice(id).orEmpty()
+                val rows = repository.getCheckpointsForDevice(id)
                 candidates += org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
                     .recoveries(id, rows)
             }

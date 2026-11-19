@@ -170,6 +170,8 @@ internal data class AirCatExperienceState(
     val availableBytes: Long? = null,
     val storageProbeFailed: Boolean = false,
     val fileEvidence: List<AirCatFileEvidenceUi> = emptyList(),
+    // A missing or failing checkpoint store is not the same as "no evidence".
+    val fileEvidenceUnavailable: Boolean = false,
     val message: String? = null,
     val starting: Boolean = false,
 ) {

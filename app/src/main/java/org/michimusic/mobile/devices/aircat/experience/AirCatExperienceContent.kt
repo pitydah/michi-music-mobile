@@ -705,7 +705,11 @@ private fun AirCatResultContent(state: AirCatExperienceState, onIntent: (AirCatI
             AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(MichiSpacing.lg)) {
                     result?.let { AirCatAeroOutcome(it.kind) }
-                    if (state.fileEvidence.isNotEmpty()) {
+                    if (state.fileEvidenceUnavailable) {
+                        Spacer(Modifier.height(MichiSpacing.sm))
+                        NoticeText("No pudimos leer los registros locales de archivos. " +
+                            "No se muestran estados por archivo.")
+                    } else if (state.fileEvidence.isNotEmpty()) {
                         Spacer(Modifier.height(MichiSpacing.sm))
                         AirCatAeroCheckpointSummary(state.fileEvidence)
                     }

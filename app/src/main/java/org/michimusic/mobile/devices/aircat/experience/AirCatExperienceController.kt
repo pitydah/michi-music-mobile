@@ -423,10 +423,18 @@ internal class AirCatExperienceController(
         val generation = epoch
         scope.launch {
             val evidence = runCatching { checkpointEvidence(canonicalSourceId, transferId) }
-                .getOrDefault(emptyList())
             if (generation == epoch && expectedTransferId == transferId &&
                 _state.value.selectedSourceId == selectedSourceId) {
-                _state.value = _state.value.copy(fileEvidence = evidence)
+                _state.value = evidence.fold(
+                    onSuccess = { rows ->
+                        _state.value.copy(fileEvidence = rows, fileEvidenceUnavailable = false)
+                    },
+                    onFailure = {
+                        // A missing or failing checkpoint store is not "no evidence":
+                        // keep the absence visible instead of implying a clean receipt.
+                        _state.value.copy(fileEvidence = emptyList(), fileEvidenceUnavailable = true)
+                    },
+                )
             }
         }
     }

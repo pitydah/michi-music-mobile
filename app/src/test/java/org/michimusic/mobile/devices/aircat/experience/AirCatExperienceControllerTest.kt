@@ -533,6 +533,33 @@ class AirCatExperienceControllerTest {
     }
 
     @Test
+    fun aFailedCheckpointReadIsNotPresentedAsNoEvidence() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+            engine,
+            { listOf(source("dev-1").copy(canonicalMichiId = "michi-dev-1")) },
+            { 200L * 1024 * 1024 },
+            checkpointEvidence = { _, _ -> error("checkpoint store unavailable") },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-1", currentTrackIndex = 1, totalTracks = 1,
+            bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertTrue(controller.state.value.fileEvidenceUnavailable)
+        assertTrue(controller.state.value.fileEvidence.isEmpty())
+    }
+
+    @Test
     fun anUnknownStorageProbeNeverAllowsConfirmation() = runTest {
         val engine = FakeEngine()
         val controller = AirCatExperienceController(
