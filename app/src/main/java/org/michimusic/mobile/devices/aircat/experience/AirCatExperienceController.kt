@@ -31,6 +31,7 @@ internal interface AirCatExperienceEngine {
         currentClient: LinkClient?,
         onResult: (Boolean, String) -> Unit,
         selection: List<SelectionEntry>?,
+        onTransferIdentified: (String) -> Unit = {},
     )
 
     val progress: StateFlow<AirCatProgressEvent?>
@@ -45,6 +46,8 @@ internal interface AirCatExperienceEngine {
 internal sealed interface AirCatIntent {
     data object OpenSources : AirCatIntent
     data object OpenHub : AirCatIntent
+    data object OpenActiveTransfer : AirCatIntent
+    data object RefreshEvidence : AirCatIntent
     data object RefreshSources : AirCatIntent
 
     data class ChooseSource(val deviceId: String) : AirCatIntent
@@ -81,19 +84,40 @@ internal class AirCatExperienceController(
     private val sources: () -> List<AirCatSourceUi>,
     private val freeBytes: suspend () -> Long,
     private val currentClient: () -> LinkClient? = { null },
+    private val operationScope: CoroutineScope = scope,
+    private val checkpointEvidence: suspend (String, String) -> List<AirCatFileEvidenceUi> = { _, _ -> emptyList() },
 ) {
     private val _state = MutableStateFlow(AirCatExperienceState())
     val state: StateFlow<AirCatExperienceState> = _state.asStateFlow()
 
     /** Bumped by every navigation, source change and confirmation. */
     private var epoch: Int = 0
+    // Only events from the exact prepared intent may update the current screen.
+    private var expectedTransferId: String? = null
     private var catalogueJob: Job? = null
     private var progressJob: Job? = null
+
+    // No auto-adoption of a global last-event: transfer ownership survives overlay
+    // removal through the ViewModel-retained controller, not by guessing an ID.
 
     fun dispatch(intent: AirCatIntent) {
         when (intent) {
             AirCatIntent.OpenSources -> openSources()
+            AirCatIntent.RefreshEvidence -> refreshFileEvidence()
+            AirCatIntent.OpenActiveTransfer -> {
+                // Confirm leaves `starting` true before the first projected event.
+                // A confirmed operation with no event yet is still ours to reopen.
+                val current = _state.value
+                if (current.starting || current.transfer?.isFinished == false) {
+                    _state.value = current.copy(phase = AirCatPhase.TRANSFER)
+                }
+            }
             AirCatIntent.OpenHub -> {
+                // Opening the Hub must not sever observation of an active transfer.
+                if (_state.value.transfer?.isFinished == false) {
+                    _state.value = _state.value.copy(phase = AirCatPhase.HUB)
+                    return
+                }
                 epoch += 1
                 catalogueJob?.cancel()
                 _state.value = _state.value.copy(
@@ -111,7 +135,9 @@ internal class AirCatExperienceController(
             is AirCatIntent.ToggleTrack -> toggleTrack(intent.remoteTrackId)
             is AirCatIntent.ToggleAlbum -> toggleAlbum(intent.album)
             AirCatIntent.SelectAll -> _state.value = _state.value.copy(
-                selection = _state.value.visibleTracks.map { it.remoteTrackId }.toSet(),
+                // Selecting visible tracks must not discard selections hidden by a filter.
+                selection = _state.value.selection +
+                    _state.value.visibleTracks.map { it.remoteTrackId },
             )
             AirCatIntent.ClearSelection -> _state.value = _state.value.copy(selection = emptySet())
             AirCatIntent.Review -> review()
@@ -138,6 +164,10 @@ internal class AirCatExperienceController(
     }
 
     private fun openSources() {
+        if (_state.value.transfer?.isFinished == false) {
+            _state.value = _state.value.copy(phase = AirCatPhase.TRANSFER)
+            return
+        }
         epoch += 1
         catalogueJob?.cancel()
         _state.value = _state.value.copy(
@@ -237,11 +267,15 @@ internal class AirCatExperienceController(
         val state = _state.value
         if (!state.canReview) return
         val generation = ++epoch
-        _state.value = state.copy(phase = AirCatPhase.REVIEW, message = null, availableBytes = null)
+        _state.value = state.copy(phase = AirCatPhase.REVIEW, message = null,
+            availableBytes = null, storageProbeFailed = false)
         scope.launch {
-            val available = runCatching { freeBytes() }.getOrNull()
+            val measured = runCatching { freeBytes() }
             if (generation != epoch) return@launch
-            _state.value = _state.value.copy(availableBytes = available)
+            _state.value = _state.value.copy(
+                availableBytes = measured.getOrNull(),
+                storageProbeFailed = measured.isFailure,
+            )
         }
     }
 
@@ -262,14 +296,16 @@ internal class AirCatExperienceController(
                 )
             }
             AirCatPhase.REVIEW -> _state.value = state.copy(phase = AirCatPhase.CATALOGUE)
-            AirCatPhase.TRANSFER, AirCatPhase.RESULT -> Unit
+            AirCatPhase.TRANSFER -> _state.value = state.copy(phase = AirCatPhase.HUB)
+            AirCatPhase.RESULT -> Unit
         }
     }
 
     private fun confirm() {
         val state = _state.value
         if (!state.canReview || state.starting) return
-        if (state.storageRefusal != null) return
+        // Unknown/unfinished storage probes must fail closed, not mean success.
+        if (state.availableBytes == null || state.storageRefusal != null) return
         val source = state.selectedSource ?: return
         if (state.catalogue == null) return
         val batch = state.selectedTracks.map {
@@ -286,7 +322,9 @@ internal class AirCatExperienceController(
         // never leaves the screen and never becomes NO_FILES.
         if (batch.isEmpty()) return
         val generation = ++epoch
+        expectedTransferId = null
         _state.value = state.copy(
+            fileEvidence = emptyList(),
             phase = AirCatPhase.TRANSFER,
             starting = true,
             message = null,
@@ -296,34 +334,44 @@ internal class AirCatExperienceController(
         observeProgress(generation)
         engine.start(
             targetDeviceId = source.deviceId,
-            scope = scope,
+            // The operation must survive an overlay being dismissed. Compose only
+            // owns the observer; the existing VM controls execution and cleanup.
+            scope = operationScope,
             currentClient = currentClient(),
             selection = batch,
+            onTransferIdentified = { transferId ->
+                if (generation == epoch) expectedTransferId = transferId
+            },
             onResult = { ok, message ->
                 if (generation != epoch) return@start
-                val latest = _state.value.transfer
-                // A finished transfer already projected its own result from the
-                // engine's ledger; a late callback must not replace it.
-                if (latest?.isFinished == true) return@start
-                _state.value = _state.value.copy(
-                    starting = false,
-                    phase = AirCatPhase.RESULT,
-                    result = if (ok) {
-                        AirCatResultUi(
-                            kind = AirCatResultUi.Kind.COMPLETED,
-                            title = "Transferencia completada",
-                            detail = message,
-                            tracks = batch.size,
-                            bytes = batch.sumOf { it.size },
-                        )
-                    } else {
-                        AirCatResultUi(
+                val current = _state.value.transfer
+                if (current?.isFinished == true) return@start
+                if (ok) {
+                    // A successful callback is NOT a checksum/Room receipt.
+                    // Wait for the exact terminal ledger event; never synthesize
+                    // COMPLETED from the planned selection's bytes or track count.
+                    _state.value = _state.value.copy(
+                        starting = false,
+                        phase = AirCatPhase.RESULT,
+                        message = null,
+                        result = AirCatResultUi(
+                            kind = AirCatResultUi.Kind.UNCERTIFIED,
+                            title = "Resultado pendiente de comprobante",
+                            detail = "El motor terminó, pero todavía no se ha recibido " +
+                                "un comprobante final de integridad y biblioteca.",
+                        ),
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        starting = false,
+                        phase = AirCatPhase.RESULT,
+                        result = AirCatResultUi(
                             kind = AirCatResultUi.Kind.FAILED,
                             title = "No se pudo completar la transferencia",
                             detail = airCatFailureMessage(message),
-                        )
-                    },
-                )
+                        ),
+                    )
+                }
             },
         )
     }
@@ -333,8 +381,26 @@ internal class AirCatExperienceController(
         progressJob = scope.launch {
             engine.progress.collect { event ->
                 if (generation != epoch) return@collect
-                if (event == null) return@collect
+                if (event == null || event.transferId != expectedTransferId) return@collect
+                // Neither a legacy receipt nor another session can claim this UI.
+                val verifiedTerminal = event.state != AirCatTransferState.COMPLETED ||
+                    (event.totalTracks > 0 && event.totalBytes > 0 &&
+                        event.currentTrackIndex == event.totalTracks &&
+                        event.bytesTransferred == event.totalBytes &&
+                        event.checksumVerified && event.libraryCommitted)
+                if (!verifiedTerminal) {
+                    _state.value = _state.value.copy(
+                        starting = false, phase = AirCatPhase.RESULT,
+                        result = AirCatResultUi(
+                            kind = AirCatResultUi.Kind.FAILED,
+                            title = "No se pudo certificar la transferencia",
+                            detail = "No hay comprobantes suficientes de integridad y biblioteca.",
+                        ),
+                    )
+                    return@collect
+                }
                 val projected = event.toUi(engine.isPaused(event.transferId))
+                if (projected.isFinished) refreshFileEvidence()
                 _state.value = _state.value.copy(starting = false, transfer = projected)
                 if (projected.isFinished) {
                     _state.value = _state.value.copy(
@@ -346,8 +412,24 @@ internal class AirCatExperienceController(
         }
     }
 
+    /** Explicit/on-terminal read, no resident polling. Source and transfer IDs must both match. */
+    private fun refreshFileEvidence() {
+        val sourceId = _state.value.selectedSourceId ?: return
+        val transferId = expectedTransferId ?: return
+        val generation = epoch
+        scope.launch {
+            val evidence = runCatching { checkpointEvidence(sourceId, transferId) }
+                .getOrDefault(emptyList())
+            if (generation == epoch && expectedTransferId == transferId &&
+                _state.value.selectedSourceId == sourceId) {
+                _state.value = _state.value.copy(fileEvidence = evidence)
+            }
+        }
+    }
+
     private fun dismissResult() {
         epoch += 1
+        expectedTransferId = null
         progressJob?.cancel()
         _state.value = AirCatExperienceState(
             phase = AirCatPhase.HUB,

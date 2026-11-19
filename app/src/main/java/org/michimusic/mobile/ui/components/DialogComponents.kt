@@ -857,10 +857,13 @@ fun EqualizerDialog(
     }
 }
 
+enum class QrScannerPurpose { LINK_PAIRING, HOME_ADMIN }
+
 @Composable
 fun QrScannerDialog(
     onScanSuccess: (String) -> Unit,
     onDismiss: () -> Unit,
+    purpose: QrScannerPurpose = QrScannerPurpose.LINK_PAIRING,
 ) {
     var manualCode by remember { mutableStateOf("") }
     val trimmedCode = manualCode.trim()
@@ -868,6 +871,14 @@ fun QrScannerDialog(
     // wants to be paired (Michi Music Player or a server). A short "MLINK-1234"
     // token is not a pairing payload, so the dialog must not suggest one.
     val looksLikePairingLink = trimmedCode.startsWith("michi://pair")
+    val looksLikeHomeQr = runCatching {
+        val obj = kotlinx.serialization.json.Json.parseToJsonElement(trimmedCode)
+            as? kotlinx.serialization.json.JsonObject
+        (obj?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content ==
+            "michi.aircat.home.enrollment.v1"
+    }.getOrDefault(false)
+    val validForMode = if (purpose == QrScannerPurpose.HOME_ADMIN)
+        looksLikeHomeQr else looksLikePairingLink
     // Camera capture is optional: a tablet without a sensor, a denied permission or
     // an emulator without a virtual scene must still be able to paste the link.
     val context = LocalContext.current
@@ -900,7 +911,8 @@ fun QrScannerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Vincular Dispositivo",
+                        text = if (purpose == QrScannerPurpose.HOME_ADMIN)
+                            "Vincular Home para AirCat" else "Vincular Dispositivo",
                         color = PureWhite,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -920,7 +932,10 @@ fun QrScannerDialog(
                     // link that the target node displays. This build has no camera
                     // capture, so it must not promise a viewfinder. CameraX + ZXing
                     // is tracked as its own feature instead of faking one.
-                    text = "El dispositivo que querés vincular (por ejemplo Michi Music Player) " +
+                    text = if (purpose == QrScannerPurpose.HOME_ADMIN)
+                        "Escaneá el QR administrativo que muestra tu propia autoridad Home. " +
+                        "No se aceptan enlaces de pairing, anuncios de red ni códigos de terceros."
+                    else "El dispositivo que querés vincular (por ejemplo Michi Music Player) " +
                         "muestra un código QR con un enlace de emparejamiento. Escanealo con " +
                         "la cámara o pegá el enlace manualmente.",
                     color = OnSurfaceVariant,
@@ -966,19 +981,24 @@ fun QrScannerDialog(
                     onValueChange = {
                         manualCode = it
                     },
-                    label = { Text("Enlace de emparejamiento") },
-                    placeholder = { Text("michi://pair?format=michi-link-pairing&…", color = OnSurfaceVariant) },
-                    singleLine = true,
-                    isError = trimmedCode.isNotEmpty() && !looksLikePairingLink,
+                    label = { Text(if (purpose == QrScannerPurpose.HOME_ADMIN)
+                        "Código administrativo Home" else "Enlace de emparejamiento") },
+                    placeholder = { Text(if (purpose == QrScannerPurpose.HOME_ADMIN)
+                        "{\"type\":\"michi.aircat.home.enrollment.v1\",…}"
+                    else "michi://pair?format=michi-link-pairing&…", color = OnSurfaceVariant) },
+                    singleLine = purpose != QrScannerPurpose.HOME_ADMIN,
+                    isError = trimmedCode.isNotEmpty() && !validForMode,
                     shape = AeroDialogFieldShape,
                     colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier.fillMaxWidth().testTag("pairing_link_field"),
                 )
 
-                if (trimmedCode.isNotEmpty() && !looksLikePairingLink) {
+                if (trimmedCode.isNotEmpty() && !validForMode) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "El enlace de Michi Link empieza con michi://pair",
+                        text = if (purpose == QrScannerPurpose.HOME_ADMIN)
+                            "El código debe ser un QR de administración Home válido."
+                        else "El enlace de Michi Link empieza con michi://pair",
                         color = ErrorColor,
                         fontSize = 12.sp,
                     )
@@ -989,7 +1009,7 @@ fun QrScannerDialog(
                 Button(
                     // The payload must exist before the action is offered: a disabled
                     // button states the requirement instead of failing on tap.
-                    enabled = looksLikePairingLink,
+                    enabled = validForMode,
                     onClick = {
                         onScanSuccess(trimmedCode)
                         onDismiss()
@@ -997,11 +1017,14 @@ fun QrScannerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .testTag("pairing_link_confirm"),
+                        .testTag(if (purpose == QrScannerPurpose.HOME_ADMIN)
+                            "home_admin_qr_confirm" else "pairing_link_confirm"),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Vincular", color = PureWhite, fontWeight = FontWeight.Bold)
+                    Text(if (purpose == QrScannerPurpose.HOME_ADMIN)
+                        "Revisar autorización Home" else "Vincular",
+                        color = PureWhite, fontWeight = FontWeight.Bold)
                 }
             }
         }

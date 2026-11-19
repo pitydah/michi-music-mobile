@@ -54,7 +54,7 @@ private enum class Screen {
         REVIEW -> captureCatalogueState().copy(
             phase = AirCatPhase.REVIEW,
             selection = setOf("rem-1"),
-            availableBytes = 10_000L,
+            availableBytes = 4L * 1024 * 1024 * 1024,
         )
         TRANSFER -> captureCatalogueState().copy(
             phase = AirCatPhase.TRANSFER,
@@ -64,8 +64,8 @@ private enum class Screen {
                 state = AirCatTransferState.TRANSFERRING,
                 completedTracks = 1,
                 totalTracks = 2,
-                transferredBytes = 100L,
-                totalBytes = 200L,
+                transferredBytes = 120L * 1024 * 1024,
+                totalBytes = 240L * 1024 * 1024,
                 currentTrackTitle = "rem-2",
                 paused = false,
                 error = null,
@@ -78,7 +78,7 @@ private enum class Screen {
                 title = "Música recibida",
                 detail = "2 canciones incorporadas a la biblioteca.",
                 tracks = 2,
-                bytes = 200L,
+                bytes = 240L * 1024 * 1024,
             ),
         )
         TRUST, TRUST_CONFIRM -> AirCatExperienceState(phase = AirCatPhase.HUB)
@@ -105,7 +105,7 @@ private fun captureTrack(id: String, album: String) = AirCatTrackUi(
     artist = "Artist",
     album = album,
     format = "flac",
-    size = 100L,
+    size = 120L * 1024 * 1024,
     sha256 = "a".repeat(64),
 )
 
@@ -251,8 +251,9 @@ class AirCatExperienceOnDeviceCaptureTest {
                     )
                     clickables.forEach { node ->
                         val heightDp = node.size.height / effectiveDensity
+            val identity = node.config.toString().take(1000)
                         assertTrue(
-                            "$target at ${width}dp/${fontScale}x: clickable is " +
+                            "$target at ${width}dp/${fontScale}x: clickable ${identity} is " +
                                 "${heightDp}dp tall, below the 48dp target",
                             heightDp + 0.5f >= 48f,
                         )

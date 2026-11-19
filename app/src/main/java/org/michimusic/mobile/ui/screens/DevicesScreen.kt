@@ -11,6 +11,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -175,23 +176,25 @@ fun DevicesScreen(
     val playbackSession by sessionManager.sessionState.collectAsStateWithLifecycle()
 
     var showQrDialog by remember { mutableStateOf(false) }
+    // Home enrollment uses the existing camera but never enters legacy pairing.
+    var homeAdminQrMode by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
     var showUnverifiedReceiverNotice by remember { mutableStateOf(false) }
     var pendingQrForPin by remember { mutableStateOf<String?>(null) }
     var pendingHomeEnrollmentQr by remember { mutableStateOf<String?>(null) }
     var pendingHomeRevocation by remember { mutableStateOf<AirCatEnrolledHomeSource?>(null) }
-    var showHomeTrustManager by remember { mutableStateOf(false) }
+    var showHomeTrustManager by rememberSaveable { mutableStateOf(false) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.mobile.ui.screens.devices.DeviceUiItem?>(null) }
     var showAirCatTargetPicker by remember { mutableStateOf(false) }
     var airCatPickerForRecovery by remember { mutableStateOf(false) }
-    var showNoEligibleAirCatNotice by remember { mutableStateOf(false) }
+
     // A71-P0-01: no AirCat entry point transfers the whole catalogue on a
     // single tap. Every one of them opens the experience, where the source
     // and the tracks are chosen deliberately.
-    var showAirCatExperience by remember { mutableStateOf(false) }
+    var showAirCatExperience by rememberSaveable { mutableStateOf(false) }
 
     // Discovery belongs to the Devices screen, not the application lifetime.
     // OnStart starts exactly once; no second LaunchedEffect listener.
@@ -252,7 +255,7 @@ fun DevicesScreen(
             if (activeTransfer || airCatGate.pending) {
                 scope.launch { snackbarHostState.showSnackbar("Revisa la transferencia AirCat existente antes de iniciar otra") }
             } else {
-                showNoEligibleAirCatNotice = true
+                showAirCatExperience = true
             }
         } else {
             try {
@@ -387,27 +390,14 @@ fun DevicesScreen(
                             .semantics(mergeDescendants = true) {
                                 stateDescription = when {
                                     uiState.airCatProgress != null || airCatStartPending -> "Transferencia en curso"
-                                    eligibleAirCatDevices.isEmpty() -> "Sin receptores disponibles"
-                                    else -> "Disponible para sincronizar"
+                                    eligibleAirCatDevices.isEmpty() -> "Sin equipos de origen conectados"
+                                    else -> "Explorar equipos de origen"
                                 }
                             }
                             .clickable(role = androidx.compose.ui.semantics.Role.Button) {
-                                // K47-05: Never navigate with empty string or ineligible device
-                                when {
-                                    uiState.airCatProgress != null || airCatStartPending -> {
-                                        scope.launch { snackbarHostState.showSnackbar("Revisa la transferencia AirCat existente antes de iniciar otra") }
-                                    }
-                                    eligibleAirCatDevices.isEmpty() -> {
-                                        showNoEligibleAirCatNotice = true
-                                    }
-                                    eligibleAirCatDevices.size == 1 -> {
-                                        val target = eligibleAirCatDevices.first()
-                                        showAirCatExperience = true
-                                    }
-                                    else -> {
-                                        showAirCatTargetPicker = true
-                                    }
-                                }
+                                // FIX_UI-01: navigation is unconditional; zero sources is a
+                                // legitimate hub state, never an error or an auto-download.
+                                showAirCatExperience = true
                             }
                             .testTag("aircat_sync_shortcut"),
                         backgroundColor = GlassFillLow,
@@ -437,7 +427,7 @@ fun DevicesScreen(
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "AirCat · sincronización",
+                                    text = "AirCat · recibir música",
                                     style = MichiTypography.cardTitle.copy(fontSize = 15.sp),
                                     color = PureWhite,
                                     fontWeight = FontWeight.SemiBold,
@@ -445,9 +435,9 @@ fun DevicesScreen(
                                 Text(
                                     text = when {
                                         uiState.airCatProgress != null || airCatStartPending -> "Consulta el estado de transferencia a continuación"
-                                        eligibleAirCatDevices.isEmpty() -> "Sin receptores disponibles · toca para ver cómo conectar"
-                                        eligibleAirCatDevices.size == 1 -> "1 receptor listo para sincronizar"
-                                        else -> "${eligibleAirCatDevices.size} receptores disponibles"
+                                        eligibleAirCatDevices.isEmpty() -> "Abre AirCat para conectar un equipo de origen"
+                                        eligibleAirCatDevices.size == 1 -> "1 origen anunciado · revisar confianza Home"
+                                        else -> "${eligibleAirCatDevices.size} orígenes anunciados · revisar confianza Home"
                                     },
                                     color = TextSecondary,
                                     style = MichiTypography.metadata,
@@ -505,7 +495,7 @@ fun DevicesScreen(
                                     // transferId is NOT a device ID; require explicit
                                     // source selection because progress stores no source ID.
                                     if (eligibleAirCatDevices.isEmpty()) {
-                                        showNoEligibleAirCatNotice = true
+                                        showAirCatExperience = true
                                     } else {
                                         airCatPickerForRecovery = true
                                         showAirCatTargetPicker = true
@@ -665,21 +655,28 @@ fun DevicesScreen(
         // QR Scanner Dialog
         if (showQrDialog) {
             QrScannerDialog(
+                purpose = if (homeAdminQrMode)
+                    org.michimusic.mobile.ui.components.QrScannerPurpose.HOME_ADMIN
+                else org.michimusic.mobile.ui.components.QrScannerPurpose.LINK_PAIRING,
                 onScanSuccess = { code ->
+                    val wasHome = homeAdminQrMode
                     showQrDialog = false
-                    // A28: administrative Home enrollment is never misrouted to
-                    // legacy PIN pairing. Parsing is untrusted until validation.
+                    homeAdminQrMode = false
                     val type = runCatching {
                         Json.parseToJsonElement(code).let { obj ->
                             (obj as? kotlinx.serialization.json.JsonObject)
                                 ?.get("type")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
                         }
                     }.getOrNull()
-                    if (type == "michi.aircat.home.enrollment.v1") {
-                        pendingHomeEnrollmentQr = code
-                    } else pendingQrForPin = code
+                    when {
+                        type == "michi.aircat.home.enrollment.v1" -> pendingHomeEnrollmentQr = code
+                        wasHome -> scope.launch {
+                            snackbarHostState.showSnackbar("Este código no es una autorización administrativa Home")
+                        }
+                        else -> pendingQrForPin = code
+                    }
                 },
-                onDismiss = { showQrDialog = false },
+                onDismiss = { showQrDialog = false; homeAdminQrMode = false },
             )
         }
 
@@ -718,6 +715,7 @@ fun DevicesScreen(
                                         now = System.currentTimeMillis(),
                                     )
                                 }
+                                if (accepted) showHomeTrustManager = true
                                 snackbarHostState.showSnackbar(
                                     if (accepted) "Home AirCat vinculado y fijado en este dispositivo"
                                     else "No se pudo vincular Home. Comprueba QR, autoridad y certificado."
@@ -853,28 +851,7 @@ fun DevicesScreen(
             )
         }
 
-        if (showNoEligibleAirCatNotice) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showNoEligibleAirCatNotice = false },
-                title = { androidx.compose.material3.Text("Sin destinos AirCat elegibles") },
-                text = {
-                    androidx.compose.material3.Text(
-                        "No se encontraron servidores o escritorios Michi activos con soporte de biblioteca en la red local. Asegúrate de encender y vincular un servidor Michi compatible."
-                    )
-                },
-                confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = {
-                        showNoEligibleAirCatNotice = false
-                        viewModel.startDiscovery()
-                    }) { androidx.compose.material3.Text("Buscar dispositivos") }
-                },
-                dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showNoEligibleAirCatNotice = false }) {
-                        androidx.compose.material3.Text("Cerrar")
-                    }
-                },
-            )
-        }
+        // Legacy destination dialog deleted: AirCat Hub owns the empty state.
 
         if (showAirCatTargetPicker) {
             androidx.compose.material3.AlertDialog(
@@ -886,11 +863,12 @@ fun DevicesScreen(
                     // A71-08: this entry repairs local journal, checkpoints and files.
                     // Calling it "recover the transfer" promised a network resume that
                     // needs a fresh Home grant this screen does not request.
-                    if (airCatPickerForRecovery) "Revisar y reparar transferencia AirCat" else "Seleccionar destino AirCat"
+                    if (airCatPickerForRecovery) "Revisar y reparar transferencia AirCat" else "Elegir equipo de origen AirCat"
                 ) },
                 text = {
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                            .verticalScroll(androidx.compose.foundation.rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         androidx.compose.material3.Text(
@@ -1034,6 +1012,7 @@ fun DevicesScreen(
 
         if (showAirCatExperience) {
             Dialog(
+                // Dismissing only unmounts the UI. Work is owned by SyncViewModel.
                 onDismissRequest = { showAirCatExperience = false },
                 properties = androidx.compose.ui.window.DialogProperties(
                     usePlatformDefaultWidth = false,
@@ -1042,7 +1021,26 @@ fun DevicesScreen(
             ) {
                 AirCatExperienceHost(
                     devices = uiState.unifiedDevices,
+                    observedPeerIds = uiState.peers.mapTo(mutableSetOf()) { it.deviceId },
                     engine = viewModel.airCatExperienceEngine(),
+                    transferScope = viewModel.airCatExperienceOperationScope(),
+                    retainedController = viewModel.airCatExperienceController(),
+                    onSourcesUpdated = { viewModel.updateAirCatExperienceSources(it) },
+                    recoveryProvider = { viewModel.airCatRecoverableSources(it) },
+                    onRepairSource = { sourceId ->
+                        showAirCatExperience = false
+                        viewModel.recoverIncompleteAirCatTransfers(sourceId) { _, message ->
+                            scope.launch { snackbarHostState.showSnackbar(message) }
+                        }
+                    },
+                    onSearchDevices = {
+                        showAirCatExperience = false
+                        viewModel.startDiscovery()
+                    },
+                    onManageHome = {
+                        showAirCatExperience = false
+                        showHomeTrustManager = true
+                    },
                     onClose = { showAirCatExperience = false },
                     modifier = Modifier
                         .fillMaxSize()
@@ -1071,6 +1069,7 @@ fun DevicesScreen(
                     store = homeEnrollment,
                     onLinkHome = {
                         showHomeTrustManager = false
+                        homeAdminQrMode = true
                         showQrDialog = true
                     },
                     onClose = { showHomeTrustManager = false },

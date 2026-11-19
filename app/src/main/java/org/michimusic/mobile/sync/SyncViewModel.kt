@@ -1233,8 +1233,73 @@ class SyncViewModel(
      * engine that already enforce Home, the lease and the receipts. It borrows
      * no authority of its own.
      */
-    internal fun airCatExperienceEngine(): AirCatExperienceEngine =
+    private val retainedAirCatExperienceEngine: AirCatExperienceEngine by lazy {
         AirCatOperationEngine(airCatOperations, airCatClient) { currentClient }
+    }
+
+    internal fun airCatExperienceEngine(): AirCatExperienceEngine =
+        retainedAirCatExperienceEngine
+
+    /** A71-S9.6: do not throw away the operation identity when the overlay unmounts. */
+    private val airCatExperienceSources = MutableStateFlow(
+        emptyList<org.michimusic.mobile.devices.aircat.experience.AirCatSourceUi>()
+    )
+    private val retainedAirCatExperienceController by lazy {
+        org.michimusic.mobile.devices.aircat.experience.AirCatExperienceController(
+            scope = viewModelScope,
+            engine = retainedAirCatExperienceEngine,
+            operationScope = viewModelScope,
+            sources = { airCatExperienceSources.value },
+            currentClient = { currentClient },
+            freeBytes = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    android.os.StatFs(context.filesDir.absolutePath).availableBytes.also {
+                        require(it >= 0L) { "No se pudo comprobar el almacenamiento" }
+                    }
+                }
+            },
+            checkpointEvidence = { sourceId, transferId ->
+                airCatFileEvidence(sourceId, transferId)
+            },
+        )
+    }
+
+    internal fun airCatExperienceController() = retainedAirCatExperienceController
+
+    internal fun updateAirCatExperienceSources(
+        sources: List<org.michimusic.mobile.devices.aircat.experience.AirCatSourceUi>,
+    ) {
+        airCatExperienceSources.value = sources
+        retainedAirCatExperienceController.dispatch(
+            org.michimusic.mobile.devices.aircat.experience.AirCatIntent.RefreshSources
+        )
+    }
+
+    /** Bounded durable reads; neither operation requests a new grant or scans LAN. */
+    internal suspend fun airCatFileEvidence(
+        sourceId: String, transferId: String,
+    ): List<org.michimusic.mobile.devices.aircat.experience.AirCatFileEvidenceUi> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val rows = checkpointRepository?.getCheckpointsForDevice(sourceId).orEmpty()
+            org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
+                .fileEvidence(sourceId, transferId, rows)
+        }
+
+    internal suspend fun airCatRecoverableSources(
+        sourceIds: Set<String>,
+    ): List<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val candidates = mutableListOf<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi>()
+            for (id in sourceIds.filter { it.isNotBlank() }.take(64)) {
+                val rows = checkpointRepository?.getCheckpointsForDevice(id).orEmpty()
+                candidates += org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
+                    .recoveries(id, rows)
+            }
+            candidates.sortedByDescending { it.latestCheckpointAt }.take(40)
+        }
+
+    /** Outlives an overlay; not an Android-process-death execution guarantee. */
+    internal fun airCatExperienceOperationScope(): kotlinx.coroutines.CoroutineScope = viewModelScope
 
 
 

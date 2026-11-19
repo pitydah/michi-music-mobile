@@ -1,10 +1,13 @@
 package org.michimusic.mobile.devices.aircat.experience
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +26,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -35,7 +44,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.michimusic.mobile.devices.aircat.AirCatTransferState
 import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -62,15 +73,46 @@ internal fun AirCatExperienceContent(
     state: AirCatExperienceState,
     onIntent: (AirCatIntent) -> Unit,
     modifier: Modifier = Modifier,
+    onClose: () -> Unit = {},
+    onSearchDevices: () -> Unit = {},
+    onManageHome: () -> Unit = {},
+    recoveries: List<AirCatRecoveryUi> = emptyList(),
+    onRepairSource: (String) -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize().testTag("aircat_experience")) {
-        when (state.phase) {
-            AirCatPhase.HUB -> AirCatHubContent(state, onIntent)
-            AirCatPhase.SOURCES -> AirCatSourcePickerContent(state, onIntent)
-            AirCatPhase.CATALOGUE -> AirCatCatalogueContent(state, onIntent)
-            AirCatPhase.REVIEW -> AirCatReviewContent(state, onIntent)
-            AirCatPhase.TRANSFER -> AirCatTransferContent(state, onIntent)
-            AirCatPhase.RESULT -> AirCatResultContent(state, onIntent)
+        AeroPremiumBackdrop(accent = TertiaryCyan)
+        Column(modifier = Modifier.fillMaxSize()) {
+            val title = when (state.phase) {
+                AirCatPhase.HUB -> "AirCat"
+                AirCatPhase.SOURCES -> "Elegir equipo de origen"
+                AirCatPhase.CATALOGUE -> "Explorar música"
+                AirCatPhase.REVIEW -> "Revisar recepción"
+                AirCatPhase.TRANSFER -> "Recibiendo música"
+                AirCatPhase.RESULT -> "Resultado de AirCat"
+            }
+            AirCatAeroHeader(
+                title = title,
+                eyebrow = "Michi Devices · AirCat",
+                subtitle = "Archivos originales · biblioteca musical",
+                onBack = {
+                    when (state.phase) {
+                        AirCatPhase.HUB -> onClose()
+                        AirCatPhase.TRANSFER -> onIntent(AirCatIntent.Back)
+                        AirCatPhase.RESULT -> onIntent(AirCatIntent.DismissResult)
+                        else -> onIntent(AirCatIntent.Back)
+                    }
+                },
+            )
+            Box(Modifier.weight(1f)) {
+                when (state.phase) {
+                    AirCatPhase.HUB -> AirCatHubContent(state, onIntent, onSearchDevices, onManageHome, recoveries, onRepairSource)
+                    AirCatPhase.SOURCES -> AirCatSourcePickerContent(state, onIntent, onSearchDevices, onManageHome)
+                    AirCatPhase.CATALOGUE -> AirCatCatalogueContent(state, onIntent)
+                    AirCatPhase.REVIEW -> AirCatReviewContent(state, onIntent)
+                    AirCatPhase.TRANSFER -> AirCatTransferContent(state, onIntent)
+                    AirCatPhase.RESULT -> AirCatResultContent(state, onIntent)
+                }
+            }
         }
     }
 }
@@ -78,31 +120,41 @@ internal fun AirCatExperienceContent(
 // --- Hub -------------------------------------------------------------------
 
 @Composable
-private fun AirCatHubContent(state: AirCatExperienceState, onIntent: (AirCatIntent) -> Unit) {
+private fun AirCatHubContent(
+    state: AirCatExperienceState,
+    onIntent: (AirCatIntent) -> Unit,
+    onSearchDevices: () -> Unit,
+    onManageHome: () -> Unit,
+    recoveries: List<AirCatRecoveryUi>,
+    onRepairSource: (String) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("aircat_hub_screen"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(screenPadding),
         verticalArrangement = Arrangement.spacedBy(blockGap),
     ) {
         item {
-            Column {
-                Text("AirCat", style = MichiTypography.screenEyebrowTechnical)
-                Spacer(Modifier.height(MichiSpacing.xs))
-                Text(
-                    "Transfiere música original entre equipos Michi de confianza.",
-                    color = TextSecondary,
-                    fontSize = 14.sp,
-                )
-            }
+            AirCatAeroHero(
+                title = "Tu música, entre equipos Michi",
+                detail = "Recibe archivos originales desde tus equipos de confianza, " +
+                    "sin conversión y con verificación de integridad.",
+                actionLabel = "Recibir música",
+                actionTag = "aircat_receive_button",
+                onAction = { onIntent(AirCatIntent.OpenSources) },
+                icon = Icons.Filled.AddLink,
+            )
         }
-
-        item {
-            Button(
-                onClick = { onIntent(AirCatIntent.OpenSources) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
-                    .testTag("aircat_receive_button"),
-            ) {
-                Text("Recibir música", color = SurfaceObsidian, fontWeight = FontWeight.SemiBold)
+        if (recoveries.isNotEmpty()) {
+            item(key = "aircat_recovery_index") {
+                AirCatAeroSectionTitle("Reparaciones locales disponibles",
+                    "Checkpoints persistidos; no hay reanudación automática de red.")
+            }
+            items(recoveries, key = { "recover:${it.sourceDeviceId}:${it.transferId}" }) { record ->
+                AirCatAeroRecoveryCard(record,
+                    sourceName = state.sources.firstOrNull { it.deviceId == record.sourceDeviceId }?.name
+                        ?: "Equipo Michi conocido",
+                    onReview = { onRepairSource(record.sourceDeviceId) },
+                )
             }
         }
 
@@ -121,15 +173,34 @@ private fun AirCatHubContent(state: AirCatExperienceState, onIntent: (AirCatInte
                         fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(MichiSpacing.sm))
                     if (state.sources.isEmpty()) {
-                        Text(
-                            "No encontramos equipos disponibles para recibir música.",
-                            color = TextSecondary, fontSize = 13.sp,
-                        )
+                        AirCatAeroSectionTitle("Aún no hay orígenes conectados", "Activa Michi Link para detectar equipos próximos.")
+                        Spacer(Modifier.height(MichiSpacing.xs))
+                        Text("Busca un servidor o escritorio Michi que anuncie AirCat y " +
+                            "vincúlalo a Home antes de recibir música.",
+                            color = TextSecondary, fontSize = 13.sp)
+                        Spacer(Modifier.height(MichiSpacing.md))
+                        Button(onClick = onSearchDevices,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)) {
+                            Text("Buscar equipos", color = SurfaceObsidian, fontWeight = FontWeight.SemiBold)
+                        }
+                        TextButton(onClick = onManageHome,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)) {
+                            Text("Administrar confianza Home", color = TertiaryCyan)
+                        }
                     } else {
-                        state.sources.forEach { source ->
-                            Text("${source.name} · ${source.statusLine}",
-                                color = TextSecondary, fontSize = 13.sp,
-                                modifier = Modifier.padding(vertical = 2.dp))
+                        state.sources.take(4).forEach { source ->
+                            Spacer(Modifier.height(MichiSpacing.xs))
+                            AirCatAeroFact("${source.name} · ${source.statusLine}")
+                        }
+                        if (state.sources.size > 4) {
+                            Spacer(Modifier.height(MichiSpacing.sm))
+                            Text("${state.sources.size - 4} equipos más en tu red",
+                                color = TextSecondary, fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.height(MichiSpacing.md))
+                        TextButton(onClick = { onIntent(AirCatIntent.OpenSources) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)) {
+                            Text("Explorar equipos de origen", color = TertiaryCyan)
                         }
                     }
                 }
@@ -145,7 +216,12 @@ private fun AirCatHubContent(state: AirCatExperienceState, onIntent: (AirCatInte
 // --- Sources ---------------------------------------------------------------
 
 @Composable
-private fun AirCatSourcePickerContent(state: AirCatExperienceState, onIntent: (AirCatIntent) -> Unit) {
+private fun AirCatSourcePickerContent(
+    state: AirCatExperienceState,
+    onIntent: (AirCatIntent) -> Unit,
+    onSearchDevices: () -> Unit,
+    onManageHome: () -> Unit,
+) {
     val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
@@ -175,7 +251,12 @@ private fun AirCatSourcePickerContent(state: AirCatExperienceState, onIntent: (A
 
         if (!state.sourcesLoading && state.sources.isEmpty()) {
             item {
-                NoticeText("No encontramos equipos disponibles para recibir música.")
+                AirCatAeroEmptyState(
+                    title = "Ningún equipo de origen disponible",
+                    detail = "Busca equipos Michi en tu red local. Después revisa su vinculación Home.",
+                    primaryLabel = "Buscar equipos", onPrimary = onSearchDevices,
+                    secondaryLabel = "Confianza Home", onSecondary = onManageHome,
+                )
             }
         }
 
@@ -191,7 +272,8 @@ private fun AirCatSourcePickerContent(state: AirCatExperienceState, onIntent: (A
                         Text(source.kindLabel, color = TextSecondary, fontSize = 12.sp)
                     }
                     Spacer(Modifier.height(MichiSpacing.sm))
-                    Text(source.statusLine, color = TextSecondary, fontSize = 13.sp)
+                    Text(source.statusLine, color = TextSecondary, fontSize = 13.sp,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(MichiSpacing.sm))
                     Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm)) {
                         if (source.canExplore) {
@@ -201,10 +283,15 @@ private fun AirCatSourcePickerContent(state: AirCatExperienceState, onIntent: (A
                                     .testTag("aircat_explore_${source.deviceId}"),
                             ) { Text("Explorar música") }
                         } else if (source.needsHome) {
-                            Text(
-                                "Vincula este equipo a Home para recibir música.",
-                                color = TextSecondary, fontSize = 12.sp,
-                            )
+                            TextButton(onClick = onManageHome,
+                                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)) {
+                                Text("Vincular confianza Home", color = TertiaryCyan)
+                            }
+                        } else if (!source.connected && !source.revoked) {
+                            TextButton(onClick = onSearchDevices,
+                                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)) {
+                                Text("Buscar equipo", color = TertiaryCyan)
+                            }
                         }
                     }
                 }
@@ -224,68 +311,83 @@ private fun AirCatSourcePickerContent(state: AirCatExperienceState, onIntent: (A
 
 @Composable
 private fun AirCatCatalogueContent(state: AirCatExperienceState, onIntent: (AirCatIntent) -> Unit) {
-    Column(Modifier.fillMaxSize().testTag("aircat_catalog_screen")) {
-        Column(Modifier.padding(horizontal = screenPadding, vertical = MichiSpacing.md)) {
-            Text(
-                "Música de ${state.selectedSource?.name ?: "…"}",
-                color = PureWhite, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                "Selecciona las canciones y álbumes que quieres recibir.",
-                color = TextSecondary, fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(MichiSpacing.sm))
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = { onIntent(AirCatIntent.QueryChanged(it)) },
-                singleLine = true,
-                label = { Text("Filtrar por título, artista o álbum") },
-                modifier = Modifier.fillMaxWidth().testTag("aircat_catalog_query"),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm)) {
-                TextButton(
-                    onClick = { onIntent(AirCatIntent.SelectAll) },
-                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
-                ) { Text("Seleccionar todo") }
-                TextButton(
-                    onClick = { onIntent(AirCatIntent.ClearSelection) },
-                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
-                ) { Text("Limpiar") }
-            }
-        }
-
-        Box(Modifier.weight(1f)) {
-            if (state.catalogueLoading) {
-                Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = TertiaryCyan) }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = screenPadding, end = screenPadding, bottom = MichiSpacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(MichiSpacing.sm),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("aircat_catalog_screen"),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = screenPadding,
+            end = screenPadding,
+            top = MichiSpacing.md,
+            bottom = MichiSpacing.lg,
+        ),
+        verticalArrangement = Arrangement.spacedBy(MichiSpacing.sm),
+    ) {
+        // The header scrolls with the catalogue. Keeping it outside the list made
+        // the 2.0x font scale consume the whole height and squeezed the footer's
+        // Continue button to 0dp, leaving it invisible and untappable.
+        item(key = "catalogue-header") {
+            Column(verticalArrangement = Arrangement.spacedBy(MichiSpacing.xs)) {
+                Text(
+                    "Música de ${state.selectedSource?.name ?: "…"}",
+                    color = PureWhite, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                )
+                Text("Selecciona canciones o álbumes. Solo se recibirá lo que confirmes.",
+                    color = TextSecondary, fontSize = 13.sp)
+                AirCatAeroFact("Archivos originales · sin conversión")
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = { onIntent(AirCatIntent.QueryChanged(it)) },
+                    singleLine = true,
+                    label = { Text("Filtrar por título, artista o álbum") },
+                    modifier = Modifier.fillMaxWidth().testTag("aircat_catalog_query"),
+                )
+                // Two text actions do not fit side by side at 2.0x on 360dp:
+                // FlowRow wraps "Limpiar" instead of clipping it at the edge.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
                 ) {
-                    state.visibleAlbums.forEach { album ->
-                        item(key = "album:${album.album}") {
-                            AlbumHeader(
-                                album = album,
-                                selection = state.selection,
-                                onIntent = onIntent,
-                            )
-                        }
-                        items(album.tracks, key = { it.remoteTrackId }) { track ->
-                            TrackRow(track, state.selection.contains(track.remoteTrackId), onIntent)
-                        }
-                    }
-                    if (state.visibleTracks.isEmpty()) {
-                        item {
-                            NoticeText("No hay pistas que coincidan con el filtro.")
-                        }
-                    }
+                    TextButton(
+                        onClick = { onIntent(AirCatIntent.SelectAll) },
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
+                    ) { Text(if (state.query.isBlank()) "Seleccionar todo" else "Seleccionar visibles") }
+                    TextButton(
+                        onClick = { onIntent(AirCatIntent.ClearSelection) },
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
+                    ) { Text("Limpiar") }
                 }
             }
         }
-
-        SelectionFooter(state, onIntent)
+        if (state.catalogueLoading) {
+            item(key = "catalogue-loading") {
+                Box(Modifier.fillMaxWidth().height(240.dp), Alignment.Center) {
+                    CircularProgressIndicator(color = TertiaryCyan)
+                }
+            }
+        } else {
+            state.visibleAlbums.forEach { album ->
+                item(key = "album:${album.album}") {
+                    AlbumHeader(
+                        album = album,
+                        selection = state.selection,
+                        onIntent = onIntent,
+                    )
+                }
+                items(album.tracks, key = { it.remoteTrackId }) { track ->
+                    TrackRow(track, state.selection.contains(track.remoteTrackId), onIntent)
+                }
+            }
+            if (state.visibleTracks.isEmpty()) {
+                item(key = "catalogue-empty") {
+                    AirCatAeroEmptyState(
+                        title = if (state.query.isBlank()) "Este catálogo está vacío" else "Sin coincidencias",
+                        detail = if (state.query.isBlank()) "Este equipo no ofrece pistas para recibir." else "Prueba otra búsqueda. Tus selecciones no se perderán.",
+                        primaryLabel = "Limpiar búsqueda",
+                        onPrimary = { onIntent(AirCatIntent.QueryChanged("")) },
+                    )
+                }
+            }
+        }
+        item(key = "catalogue-footer") { SelectionFooter(state, onIntent) }
     }
 }
 
@@ -302,6 +404,8 @@ private fun AlbumHeader(album: AirCatAlbumUi, selection: Set<String>, onIntent: 
         // visual indicator instead of a 24dp hit area. TalkBack announces the
         // album and its tri-state from the row itself.
         modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(org.michimusic.mobile.ui.theme.GlassFillLow)
             .triStateToggleable(
                 state = state,
                 onClick = { onIntent(AirCatIntent.ToggleAlbum(album.album)) },
@@ -330,6 +434,8 @@ private fun TrackRow(track: AirCatTrackUi, checked: Boolean, onIntent: (AirCatIn
     Row(
         // Same contract as the album header: the whole 48dp row is the target.
         modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .background(org.michimusic.mobile.ui.theme.GlassFillLow.copy(alpha = 0.64f))
             .toggleable(
                 value = checked,
                 onValueChange = { onIntent(AirCatIntent.ToggleTrack(track.remoteTrackId)) },
@@ -398,31 +504,35 @@ private fun AirCatReviewContent(state: AirCatExperienceState, onIntent: (AirCatI
         verticalArrangement = Arrangement.spacedBy(blockGap),
     ) {
         item {
-            Text("Revisar transferencia", style = MichiTypography.screenEyebrowTechnical)
+            AirCatAeroSectionTitle("Confirma antes de recibir",
+                "Solo estas canciones serán autorizadas para el equipo seleccionado.")
         }
         item {
             AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(MichiSpacing.lg)) {
                     // The source is the device being read from. Calling it
                     // "destination" was the defect: this phone receives.
-                    Text("Origen", color = TextSecondary, fontSize = 12.sp)
-                    Text(state.selectedSource?.name ?: "…", color = PureWhite, fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(MichiSpacing.md))
-                    Text("Destino", color = TextSecondary, fontSize = 12.sp)
-                    Text("Este teléfono · Biblioteca sincronizada",
-                        color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    AirCatAeroRouteFlow(
+                        origin = state.selectedSource?.name ?: "Origen musical",
+                        destination = "Este teléfono · Biblioteca sincronizada",
+                    )
                     Spacer(Modifier.height(MichiSpacing.md))
                     Text(
                         airCatSelectionSummary(state.selectedTracks.size, state.selectedBytes),
                         color = PureWhite, fontSize = 14.sp,
                     )
-                    Text("Formato original · sin conversión de audio",
-                        color = TextSecondary, fontSize = 12.sp)
-                    state.availableBytes?.let { free ->
-                        Text("Espacio disponible: ${airCatHumanBytes(free)}",
+                    Spacer(Modifier.height(MichiSpacing.sm))
+                    AirCatAeroFact("Formato original · SHA-256 al recibir · sin transcodificación")
+                    if (state.availableBytes == null) {
+                        Text(if (state.storageProbeFailed) "No se pudo comprobar el almacenamiento. Vuelve a revisar." else "Comprobando espacio disponible…",
+                            color = TextSecondary, fontSize = 12.sp,
+                            modifier = Modifier.testTag("aircat_storage_checking"))
+                    } else {
+                        Text("Espacio disponible: ${airCatHumanBytes(state.availableBytes)}",
                             color = TextSecondary, fontSize = 12.sp)
                     }
+                    Text("El cálculo incluye la reserva de seguridad de 100 MiB de AirCat.",
+                        color = TextSecondary, fontSize = 12.sp)
                     state.storageRefusal?.let {
                         Spacer(Modifier.height(MichiSpacing.sm))
                         Text(it, color = PrimaryPinkContainer, fontSize = 13.sp)
@@ -433,7 +543,7 @@ private fun AirCatReviewContent(state: AirCatExperienceState, onIntent: (AirCatI
         item {
             Button(
                 onClick = { onIntent(AirCatIntent.Confirm) },
-                enabled = state.canReview && state.storageRefusal == null && !state.starting,
+                enabled = state.canConfirm,
                 modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
                     .testTag("aircat_confirm_button"),
             ) { Text("Confirmar y recibir", color = SurfaceObsidian, fontWeight = FontWeight.SemiBold) }
@@ -443,6 +553,12 @@ private fun AirCatReviewContent(state: AirCatExperienceState, onIntent: (AirCatI
                 onClick = { onIntent(AirCatIntent.Back) },
                 modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
             ) { Text("Volver a selección") }
+            if (state.storageProbeFailed) {
+                TextButton(onClick = { onIntent(AirCatIntent.Review) },
+                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)) {
+                    Text("Reintentar comprobación de espacio", color = TertiaryCyan)
+                }
+            }
         }
         state.message?.let { item { NoticeText(it) } }
     }
@@ -453,13 +569,29 @@ private fun AirCatReviewContent(state: AirCatExperienceState, onIntent: (AirCatI
 @Composable
 private fun AirCatTransferContent(state: AirCatExperienceState, onIntent: (AirCatIntent) -> Unit) {
     val transfer = state.transfer
+    var cancelRequested by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("aircat_transfer_details"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(screenPadding),
         verticalArrangement = Arrangement.spacedBy(blockGap),
     ) {
         item {
-            Text("Recibiendo música", style = MichiTypography.screenEyebrowTechnical)
+            AirCatAeroSectionTitle("Copia de archivos originales",
+                "El porcentaje procede del motor. La verificación solo se declara al terminar.")
+            transfer?.let { event ->
+                Spacer(Modifier.height(MichiSpacing.sm))
+                AirCatAeroFact(when (event.state) {
+                    AirCatTransferState.PENDING_AUTHORIZATION -> "Solicitando autorización Home"
+                    AirCatTransferState.NEGOTIATING -> "Negociando transporte seguro"
+                    AirCatTransferState.TRANSFERRING -> "Recibiendo archivos originales"
+                    AirCatTransferState.VERIFYING -> "Verificando integridad y biblioteca"
+                    AirCatTransferState.PAUSED -> "Transferencia pausada"
+                    AirCatTransferState.CANCELLED -> "Transferencia cancelada"
+                    AirCatTransferState.COMPLETED -> "Transferencia completada y certificada"
+                    AirCatTransferState.NO_FILES -> "No había archivos para transferir"
+                    AirCatTransferState.FAILED -> "Recepción interrumpida"
+                })
+            }
         }
         item {
             AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
@@ -470,7 +602,8 @@ private fun AirCatTransferContent(state: AirCatExperienceState, onIntent: (AirCa
                     )
                     Spacer(Modifier.height(MichiSpacing.sm))
                     if (transfer == null) {
-                        Text("Preparando la transferencia…", color = TextSecondary, fontSize = 13.sp)
+                        CircularProgressIndicator(color = TertiaryCyan)
+                        Text("Preparando autorización y sesión segura…", color = TextSecondary, fontSize = 13.sp)
                     } else {
                         // Only facts the engine actually reported.
                         Text(
@@ -508,10 +641,46 @@ private fun AirCatTransferContent(state: AirCatExperienceState, onIntent: (AirCa
                     modifier = Modifier.weight(1f).heightIn(min = MichiSpacing.minTouchTarget),
                 ) { Text(if (paused) "Reanudar" else "Pausar", color = SurfaceObsidian) }
                 TextButton(
-                    onClick = { onIntent(AirCatIntent.Cancel) },
+                    onClick = { cancelRequested = true },
                     modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
-                ) { Text("Cancelar") }
+                ) { Text("Cancelar", color = PrimaryPinkContainer) }
             }
+        }
+        if (cancelRequested) item {
+            AeroSurface(role = AeroSurfaceRole.Raised,
+                modifier = Modifier.fillMaxWidth().testTag("aircat_cancel_confirmation")) {
+                Column(Modifier.padding(MichiSpacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(MichiSpacing.sm)) {
+                    Text("¿Detener la recepción de música?", color = PureWhite,
+                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("La música ya incorporada se conserva. Podrás revisar la recuperación " +
+                        "si el motor guardó un checkpoint válido.",
+                        color = TextSecondary, fontSize = 13.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(MichiSpacing.xs)) {
+                        TextButton(onClick = { cancelRequested = false },
+                            modifier = Modifier.fillMaxWidth()
+                                .heightIn(min = MichiSpacing.minTouchTarget)) {
+                            Text("Seguir recibiendo", color = TertiaryCyan)
+                        }
+                        TextButton(onClick = {
+                            cancelRequested = false
+                            onIntent(AirCatIntent.Cancel)
+                        }, modifier = Modifier.fillMaxWidth()
+                            .heightIn(min = MichiSpacing.minTouchTarget)) {
+                            Text("Detener recepción", color = PrimaryPinkContainer)
+                        }
+                    }
+                }
+            }
+        }
+        if (state.transfer != null && !state.transfer.isFinished) item(key = "refresh_evidence") {
+            TextButton(onClick = { onIntent(AirCatIntent.RefreshEvidence) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)) {
+                Text("Consultar registros de archivos", color = TertiaryCyan)
+            }
+        }
+        if (state.selectedTracks.isNotEmpty()) item(key = "aircat_batch_preview") {
+            AirCatBatchPreview(state.selectedTracks, state.fileEvidence)
         }
         state.message?.let { item { NoticeText(it) } }
     }
@@ -519,19 +688,7 @@ private fun AirCatTransferContent(state: AirCatExperienceState, onIntent: (AirCa
 
 @Composable
 private fun LinearProgress(fraction: Float) {
-    Box(
-        Modifier.fillMaxWidth().height(6.dp)
-            .padding(top = 0.dp),
-    ) {
-        Box(
-            Modifier.fillMaxWidth().height(6.dp)
-                .testTag("aircat_transfer_fraction"),
-        ) { }
-        Box(
-            Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(6.dp)
-                .testTag("aircat_transfer_bar"),
-        ) { }
-    }
+    AirCatAeroProgress(fraction)
 }
 
 // --- Result ----------------------------------------------------------------
@@ -547,8 +704,29 @@ private fun AirCatResultContent(state: AirCatExperienceState, onIntent: (AirCatI
             val result = state.result
             AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(MichiSpacing.lg)) {
-                    Text(result?.title ?: "", color = PureWhite, fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold)
+                    result?.let { AirCatAeroOutcome(it.kind) }
+                    if (state.fileEvidence.isNotEmpty()) {
+                        Spacer(Modifier.height(MichiSpacing.sm))
+                        AirCatAeroCheckpointSummary(state.fileEvidence)
+                    }
+                    Spacer(Modifier.height(MichiSpacing.sm))
+                    if (result?.kind == AirCatResultUi.Kind.FAILED ||
+                        result?.kind == AirCatResultUi.Kind.UNCERTIFIED) {
+                        AirCatAeroFact("La reparación local y la reanudación por red " +
+                            "son operaciones diferentes; consulta Devices antes de reintentar.")
+                        Spacer(Modifier.height(MichiSpacing.sm))
+                    }
+                    AirCatAeroSectionTitle(
+                        result?.title ?: "Resultado de transferencia",
+                        when (result?.kind) {
+                            AirCatResultUi.Kind.COMPLETED -> "Archivos recibidos, verificados e incorporados"
+                            AirCatResultUi.Kind.NO_FILES -> "No se descargaron archivos"
+                            AirCatResultUi.Kind.CANCELLED -> "Operación detenida por el usuario"
+                            AirCatResultUi.Kind.FAILED -> "Revisa el motivo y la recuperación en Devices"
+                            AirCatResultUi.Kind.UNCERTIFIED -> "No se recibió comprobante final; no se puede asegurar éxito"
+                            null -> null
+                        },
+                    )
                     result?.detail?.let {
                         Spacer(Modifier.height(MichiSpacing.sm))
                         Text(it, color = TextSecondary, fontSize = 13.sp)
@@ -592,7 +770,7 @@ private fun ActiveTransferCard(transfer: AirCatTransferUi, onIntent: (AirCatInte
             )
             Spacer(Modifier.height(MichiSpacing.sm))
             TextButton(
-                onClick = { onIntent(AirCatIntent.RetryCatalogue) },
+                onClick = { onIntent(AirCatIntent.OpenActiveTransfer) },
                 modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
             ) { Text("Ver detalles") }
         }
@@ -633,21 +811,31 @@ internal fun MichiLinkTrustContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    Box(modifier = modifier.fillMaxSize()) {
+    AeroPremiumBackdrop(accent = TertiaryCyan)
     LazyColumn(
-        modifier = modifier.fillMaxSize().testTag("michi_link_trust_screen"),
+        modifier = Modifier.fillMaxSize().testTag("michi_link_trust_screen"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(screenPadding),
         verticalArrangement = Arrangement.spacedBy(blockGap),
     ) {
         item {
-            Column {
-                Text("Administrar confianza", style = MichiTypography.screenEyebrowTechnical)
-                Spacer(Modifier.height(MichiSpacing.xs))
-                Text(
-                    "Home es la autoridad que firma las transferencias AirCat. " +
-                        "Revocar un origen no borra la música ya recibida.",
-                    color = TextSecondary, fontSize = 13.sp,
-                )
-            }
+            AirCatAeroHeader(
+                title = "Confianza Home",
+                eyebrow = "Michi Link · Seguridad",
+                subtitle = "Gestiona los equipos que pueden compartir tu biblioteca",
+                onBack = onClose,
+            )
+        }
+        item {
+            AirCatAeroHero(
+                title = "Protección de transferencias",
+                detail = "Home acredita el origen y autoriza cada lote. Revocar un equipo " +
+                    "no elimina la música ya recibida.",
+                actionLabel = "Vincular nuevo Home",
+                actionTag = "michi_link_trust_link_home",
+                onAction = onLinkHome,
+                icon = Icons.Filled.AddLink,
+            )
         }
 
         state.notice?.let { notice ->
@@ -665,7 +853,8 @@ internal fun MichiLinkTrustContent(
                 if (!state.hasInventory) {
                     item {
                         TrustMessage(
-                            "No hay autoridades Home vinculadas en este dispositivo.",
+                            "Todavía no hay autoridades Home. Vincula el QR administrativo " +
+                                "de tu propio Home para autorizar orígenes musicales.",
                             "michi_link_trust_empty",
                         )
                     }
@@ -685,13 +874,7 @@ internal fun MichiLinkTrustContent(
             }
         }
 
-        item {
-            Button(
-                onClick = onLinkHome,
-                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
-                    .testTag("michi_link_trust_link_home"),
-            ) { Text("Vincular nuevo Home", color = SurfaceObsidian) }
-        }
+        // The prominent Aero hero above is the single Home enrollment CTA.
         item {
             TextButton(
                 onClick = onClose,
@@ -699,6 +882,7 @@ internal fun MichiLinkTrustContent(
                     .testTag("michi_link_trust_close"),
             ) { Text("Cerrar") }
         }
+    }
     }
 }
 
@@ -778,10 +962,9 @@ private fun TrustSourceCard(
                 "Origen ${airCatShortId(source.sourceMichiId)}",
                 color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
             )
-            Text(
-                "Endpoint fijado: ${source.pinnedBaseUrl}",
+            Text("Endpoint fijado: ${source.pinnedBaseUrl}",
                 color = TextSecondary, fontSize = 12.sp,
-            )
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 "Home: ${airCatShortId(source.homeId)}",
                 color = TextSecondary, fontSize = 12.sp,
@@ -832,7 +1015,7 @@ private fun TrustConfirmationCard(
                     enabled = !busy,
                     modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
                         .testTag("michi_link_trust_confirm"),
-                ) { Text("Desvincular", color = SurfaceObsidian) }
+                ) { Text("Desvincular", color = SurfaceObsidian, fontWeight = FontWeight.SemiBold) }
                 TextButton(
                     onClick = { onIntent(MichiLinkTrustIntent.CancelRevocation) },
                     enabled = !busy,

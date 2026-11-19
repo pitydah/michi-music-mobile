@@ -287,6 +287,7 @@ internal class AirCatOperationCoordinator(
         currentClient: LinkClient?,
         onResult: (Boolean, String) -> Unit,
         selection: List<SelectionEntry>? = null,
+        onTransferIdentified: (String) -> Unit = {},
     ) {
         val terminal = TerminalResult(onResult)
         val transfer = airCatClient ?: return terminal.send(false, "Servicio AirCat no disponible")
@@ -364,7 +365,9 @@ internal class AirCatOperationCoordinator(
                 }
                 val catalogue = manifest.effectiveTracks
                 if (catalogue.isEmpty()) {
-                    terminal.send(true, "No hay pistas disponibles para transferir")
+                    terminal.send(selection == null,
+                        if (selection == null) "No hay pistas disponibles para transferir"
+                        else "El catálogo cambió: ninguna de las pistas seleccionadas sigue disponible")
                     return@launch
                 }
                 // A71-04: the grant must cover exactly the batch the user saw.
@@ -402,6 +405,9 @@ internal class AirCatOperationCoordinator(
                     tracks = tracks,
                     nowMillis = System.currentTimeMillis(),
                 )
+                // The selection has passed fresh-manifest checks and now has an
+                // exact transfer identity. This event is NOT a grant or success.
+                onTransferIdentified(prepared.intent.transferId)
                 // A27: obtain a short-lived grant from the real producer over
                 // the ALREADY pinned metadata connection. No invented local
                 // signature, no grant inferred from the sync manifest itself.

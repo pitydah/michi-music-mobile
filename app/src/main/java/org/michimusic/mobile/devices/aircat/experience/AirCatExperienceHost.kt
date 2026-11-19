@@ -1,11 +1,15 @@
 package org.michimusic.mobile.devices.aircat.experience
 
+import android.os.StatFs
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,15 +37,23 @@ internal fun AirCatExperienceHost(
     engine: AirCatExperienceEngine,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    observedPeerIds: Set<String> = emptySet(),
+    transferScope: CoroutineScope? = null,
+    onSearchDevices: () -> Unit = {},
+    onManageHome: () -> Unit = {},
+    retainedController: AirCatExperienceController? = null,
+    onSourcesUpdated: ((List<AirCatSourceUi>) -> Unit)? = null,
+    recoveryProvider: suspend (Set<String>) -> List<AirCatRecoveryUi> = { emptyList() },
+    onRepairSource: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val sources by produceState(initialValue = emptyList<AirCatSourceUi>(), devices) {
+    val sources by produceState(initialValue = emptyList<AirCatSourceUi>(), devices, observedPeerIds) {
         value = withContext(Dispatchers.IO) {
             val store = AirCatHomeEnrollmentStore(context)
             devices
-                .map { device -> device.toSourceUi(store) }
+                .map { device -> device.toSourceUi(store, device.id in observedPeerIds) }
                 .filter { it.known || it.discovered }
                 .sortedWith(
                     compareByDescending<AirCatSourceUi> { it.canExplore }
@@ -53,30 +65,56 @@ internal fun AirCatExperienceHost(
 
     val freeBytes: suspend () -> Long = {
         withContext(Dispatchers.IO) {
-            runCatching { File(context.filesDir, "synced_music").usableSpace }
-                .getOrDefault(0L)
-                .coerceAtLeast(0L)
+            // The same real filesystem root used by AirCatOperationCoordinator.
+            // Probe failures throw and keep Confirm disabled: UNKNOWN != zero bytes.
+            StatFs(context.filesDir.absolutePath).availableBytes.also { require(it >= 0L) }
         }
     }
 
-    val controller = remember(engine) {
+    // Keep the latest roster while retaining the controller across recomposition.
+    val currentSources by rememberUpdatedState(sources)
+    val controller = retainedController ?: remember(engine) {
         AirCatExperienceController(
             scope = scope,
             engine = engine,
-            sources = { sources },
+            operationScope = transferScope ?: scope,
+            sources = { currentSources },
             freeBytes = freeBytes,
         )
     }
     val state = controller.state.collectAsStateWithLifecycle()
+    val latestOnSourcesUpdated by rememberUpdatedState(onSourcesUpdated)
+    LaunchedEffect(sources) {
+        if (latestOnSourcesUpdated != null) latestOnSourcesUpdated?.invoke(sources)
+        else controller.dispatch(AirCatIntent.RefreshSources)
+    }
+    // Only when Devices/AirCat is visible; no periodic LAN or Room polling.
+    val recoveries by produceState(initialValue = emptyList<AirCatRecoveryUi>(), devices) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { recoveryProvider(devices.filter { it.isPaired && !it.isRevoked }
+                .map { it.id }.filter { it.isNotBlank() }.toSet()) }
+                .getOrDefault(emptyList())
+        }
+    }
 
     BackHandler(enabled = true) {
-        if (state.value.phase == AirCatPhase.HUB) onClose() else controller.dispatch(AirCatIntent.Back)
+        when (state.value.phase) {
+            AirCatPhase.HUB -> onClose()
+            AirCatPhase.TRANSFER -> controller.dispatch(AirCatIntent.Back)
+            AirCatPhase.RESULT -> controller.dispatch(AirCatIntent.DismissResult)
+            else -> controller.dispatch(AirCatIntent.Back)
+        }
     }
 
     AirCatExperienceContent(
         state = state.value,
         onIntent = controller::dispatch,
         modifier = modifier,
+        onClose = onClose,
+        onSearchDevices = onSearchDevices,
+        onManageHome = onManageHome,
+        recoveries = recoveries,
+        onRepairSource = onRepairSource,
     )
 }
 
@@ -89,19 +127,24 @@ internal fun AirCatExperienceHost(
  * implies another, which is exactly why they stay five fields instead of one
  * `ready` boolean.
  */
-private fun UnifiedDevice.toSourceUi(store: AirCatHomeEnrollmentStore): AirCatSourceUi {
+private fun UnifiedDevice.toSourceUi(
+    store: AirCatHomeEnrollmentStore, observed: Boolean,
+): AirCatSourceUi {
     val connected = connectionState == SyncConnectionState.CONNECTED
-    val enrolled = runCatching { store.anchorForSource(id) != null }.getOrDefault(false)
+    val enrolledResult = runCatching { store.anchorForSource(id) }
+    val enrolled = enrolledResult.getOrNull() != null
     val advertised = runCatching { AirCatCapabilityPolicy.hasFeature(features) }.getOrDefault(false)
     return AirCatSourceUi(
         deviceId = id,
         name = name.ifBlank { "Equipo Michi" },
         kindLabel = deviceType.ifBlank { "Equipo Michi" },
-        discovered = !isPaired,
+        discovered = observed,
         known = isPaired,
         connected = connected,
         homeEnrolled = enrolled,
         airCatAdvertised = advertised,
         revoked = isRevoked,
+        blockedReason = if (enrolledResult.isFailure)
+            "No pudimos leer la confianza Home cifrada de este equipo" else null,
     )
 }

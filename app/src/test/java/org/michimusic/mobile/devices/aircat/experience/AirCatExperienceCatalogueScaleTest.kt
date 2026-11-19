@@ -185,7 +185,9 @@ class AirCatExperienceCatalogueScaleTest {
         }
 
         compose.waitForIdle()
-        compose.onNodeWithText("No hay pistas que coincidan con el filtro.").assertExists()
+        compose.onNodeWithText("Sin coincidencias").assertExists()
+        compose.onNodeWithText("Prueba otra búsqueda. Tus selecciones no se perderán.")
+            .assertExists()
         assertEquals(
             "a filter matching nothing must compose no track rows",
             0,

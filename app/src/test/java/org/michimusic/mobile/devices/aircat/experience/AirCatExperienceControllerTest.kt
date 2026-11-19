@@ -2,6 +2,7 @@ package org.michimusic.mobile.devices.aircat.experience
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -23,6 +24,7 @@ import org.michimusic.mobile.devices.aircat.SelectionEntry
  * whether it is allowed. These tests only exercise the first half, with a double
  * that records exactly what the screen handed over.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class AirCatExperienceControllerTest {
 
     private class FakeEngine : AirCatExperienceEngine {
@@ -34,6 +36,7 @@ class AirCatExperienceControllerTest {
         val explored = mutableListOf<String>()
         var starts = 0
         var lastSelection: List<SelectionEntry>? = null
+        var lastResult: ((Boolean, String) -> Unit)? = null
         private val paused = mutableSetOf<String>()
 
         override suspend fun explore(targetDeviceId: String, currentClient: LinkClient?): Result<CataloguePreview> {
@@ -48,9 +51,12 @@ class AirCatExperienceControllerTest {
             currentClient: LinkClient?,
             onResult: (Boolean, String) -> Unit,
             selection: List<SelectionEntry>?,
+            onTransferIdentified: (String) -> Unit,
         ) {
             starts += 1
             lastSelection = selection
+            lastResult = onResult
+            onTransferIdentified("xfer-1")
         }
 
         override fun pause(transferId: String): Boolean {
@@ -101,14 +107,14 @@ class AirCatExperienceControllerTest {
 
     private fun TestScopeController(
         engine: FakeEngine,
-        free: Long = 10_000L,
+        free: Long = 200L * 1024 * 1024,
         sources: List<AirCatSourceUi> = listOf(source("dev-1"), source("dev-2")),
     ) = Triple(engine, free, sources)
 
     @Test
     fun exploringACatalogueGroupsTheTracksByTheirAlbum() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
 
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
@@ -123,7 +129,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun aSourceThatCannotExploreKeepsTheUserOnThePicker() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1", canExplore = false)) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1", canExplore = false)) }, { 200L * 1024 * 1024 })
 
         controller.dispatch(AirCatIntent.OpenSources)
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
@@ -137,7 +143,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun theSelectionCarriesTheDigestTheCatalogueShowed() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
 
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
@@ -157,7 +163,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun anAlbumTogglesAllOfItsTracksAndTogglesThemBack() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
 
@@ -171,7 +177,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun selectAllOnlyMarksTheTracksTheFilterLeavesVisible() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
 
@@ -184,7 +190,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun anEmptySelectionNeverReachesTheEngine() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
 
@@ -217,7 +223,7 @@ class AirCatExperienceControllerTest {
         val engine = FakeEngine()
         val gate = CompletableDeferred<Unit>()
         engine.gate = gate
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1"), source("dev-2")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1"), source("dev-2")) }, { 200L * 1024 * 1024 })
 
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
@@ -236,7 +242,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun aCompletedTransferBecomesAnHonestResult() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
         controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
@@ -266,7 +272,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun noFilesIsNeverReportedAsACompletedTransfer() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
         controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
@@ -276,7 +282,7 @@ class AirCatExperienceControllerTest {
         advanceUntilIdle()
 
         engine.progressFlow.value = AirCatProgressEvent(
-            transferId = "xfer-empty",
+            transferId = "xfer-1",
             currentTrackIndex = 0,
             totalTracks = 0,
             bytesTransferred = 0L,
@@ -291,7 +297,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun aCancelledTransferIsNotAnIntegrityFailure() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
         controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
@@ -301,7 +307,7 @@ class AirCatExperienceControllerTest {
         advanceUntilIdle()
 
         engine.progressFlow.value = AirCatProgressEvent(
-            transferId = "xfer-cancel",
+            transferId = "xfer-1",
             currentTrackIndex = 0,
             totalTracks = 1,
             bytesTransferred = 0L,
@@ -316,7 +322,7 @@ class AirCatExperienceControllerTest {
     @Test
     fun dismissingTheResultReturnsToTheHub() = runTest {
         val engine = FakeEngine()
-        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 10_000L })
+        val controller = AirCatExperienceController(UnconfinedTestDispatcher(testScheduler).let { CoroutineScope(it) }, engine, { listOf(source("dev-1")) }, { 200L * 1024 * 1024 })
         controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
         advanceUntilIdle()
         controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
@@ -325,7 +331,7 @@ class AirCatExperienceControllerTest {
         controller.dispatch(AirCatIntent.Confirm)
         advanceUntilIdle()
         engine.progressFlow.value = AirCatProgressEvent(
-            transferId = "xfer-2",
+            transferId = "xfer-1",
             currentTrackIndex = 1,
             totalTracks = 1,
             bytesTransferred = 100L,
@@ -341,5 +347,176 @@ class AirCatExperienceControllerTest {
         assertEquals(AirCatPhase.HUB, controller.state.value.phase)
         assertNull(controller.state.value.result)
         assertNull(controller.state.value.transfer)
+    }
+
+    @Test
+    fun selectingVisibleTracksPreservesHiddenSelections() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.QueryChanged("rem-3"))
+        controller.dispatch(AirCatIntent.SelectAll)
+        assertEquals(setOf("rem-1", "rem-3"), controller.state.value.selection)
+    }
+
+    @Test
+    fun aForeignTransferEventCannotClaimThisScreen() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-foreign", currentTrackIndex = 1,
+            totalTracks = 1, bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertNull(controller.state.value.result)
+        assertEquals(AirCatPhase.TRANSFER, controller.state.value.phase)
+    }
+
+    @Test
+    fun aBooleanSuccessWithoutStrongReceiptIsNotCompletion() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.lastResult?.invoke(true, "completada")
+        advanceUntilIdle()
+        assertEquals(AirCatResultUi.Kind.UNCERTIFIED, controller.state.value.result?.kind)
+        assertEquals(AirCatPhase.RESULT, controller.state.value.phase)
+    }
+
+    @Test
+    fun anUncertifiedCallbackCanBeSupersededByTheExactVerifiedReceipt() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.lastResult?.invoke(true, "term")
+        assertEquals(AirCatResultUi.Kind.UNCERTIFIED, controller.state.value.result?.kind)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-1", currentTrackIndex = 1, totalTracks = 1,
+            bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertEquals(AirCatResultUi.Kind.COMPLETED, controller.state.value.result?.kind)
+    }
+
+    @Test
+    fun aForeignLastEventIsNotAutomaticallyAdoptedAsOurTransfer() = runTest {
+        val engine = FakeEngine()
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "other-session", currentTrackIndex = 1, totalTracks = 2,
+            bytesTransferred = 100L, totalBytes = 200L,
+            state = AirCatTransferState.TRANSFERRING,
+        )
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        assertNull(controller.state.value.transfer)
+        assertEquals(AirCatPhase.HUB, controller.state.value.phase)
+    }
+
+    @Test
+    fun closingDetailsKeepsObservingTheExactRunningTransfer() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        controller.dispatch(AirCatIntent.Back)
+        assertEquals(AirCatPhase.HUB, controller.state.value.phase)
+        controller.dispatch(AirCatIntent.OpenActiveTransfer)
+        assertEquals(AirCatPhase.TRANSFER, controller.state.value.phase)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-1", currentTrackIndex = 1, totalTracks = 1,
+            bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertEquals(AirCatResultUi.Kind.COMPLETED, controller.state.value.result?.kind)
+    }
+
+    @Test
+    fun anExactReceiptMayReadOnlyTheSameSourceAndTransferEvidence() = runTest {
+        val engine = FakeEngine()
+        val requests = mutableListOf<Pair<String, String>>()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+            checkpointEvidence = { sourceId, transferId ->
+                requests += sourceId to transferId
+                emptyList()
+            },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-1", currentTrackIndex = 1, totalTracks = 1,
+            bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("dev-1" to "xfer-1"), requests)
+    }
+
+    @Test
+    fun anUnknownStorageProbeNeverAllowsConfirmation() = runTest {
+        val engine = FakeEngine()
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { throw IllegalStateException("statfs unavailable") },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        assertEquals(false, controller.state.value.canConfirm)
+        controller.dispatch(AirCatIntent.Confirm)
+        assertEquals(0, engine.starts)
     }
 }

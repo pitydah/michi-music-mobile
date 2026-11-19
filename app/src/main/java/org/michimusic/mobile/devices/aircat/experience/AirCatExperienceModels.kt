@@ -36,7 +36,8 @@ internal data class AirCatSourceUi(
 ) {
     /** Connected, trusted by Home, advertises AirCat and was not revoked. */
     val canExplore: Boolean
-        get() = !revoked && connected && homeEnrolled && airCatAdvertised && blockedReason == null
+        get() = !revoked && known && connected && homeEnrolled &&
+            airCatAdvertised && blockedReason == null
 
     /** Reachable and AirCat-capable, but this phone holds no Home authority yet. */
     val needsHome: Boolean
@@ -49,6 +50,7 @@ internal data class AirCatSourceUi(
             blockedReason != null -> blockedReason
             !connected && known -> "Conocido · sin conexión"
             !connected && discovered -> "Encontrado · sin conexión"
+            connected && !known -> "Conectado · falta vinculación Michi Link"
             connected && !homeEnrolled -> "Conectado · Home no vinculado"
             connected && !airCatAdvertised -> "Conectado · sin transferencias AirCat"
             canExplore -> "Conectado · Home vinculado · AirCat disponible"
@@ -143,7 +145,7 @@ internal data class AirCatResultUi(
     val tracks: Int = 0,
     val bytes: Long = 0L,
 ) {
-    internal enum class Kind { COMPLETED, NO_FILES, CANCELLED, FAILED }
+    internal enum class Kind { COMPLETED, NO_FILES, CANCELLED, FAILED, UNCERTIFIED }
 }
 
 /**
@@ -163,6 +165,8 @@ internal data class AirCatExperienceState(
     val transfer: AirCatTransferUi? = null,
     val result: AirCatResultUi? = null,
     val availableBytes: Long? = null,
+    val storageProbeFailed: Boolean = false,
+    val fileEvidence: List<AirCatFileEvidenceUi> = emptyList(),
     val message: String? = null,
     val starting: Boolean = false,
 ) {
@@ -206,15 +210,23 @@ internal data class AirCatExperienceState(
     val canReview: Boolean
         get() = selection.isNotEmpty() && !starting
 
+    /** A null storage snapshot is CHECKING/UNKNOWN, never transfer-ready. */
+    val canConfirm: Boolean
+        get() = canReview && availableBytes != null && storageRefusal == null &&
+            org.michimusic.mobile.devices.aircat.AirCatStorageRequirement.requiredBytes(selectedBytes)
+                ?.let { availableBytes >= it } == true
+
     /** Storage is judged with the engine's own numbers, not a copy of its policy. */
     val storageRefusal: String?
         get() {
             val available = availableBytes ?: return null
-            val needed = selectedBytes
-            if (needed <= 0L) return null
+            val needed = org.michimusic.mobile.devices.aircat.AirCatStorageRequirement
+                .requiredBytes(selectedBytes)
+                ?: return "El tamaño seleccionado supera el límite admitido."
+            if (selectedBytes <= 0L) return null
             if (available >= needed) return null
-            return "No hay espacio suficiente: necesitás ${airCatHumanBytes(needed)} " +
-                "y hay ${airCatHumanBytes(available)} disponibles."
+            return "No hay espacio suficiente: se requieren ${airCatHumanBytes(needed)} " +
+                "(incluye reserva de seguridad) y hay ${airCatHumanBytes(available)} disponibles."
         }
 }
 

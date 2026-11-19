@@ -239,7 +239,7 @@ class AirCatExperienceContentTest {
         )
 
         compose.onNodeWithTag("michi_link_trust_screen").assertIsDisplayed()
-        compose.onNodeWithText("Administrar confianza").assertIsDisplayed()
+        compose.onNodeWithText("Confianza Home").assertIsDisplayed()
         compose.onNodeWithTag("michi_link_trust_home_${home.homeId}").assertIsDisplayed()
         compose.onNodeWithText("2 orígenes registrados").assertIsDisplayed()
         compose.onNodeWithTag("michi_link_trust_source_$SOURCE_A").assertIsDisplayed()

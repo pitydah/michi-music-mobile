@@ -43,6 +43,7 @@ internal class AirCatOperationEngine(
         currentClient: LinkClient?,
         onResult: (Boolean, String) -> Unit,
         selection: List<SelectionEntry>?,
+        onTransferIdentified: (String) -> Unit,
     ) {
         coordinator.startTransfer(
             targetDeviceId = targetDeviceId,
@@ -50,6 +51,7 @@ internal class AirCatOperationEngine(
             currentClient = currentClient ?: this.currentClient(),
             onResult = onResult,
             selection = selection,
+            onTransferIdentified = onTransferIdentified,
         )
     }
 
