@@ -53,8 +53,8 @@ internal fun SettingsEcosystemPanel(onNavigateToDevices: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SettingsSectionCard(
             icon = Icons.Default.Security,
-            title = "Sincronización y dispositivos",
-            subtitle = "Preferencias locales; el estado del servidor se consulta en Dispositivos",
+            title = "Sincronización automática",
+            subtitle = "Se configura en este teléfono",
             accent = SecondaryPurple,
         ) {
             SettingSwitchRow(
@@ -84,15 +84,21 @@ internal fun SettingsEcosystemPanel(onNavigateToDevices: () -> Unit) {
                 color = TextSecondary, style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("settings_auto_sync_work_status"),
             )
-            Text("Programación observada en Android; no confirma conexión ni descarga efectiva.",
-                color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            SettingsDisclosureNote(
+                title = "Qué confirma la sincronización",
+                detail = "El estado observado corresponde a la programación de Android. " +
+                    "No confirma que un servidor esté conectado ni que se hayan descargado archivos. " +
+                    "La sincronización periódica solo se solicita cuando corresponde; " +
+                    "los dispositivos reales se consultan en su pantalla.",
+                testTag = "settings_sync_explanation",
+            )
             autoSyncError?.let { Text(it, color = PrimaryPink) }
         }
         SettingsCategoryNavCard(
             icon = Icons.Default.FolderSpecial,
             iconRes = org.michimusic.mobile.R.drawable.wizard_fluent_phone_laptop,
-            title = "Michi Link, Micro Server y Music Stream",
-            subtitle = "Administrar dispositivos, conexiones y receptores desde su pantalla canónica",
+            title = "Administrar dispositivos",
+            subtitle = "Michi Link · Micro Server · Music Stream",
             accent = SecondaryPurple,
             onClick = onNavigateToDevices,
             testTag = "settings_open_devices",

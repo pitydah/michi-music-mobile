@@ -40,8 +40,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -96,6 +101,8 @@ fun PlaylistScreen(
     val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
     var visualById by remember { mutableStateOf<Map<String, PlaylistVisualState>>(emptyMap()) }
     var catalogSort by remember { mutableStateOf(PlaylistCatalogSort.NAME) }
+    // One visual preference only: classic stays the default, deck is opt-in.
+    var cardsMode by rememberSaveable { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     val visualScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -286,6 +293,26 @@ fun PlaylistScreen(
                     }
                 }
             }
+            if (playlists.isNotEmpty() && !isLoading) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+                        .testTag("playlist_catalog_mode_picker"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AeroFilterChip(
+                        label = "Clásica",
+                        selected = !cardsMode,
+                        onClick = { cardsMode = false; menuPlaylist = null },
+                        testTag = "playlist_mode_classic",
+                    )
+                    AeroFilterChip(
+                        label = "Tarjetas",
+                        selected = cardsMode,
+                        onClick = { cardsMode = true; menuPlaylist = null },
+                        testTag = "playlist_mode_cards",
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
 
             if (isLoading) {
@@ -332,6 +359,45 @@ fun PlaylistScreen(
                             )
                         }
                     }
+                }
+            } else if (cardsMode) {
+                Column(
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                        .testTag("playlist_catalog_cards"),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = if (orderedPlaylists.size == 1)
+                            "Una playlist · toca para abrirla"
+                        else "Desliza las tarjetas para explorar tus playlists",
+                        style = MichiTypography.metadata,
+                        color = TextSecondary,
+                    )
+                    PlaylistSwipingDeck(
+                        cards = orderedPlaylists,
+                        key = { it.id },
+                        modifier = Modifier.fillMaxWidth()
+                            .height(UI8VisualSpec.playlistDeckHeightFor(
+                                androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp))
+                            .padding(horizontal = 12.dp),
+                        maxVisibleCards = minOf(3, orderedPlaylists.size),
+                        isSwipeEnabled = orderedPlaylists.size > 1 && menuPlaylist == null,
+                        // Swipe cycles; it never plays, deletes or changes the data order.
+                    ) { playlist ->
+                        PlaylistCatalogSpotlight(
+                            playlist = playlist,
+                            visual = visualById[playlist.id] ?: PlaylistVisualState(),
+                            onOpen = { onNavigateToPlaylist(playlist.id) },
+                            actions = { playlistActions(playlist) },
+                            deck = true,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Text(
+                        text = "Toca una tarjeta para abrirla. Usa Clásica para ver todas en lista.",
+                        style = MichiTypography.metadata,
+                        color = TextSecondary,
+                    )
                 }
             } else {
                 val spotlight = orderedPlaylists.first()

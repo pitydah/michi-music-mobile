@@ -47,7 +47,7 @@ internal fun SettingsProcessingPanel(onOpenEqualizer: () -> Unit) {
             Column(Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Modo de procesamiento", style = MichiTypography.cardTitle, color = PureWhite)
-                Text("Elige cómo se solicitan los efectos de audio. La ruta activa puede limitar su aplicación.",
+                Text("Selecciona cómo solicitar los efectos al motor.",
                     style = MichiTypography.metadata, color = TextSecondary)
                 Column(Modifier.selectableGroup()) {
                     AudioProcessingMode.entries.forEach { mode ->
@@ -95,8 +95,16 @@ internal fun SettingsProcessingPanel(onOpenEqualizer: () -> Unit) {
             onClick = onOpenEqualizer,
             testTag = "settings_open_equalizer",
         )
-        Text("Las capacidades y la aplicación de los efectos dependen del motor y del dispositivo activo.",
-            style = MichiTypography.metadata, color = TextSecondary)
+        Text(settingsTruthLine(SettingsTruthArea.PROCESSING),
+            style = MichiTypography.metadata, color = TextSecondary,
+            modifier = Modifier.testTag("settings_processing_truth_line"))
+        SettingsDisclosureNote(
+            title = "Procesamiento real y compatibilidad",
+            detail = "Las capacidades y la aplicación de los efectos dependen del motor y del " +
+                "dispositivo activo. La ruta puede limitar los efectos solicitados; " +
+                "el modo configurado no certifica procesamiento real en el DAC.",
+            testTag = "settings_processing_help",
+        )
     }
 }
 
@@ -119,8 +127,14 @@ internal fun SettingsOutputPanel(onOpenRoute: () -> Unit) {
             onClick = onOpenRoute,
             testTag = "settings_open_audio_route",
         )
-        Text("Una frecuencia preferida del mezclador USB no certifica el reloj físico " +
-            "del dispositivo. Consulta el estado observado en el selector de salida.",
-            style = MichiTypography.metadata, color = TextSecondary)
+        Text(settingsTruthLine(SettingsTruthArea.OUTPUT),
+            style = MichiTypography.metadata, color = TextSecondary,
+            modifier = Modifier.testTag("settings_output_truth_line"))
+        SettingsDisclosureNote(
+            title = "Preferencia de mezclador y frecuencia real",
+            detail = "Una frecuencia preferida del mezclador USB no certifica el reloj físico " +
+                "del dispositivo. Consulta el estado observado en el selector de salida.",
+            testTag = "settings_output_help",
+        )
     }
 }

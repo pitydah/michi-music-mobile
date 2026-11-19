@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +32,7 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassFillMid
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -51,7 +53,7 @@ internal fun AlbumViewModeToggle(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val highContrast = LocalVisualPreferences.current.highContrast
-    val menuShape = RoundedCornerShape(18.dp)
+    val menuShape = RoundedCornerShape(UI8VisualSpec.popupCorner)
     Box(modifier = modifier) {
         MichiIconAction(
             icon = albumViewModeIcon(viewMode),
@@ -63,13 +65,20 @@ internal fun AlbumViewModeToggle(
             minTargetSize = MichiSpacing.minTouchTarget,
             testTag = "library_view_mode_toggle",
         )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.clip(menuShape).background(SurfaceObsidian)
-                .border(if (highContrast) 1.5.dp else 0.8.dp,
-                    if (highContrast) PureWhite else GlassBorderHigh, menuShape),
-        ) {
+        // Material3 otherwise draws its default small-corner popup behind our
+        // 18 dp modifier: four mismatched dark corner wedges become visible.
+        // Give the popup Surface and the content the same corner geometry.
+        MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = menuShape)) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .clip(menuShape)
+                    .background(SurfaceObsidian, menuShape)
+                    .border(if (highContrast) 1.5.dp else 0.8.dp,
+                        if (highContrast) PureWhite else GlassBorderHigh, menuShape)
+                    .testTag("library_view_mode_menu"),
+            ) {
             listOf(
                 LibraryViewMode.MOSAIC,
                 LibraryViewMode.COVERFLOW,
@@ -101,6 +110,7 @@ internal fun AlbumViewModeToggle(
                         ).semantics { selected = viewMode == mode }
                         .testTag("album_mode_option_${mode.name.lowercase()}"),
                 )
+            }
             }
         }
     }

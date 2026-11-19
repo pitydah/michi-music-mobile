@@ -1,6 +1,9 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.searchTextMatches
+import org.michimusic.mobile.screens.trackSearchMatches
+import org.michimusic.mobile.screens.searchTrackIdentity
 
 /** Only an index that belongs to the exact current result list may be played. */
 internal fun safeSearchQueueIndex(candidate: Int, count: Int): Int? =
@@ -27,6 +30,28 @@ internal fun searchActionPermitted(query: String, filter: String, kind: String, 
         else -> false
     }
 }
+
+/** Live track guard: preserve epoch checks at caller and use identical fields to the ViewModel. */
+internal fun searchTrackActionPermitted(query: String, filter: String, track: Track): Boolean =
+    filter in setOf("ALL", "TRACKS", "LOSSLESS", "DOWNLOADED") &&
+        trackSearchMatches(track, query)
+
+/** Only one exact source/library/file may be played; ambiguous identities fail closed. */
+internal fun safeSearchQueueTrackIndex(tracks: List<Track>, candidate: Track): Int? {
+    val wanted = searchTrackIdentity(candidate)
+    var resolved = -1
+    tracks.forEachIndexed { index, track ->
+        if (searchTrackIdentity(track) == wanted) {
+            if (resolved >= 0) return null
+            resolved = index
+        }
+    }
+    return resolved.takeIf { it >= 0 }
+}
+
+/** Badge and progress state must not mark another library's identical ID as playing. */
+internal fun sameSearchTrackIdentity(active: Track?, candidate: Track): Boolean =
+    active != null && searchTrackIdentity(active) == searchTrackIdentity(candidate)
 
 /** A response is usable only by the exact request that produced it (ABA-safe). */
 internal fun searchSnapshotCurrent(

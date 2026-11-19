@@ -197,9 +197,9 @@ internal fun AeroSeekerTrack(
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
                 )
                 drawRoundRect(
-                    Color.White.copy(alpha = 0.18f),
+                    Color.White.copy(alpha = 0.13f),
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
-                    style = Stroke(width = 0.8.dp.toPx()),
+                    style = Stroke(width = 0.7.dp.toPx()),
                 )
                 if (innerWidth > 0f) {
                     drawRoundRect(
@@ -207,9 +207,9 @@ internal fun AeroSeekerTrack(
                         Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
                     )
                     drawRoundRect(
-                        Color.White.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0.055f),
                         Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
-                        style = Stroke(width = 0.55.dp.toPx()),
+                        style = Stroke(width = 0.5.dp.toPx()),
                     )
                     if (playedInner > 0f) {
                         drawRoundRect(
@@ -222,17 +222,8 @@ internal fun AeroSeekerTrack(
                         )
                     }
                 }
-                if (w > inset * 3f) {
-                    // A single specular hairline reads as an anodized lip and
-                    // never becomes a glass/blur effect.
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.26f),
-                        start = Offset(inset + 2.dp.toPx(), railTop + 2.dp.toPx()),
-                        end = Offset(w - inset - 2.dp.toPx(), railTop + 2.dp.toPx()),
-                        strokeWidth = 0.65.dp.toPx(),
-                        cap = StrokeCap.Round,
-                    )
-                }
+                // No third top hairline: the capsule already has a rim and an
+                // inset channel. An extra horizontal line reads as a defect at 1x.
             }
             AeroSeekerStyle.ORIGINAL -> Unit // Original uses the unmodified legacy implementation.
         }

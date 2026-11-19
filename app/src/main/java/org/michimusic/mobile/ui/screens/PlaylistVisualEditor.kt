@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -103,14 +104,14 @@ internal fun PlaylistVisualEditorDialog(
     var adjustingCover by remember { mutableStateOf(false) }
     var adjustingBanner by remember { mutableStateOf(false) }
 
-    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             coverPick = uri
             coverRemove = false
             adjustingCover = true
         }
     }
-    val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             bannerPick = uri
             bannerRemove = false
@@ -131,6 +132,7 @@ internal fun PlaylistVisualEditorDialog(
     val bannerHasImage = bannerPick != null || (!bannerRemove && visual.bannerUri != null)
 
     fun request(): PlaylistVisualEditRequest = PlaylistVisualEditRequest(
+        expectedVisual = visual,
         cover = when {
             coverPick != null -> PlaylistVisualImageChange.Replace(coverPick!!)
             coverRemove -> PlaylistVisualImageChange.Remove
@@ -180,7 +182,7 @@ internal fun PlaylistVisualEditorDialog(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "Portada y banner se guardan de forma independiente",
+                            text = "Los cambios de portada y banner se confirman juntos",
                             color = TextSecondary,
                             fontSize = 12.sp,
                         )
@@ -224,7 +226,7 @@ internal fun PlaylistVisualEditorDialog(
                     focalY = coverFocalY,
                     scale = coverScale,
                     onAdjustingChange = { adjustingCover = it },
-                    onPick = { coverPicker.launch(arrayOf("image/*")) },
+                    onPick = { coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onRemove = {
                         coverPick = null
                         coverRemove = true
@@ -258,7 +260,7 @@ internal fun PlaylistVisualEditorDialog(
                     focalY = bannerFocalY,
                     scale = bannerScale,
                     onAdjustingChange = { adjustingBanner = it },
-                    onPick = { bannerPicker.launch(arrayOf("image/*")) },
+                    onPick = { bannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onRemove = {
                         bannerPick = null
                         bannerRemove = true
@@ -279,7 +281,34 @@ internal fun PlaylistVisualEditorDialog(
                     },
                 )
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(8.dp))
+                // Former overflow-menu reset is now staged with all other edits:
+                // Cancel/close never alters the stored cover or banner.
+                TextButton(
+                    onClick = {
+                        coverPick = null
+                        bannerPick = null
+                        coverRemove = true
+                        bannerRemove = true
+                        coverFocalX = 0.5f
+                        coverFocalY = 0.5f
+                        coverScale = 1f
+                        bannerFocalX = 0.5f
+                        bannerFocalY = 0.5f
+                        bannerScale = 1f
+                        adjustingCover = false
+                        adjustingBanner = false
+                    },
+                    enabled = !isSaving && playlistVisualResetNeeded(
+                        coverHasImage = coverHasImage, bannerHasImage = bannerHasImage,
+                        coverFocalX = coverFocalX, coverFocalY = coverFocalY, coverScale = coverScale,
+                        bannerFocalX = bannerFocalX, bannerFocalY = bannerFocalY, bannerScale = bannerScale,
+                    ),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("playlist_visual_editor_reset_both"),
+                ) { Text("Restablecer portada y banner", color = PrimaryPinkContainer) }
+
+                Spacer(Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

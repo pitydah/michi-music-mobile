@@ -28,6 +28,20 @@ internal fun audioRouteSelectionHint(
     else -> "Dispositivo detectado; no es una ruta controlable desde esta pantalla"
 }
 
+/** Compact UI hint: status itself already identifies observed/requested outputs.
+ * Non-USB outputs are informational; the list heading explains their detection.
+ */
+internal fun compactAudioRouteHint(
+    isUsbType: Boolean,
+    selectable: Boolean,
+    observedHere: Boolean,
+    requestedHere: Boolean,
+    preferredHere: Boolean = false,
+): String? = when {
+    !isUsbType || observedHere || requestedHere -> null
+    else -> audioRouteSelectionHint(selectable, false, false, preferredHere)
+}
+
 /** Selected USB preference may outlive a hot-unplug; never present it as routed. */
 internal enum class PreferredUsbPresence { AUTOMATIC, AVAILABLE, DISCONNECTED }
 

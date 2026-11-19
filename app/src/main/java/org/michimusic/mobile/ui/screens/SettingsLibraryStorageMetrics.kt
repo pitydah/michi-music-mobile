@@ -43,7 +43,12 @@ internal fun SettingsLibraryStorageMetrics(
         modifier = Modifier.testTag("settings_michi_sync_storage_free"))
     TextButton(onClick = onRefresh, modifier = Modifier.heightIn(min = 48.dp)
         .testTag("settings_michi_sync_storage_refresh")) { Text("Actualizar espacio") }
-    Text("Estos datos corresponden al almacenamiento privado de Michi Link; " +
-        "no representan el tamaño ni el espacio libre de la carpeta SAF elegida.",
+    Text("No representa el tamaño de la carpeta musical SAF.",
         style = MaterialTheme.typography.bodySmall, color = TextMuted)
+    SettingsDisclosureNote(
+        title = "Qué mide el espacio mostrado",
+        detail = "Estos datos corresponden al almacenamiento privado de Michi Link; " +
+            "no representan el tamaño ni el espacio libre de la carpeta SAF elegida.",
+        testTag = "settings_michi_sync_storage_help",
+    )
 }

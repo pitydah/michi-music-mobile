@@ -284,8 +284,8 @@ fun AeroSignalRouteStrip(
                             contentDescription = "Archivo original: $signalLabel. Abrir Signal Truth"
                         }
                         .testTag("signal_truth_button")
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -304,9 +304,9 @@ fun AeroSignalRouteStrip(
                         text = signalLabel,
                         color = TertiaryCyan,
                         fontFamily = InterFontFamily,
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
+                        fontWeight = FontWeight.Medium,
                         // A 50/50 cell must never clip normal bitrate/quality metadata.
                         // Long filenames remain available in the accessible tap label.
                         maxLines = if (stacked) 4 else 3,
@@ -326,8 +326,8 @@ fun AeroSignalRouteStrip(
                             contentDescription = "Salida solicitada: $destination. Abrir ruta de audio"
                         }
                         .testTag("audio_route_button")
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -346,8 +346,8 @@ fun AeroSignalRouteStrip(
                         color = PureWhite,
                         style = androidx.compose.ui.text.TextStyle(
                             fontFamily = InterFontFamily,
-                            fontSize = 15.sp,
-                            lineHeight = 19.sp,
+                            fontSize = 14.sp,
+                            lineHeight = 18.sp,
                             fontWeight = FontWeight.Medium,
                         ),
                         maxLines = if (stacked) 3 else 2,
@@ -396,12 +396,14 @@ fun AeroSignalRouteStrip(
                 // the underlying signalDescription remains unmodified.
                 AeroObservedText(
                     value = signalDescription,
-                    modifier = Modifier.fillMaxWidth().testTag("signal_strip_footer"),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        .testTag("signal_strip_footer"),
                     color = TextSecondary,
                     style = androidx.compose.ui.text.TextStyle(
                         fontFamily = InterFontFamily,
                         fontSize = 11.sp,
-                        lineHeight = 15.sp,
+                        lineHeight = 16.sp,
+                        textAlign = TextAlign.Center,
                     ),
                     maxLines = if (stacked) 3 else 2,
                 )

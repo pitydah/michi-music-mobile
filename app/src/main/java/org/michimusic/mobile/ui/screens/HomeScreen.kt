@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1225,26 +1226,37 @@ private fun YourPlaylistsSection(
         }
 
         if (playlists.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(horizontal = 4.dp),
-                modifier = Modifier.testTag("your_playlists_list"),
-            ) {
-                items(playlists.sortedWith(compareBy<Playlist> { it.id !in pinnedPlaylistIds }
-                    .thenBy { it.name.lowercase() }), key = { it.id }) { playlist ->
-                    PlaylistTile(
-                        title = playlist.name,
-                        subtitle = if (playlist.id in pinnedPlaylistIds)
-                            "Fijada · ${playlist.trackCount} canciones" else "${playlist.trackCount} canciones",
-                        icon = Icons.Filled.LibraryMusic,
-                        accentColor = SecondaryPurple,
-                        modifier = Modifier
-                            .width(MichiSpacing.albumTileWidth)
-                            .testTag("playlist_tile_${playlist.id}"),
-                        onClick = { onNavigateToPlaylist(playlist.id) },
-                    )
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                "TUS PLAYLISTS",
+                style = MichiTypography.screenEyebrow,
+                modifier = Modifier.testTag("home_user_playlists_heading"),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                // One personal list is a full-width actionable collection rather
+                // than an orphan half-card; multiple lists retain a horizontal rail.
+                val cardWidth = if (playlists.size == 1) maxWidth - 8.dp
+                    else MichiSpacing.albumTileWidth
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                    modifier = Modifier.testTag("your_playlists_list"),
+                ) {
+                    items(playlists.sortedWith(compareBy<Playlist> { it.id !in pinnedPlaylistIds }
+                        .thenBy { it.name.lowercase() }), key = { it.id }) { playlist ->
+                        PlaylistTile(
+                            title = playlist.name,
+                            subtitle = if (playlist.id in pinnedPlaylistIds)
+                                "Fijada · ${playlist.trackCount} canciones" else "${playlist.trackCount} canciones",
+                            icon = Icons.Filled.LibraryMusic,
+                            accentColor = SecondaryPurple,
+                            modifier = Modifier
+                                .width(cardWidth)
+                                .testTag("playlist_tile_${playlist.id}"),
+                            onClick = { onNavigateToPlaylist(playlist.id) },
+                        )
+                    }
                 }
             }
         }

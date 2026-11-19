@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -145,8 +143,6 @@ fun PlaylistDetailScreen(
     val visualScope = rememberCoroutineScope()
     var visualState by remember(playlistId) { mutableStateOf(PlaylistVisualState()) }
     var trackDensity by remember { mutableStateOf(PlaylistTrackDensity.COMPACT) }
-    var coverRequestId by remember { mutableStateOf<String?>(null) }
-    var bannerRequestId by remember { mutableStateOf<String?>(null) }
     // Observability, not the last tap: the row marker follows the real player/session.
     val activePlayback = if (sessionManager != null) {
         val session by sessionManager.sessionState.collectAsStateWithLifecycle()
@@ -154,36 +150,6 @@ fun PlaylistDetailScreen(
         org.michimusic.mobile.playback.resolvePlaybackPresentation(session, local)
     } else null
     val activeTrackId = activePlayback?.currentTrack?.id
-    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val requestId = coverRequestId
-        coverRequestId = null
-        if (uri != null && requestId == playlistId) visualScope.launch {
-            when (val result = visualStore.importPickedImage(playlistId, "cover", uri)) {
-                is PlaylistImageImportResult.Success -> {
-                    visualState = visualStore.read(playlistId)
-                    snackbarHostState.showSnackbar("Portada actualizada")
-                }
-                is PlaylistImageImportResult.Failure -> snackbarHostState.showSnackbar(
-                    "${playlistImageImportErrorMessage(result.reason)} La portada anterior se mantiene.",
-                )
-            }
-        }
-    }
-    val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val requestId = bannerRequestId
-        bannerRequestId = null
-        if (uri != null && requestId == playlistId) visualScope.launch {
-            when (val result = visualStore.importPickedImage(playlistId, "banner", uri)) {
-                is PlaylistImageImportResult.Success -> {
-                    visualState = visualStore.read(playlistId)
-                    snackbarHostState.showSnackbar("Banner actualizado")
-                }
-                is PlaylistImageImportResult.Failure -> snackbarHostState.showSnackbar(
-                    "${playlistImageImportErrorMessage(result.reason)} El banner anterior se mantiene.",
-                )
-            }
-        }
-    }
     LaunchedEffect(playlistId) { visualState = visualStore.read(playlistId) }
     LaunchedEffect(Unit) {
         trackDensity = visualStore.readDensity()
@@ -308,56 +274,7 @@ fun PlaylistDetailScreen(
                                 },
                                 modifier = Modifier.testTag("playlist_detail_edit_visual"),
                             )
-                            DropdownMenuItem(
-                                text = { Text("Cambiar portada") },
-                                onClick = {
-                                    showOptionsMenu = false
-                                    coverRequestId = playlistId
-                                    coverPicker.launch(arrayOf("image/*"))
-                                },
-                                modifier = Modifier.testTag("playlist_detail_edit_cover"),
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Cambiar banner") },
-                                onClick = {
-                                    showOptionsMenu = false
-                                    bannerRequestId = playlistId
-                                    bannerPicker.launch(arrayOf("image/*"))
-                                },
-                                modifier = Modifier.testTag("playlist_detail_edit_banner"),
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Quitar portada personalizada") },
-                                enabled = visualState.coverUri != null,
-                                onClick = {
-                                    showOptionsMenu = false
-                                    visualScope.launch {
-                                        val removed = visualStore.saveImage(playlistId, "cover", null)
-                                        visualState = visualStore.read(playlistId)
-                                        snackbarHostState.showSnackbar(
-                                            if (removed) "Portada personalizada quitada"
-                                            else "No se pudo quitar la portada personalizada.",
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.testTag("playlist_detail_remove_cover"),
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Quitar banner personalizado") },
-                                enabled = visualState.bannerUri != null,
-                                onClick = {
-                                    showOptionsMenu = false
-                                    visualScope.launch {
-                                        val removed = visualStore.saveImage(playlistId, "banner", null)
-                                        visualState = visualStore.read(playlistId)
-                                        snackbarHostState.showSnackbar(
-                                            if (removed) "Banner personalizado quitado"
-                                            else "No se pudo quitar el banner personalizado.",
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.testTag("playlist_detail_remove_banner"),
-                            )
+
                             DropdownMenuItem(
                                 text = { Text(if (visualState.pinned) "Quitar fijación" else "Fijar playlist") },
                                 onClick = {
@@ -369,40 +286,7 @@ fun PlaylistDetailScreen(
                                 },
                                 modifier = Modifier.testTag("playlist_detail_pin"),
                             )
-                            DropdownMenuItem(
-                                text = { Text("Ajustar encuadre y escala") },
-                                enabled = visualState.bannerUri != null,
-                                onClick = {
-                                    showOptionsMenu = false
-                                    visualEditError = null
-                                    showVisualEditor = true
-                                },
-                                modifier = Modifier.testTag("playlist_detail_banner_focal"),
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Restablecer portada y banner") },
-                                onClick = {
-                                    showOptionsMenu = false
-                                    visualScope.launch {
-                                        val result = visualStore.applyVisualEdit(
-                                            playlistId,
-                                            PlaylistVisualEditRequest(
-                                                cover = PlaylistVisualImageChange.Remove,
-                                                banner = PlaylistVisualImageChange.Remove,
-                                            ),
-                                        )
-                                        visualState = visualStore.read(playlistId)
-                                        snackbarHostState.showSnackbar(
-                                            if (result is PlaylistVisualEditResult.Success) {
-                                                "Portada y banner restablecidos"
-                                            } else {
-                                                "No se pudo restablecer la apariencia."
-                                            },
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.testTag("playlist_detail_clear_images"),
-                            )
+
                             DropdownMenuItem(
                                 text = { Text("Eliminar playlist") },
                                 leadingIcon = {
@@ -611,6 +495,12 @@ fun PlaylistDetailScreen(
                                     showVisualEditor = false
                                     isSavingVisual = false
                                     snackbarHostState.showSnackbar("Apariencia actualizada")
+                                }
+                                PlaylistVisualEditResult.Conflict -> {
+                                    visualEditError = "La apariencia cambió en otra pantalla. " +
+                                        "Cierra y vuelve a abrir el editor para revisar los cambios."
+                                    isSavingVisual = false
+                                    snackbarHostState.showSnackbar("No se sobrescribieron cambios recientes")
                                 }
                                 is PlaylistVisualEditResult.Rejected -> {
                                     val fieldLabel = if (result.field == "banner") "Banner" else "Portada"

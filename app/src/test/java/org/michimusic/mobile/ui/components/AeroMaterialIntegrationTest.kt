@@ -58,7 +58,12 @@ class AeroMaterialIntegrationTest {
     @Test fun framedArtworkRendersActualArtworkSlot() {
         compose.setContent {
             AeroTheme {
-                AeroArtworkMat(modifier = Modifier.size(120.dp), cornerRadius = 18.dp, inset = 4.dp) {
+                AeroArtworkMat(
+                    modifier = Modifier.size(120.dp),
+                    cornerRadius = 18.dp,
+                    inset = 3.dp,
+                    showInnerBorder = false,
+                ) {
                     Box(Modifier.testTag("real_artwork_slot")) { Text("Portada real") }
                 }
             }

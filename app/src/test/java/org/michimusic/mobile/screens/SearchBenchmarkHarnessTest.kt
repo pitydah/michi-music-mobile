@@ -28,8 +28,9 @@ class SearchBenchmarkHarnessTest {
 
             var matches = 0
             val elapsed = measureTimeMillis {
-                matches = catalog.count { trackTitleMatches(it, lower) }
-                catalog.filter { trackAlbumMatches(it, lower) }
+                // Measure the real UI8 title/artist/album predicate, not title-only.
+                matches = catalog.count { trackSearchMatches(it, lower) }
+                catalog.filter { trackSearchMatches(it, "album 12") }
             }
 
             println("PERF-05 size=$size matches=$matches elapsedMs=$elapsed")

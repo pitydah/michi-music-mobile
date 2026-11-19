@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FolderSpecial
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -87,8 +89,8 @@ internal fun SettingsLibraryDetails(
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsSectionCard(
             icon = Icons.Default.FolderSpecial,
-            title = "Biblioteca & Almacenamiento",
-            subtitle = "Carpeta de música, carátulas y sincronización",
+            title = "Carpeta de música",
+            subtitle = "Ubicación seleccionada y permisos actuales",
             accent = TertiaryCyan,
         ) {
             Row(
@@ -158,12 +160,25 @@ internal fun SettingsLibraryDetails(
             }
 
 
+        }
+        SettingsSectionCard(
+            icon = Icons.Default.Storage,
+            title = "Espacio de Michi Link",
+            subtitle = "Almacenamiento privado de la aplicación",
+            accent = TertiaryCyan,
+        ) {
             SettingsLibraryStorageMetrics(
                 snapshot = snapshot,
                 context = context,
                 onRefresh = onRefreshStorage,
             )
-
+        }
+        SettingsSectionCard(
+            icon = Icons.Default.Build,
+            title = "Mantenimiento de biblioteca",
+            subtitle = "Operaciones manuales: no se ejecutan por abrir Ajustes",
+            accent = TertiaryCyan,
+        ) {
             lastScanText?.let { message ->
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -214,9 +229,13 @@ internal fun SettingsLibraryDetails(
             )
 
 
-            Spacer(Modifier.height(12.dp))
-
-
+        }
+        SettingsSectionCard(
+            icon = Icons.Default.FolderSpecial,
+            title = "Acceso y contenido",
+            subtitle = "Permisos SAF y canciones ocultas",
+            accent = TertiaryCyan,
+        ) {
             SettingsLibraryAccessControls(
                 currentRoot = currentRoot,
                 busy = busy || !permissionReady,
@@ -230,15 +249,15 @@ internal fun SettingsLibraryDetails(
             Spacer(Modifier.height(12.dp))
 
 
-            Text("ESCANEO Y CARÁTULAS", style = MaterialTheme.typography.labelSmall,
-                color = TertiaryCyan)
-            Text(
-                "El escaneo manual está disponible aquí. " +
+            Text(settingsTruthLine(SettingsTruthArea.LIBRARY_AUTOMATION),
+                style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                modifier = Modifier.testTag("settings_library_unconnected_status"))
+            SettingsDisclosureNote(
+                title = "Escaneo y carátulas: disponibilidad",
+                detail = "El escaneo manual está disponible aquí. " +
                     "El escaneo al iniciar y la descarga automática de carátulas " +
                     "no están habilitados: requieren coordinadores específicos.",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                modifier = Modifier.testTag("settings_library_unconnected_options"),
+                testTag = "settings_library_unconnected_options",
             )
 
 

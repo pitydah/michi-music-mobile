@@ -46,3 +46,14 @@ ui-test	compose-ui-testing-patterns	LOADED	opencode-session:ses_e5697f240ffeIXXA
 gradle	gradle-run	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
 mi29-control-flow	kotlin-control-flow	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
 mi29-gradle-evidence	gradle-run	LOADED	opencode-log:/tmp/gradle-run/a388ee6dfca205085c93299f0ac39541
+# UI8 (2026-11-18): direct integration on feat/ui8-integration-2026-11-18. to-plan and deliver-spec were not invoked because this task produced no plan deliverable and no push/PR was authorized; only skills actually loaded are recorded.
+ui8-bootstrap	using-chrisbanes-skills	LOADED	session:skill-tool:using-chrisbanes-skills:ui8-integration-2026-11-18
+ui8-concurrency	kotlin-concurrency-and-flow	LOADED	session:skill-tool:kotlin-concurrency-and-flow:ui8-search-races-2026-11-18
+ui8-api	kotlin-api-design	LOADED	session:skill-tool:kotlin-api-design:ui8-search-api-2026-11-18
+ui8-ui-state	compose-state-and-effects	LOADED	session:skill-tool:compose-state-and-effects:ui8-2026-11-18
+ui8-ui-component	compose-component-design	LOADED	session:skill-tool:compose-component-design:ui8-2026-11-18
+ui8-ui-test	compose-ui-testing-patterns	LOADED	session:skill-tool:compose-ui-testing-patterns:ui8-matrix-2026-11-18
+ui8-gradle	gradle-run	LOADED	session:skill-tool:gradle-run:ui8-workflow-e651fe04-2026-11-18
+ui8-ui-animation	compose-animations	LOADED	session:skill-tool:compose-animations:ui8-deck-2026-11-18
+ui8-focus	compose-focus-navigation	LOADED	session:skill-tool:compose-focus-navigation:ui8-deck-actions-2026-11-18
+ui8-performance	compose-performance	LOADED	session:skill-tool:compose-performance:ui8-frames-2026-11-18

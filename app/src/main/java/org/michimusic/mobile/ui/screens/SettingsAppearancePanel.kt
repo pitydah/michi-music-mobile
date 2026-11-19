@@ -13,6 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -45,6 +48,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 internal fun SettingsAppearancePanel() {
     val visualPreferencesRepo: org.michimusic.mobile.ui.theme.VisualPreferencesRepository = koinInject()
     val visualPrefs by visualPreferencesRepo.preferences.collectAsStateWithLifecycle()
+    var showAllSeekerPreviews by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsSectionCard(
             icon = Icons.Default.Palette,
@@ -101,16 +105,15 @@ internal fun SettingsAppearancePanel() {
                 glassReason, color = TextSecondary, fontSize = 12.sp,
                 modifier = Modifier.testTag("settings_appearance_glass_status"),
             )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Cristalino desenfoca únicamente el banner real de una playlist " +
+            SettingsDisclosureNote(
+                title = "¿Cuándo se utiliza el acabado Cristalino?",
+                detail = "Cristalino desenfoca únicamente el banner real de una playlist " +
                     "en Android 12+; si falta imagen, compatibilidad o hay alto " +
                     "contraste/movimiento reducido, ahorro de batería o memoria limitada, " +
-                    "conserva Aero ahumado. " +
-                    "No incluye refracción AGSL ni blur de listas.",
-                color = TextSecondary, fontSize = 12.sp,
+                    "conserva Aero ahumado. No incluye refracción AGSL ni blur de listas.",
+                testTag = "settings_appearance_glass_help",
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             SettingSwitchRow(
                 title = "Microtexturas",
                 subtitle = "Grano fino y estable en los materiales Aero",
@@ -125,11 +128,8 @@ internal fun SettingsAppearancePanel() {
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                "Intensidad del marco y la sombra de contacto. No duplica " +
-                    "carátulas ni altera gestos, orden o selección.",
-                color = TextSecondary, fontSize = 12.sp,
-            )
+            Text("Marco y reflejo, sin modificar carátulas ni gestos.",
+                color = TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -169,18 +169,31 @@ internal fun SettingsAppearancePanel() {
                     treatment = AeroSegmentTreatment.Filter,
                     testTag = "settings_seeker_${choice.name.lowercase()}",
                 )
-                SettingsSeekerPreview(choice)
+                // All five are still available to compare; by default only
+                // the selected design renders its illustrative preview.
+                if (showAllSeekerPreviews || visualPrefs.seekerStyle == choice) {
+                    SettingsSeekerPreview(choice)
+                }
                 Spacer(Modifier.height(9.dp))
             }
-            Text("Vistas previas esquemáticas, sin audio ni medidas reales. " +
-                "Las formas de onda usan un patrón demostrativo fijo.",
+            TextButton(
+                onClick = { showAllSeekerPreviews = !showAllSeekerPreviews },
+                modifier = Modifier.fillMaxWidth().testTag("settings_seeker_compare_all"),
+            ) {
+                Text(if (showAllSeekerPreviews) "Mostrar solo la seleccionada"
+                     else "Comparar las cinco vistas")
+            }
+            Text("Vista previa ilustrativa, sin audio ni medidas reales.",
                 color = TextSecondary, fontSize = 12.sp,
                 modifier = Modifier.testTag("settings_seeker_demo_disclosure"))
-            Spacer(Modifier.height(6.dp))
-            Text("Barras y Continuo analizan PCM real de archivos locales " +
-                "accesibles. Si falta el archivo, permiso o códec, se muestra " +
-                "la barra Original. Liquid Glass mantiene su acabado compatible.",
-                color = TextSecondary, fontSize = 12.sp)
+            SettingsDisclosureNote(
+                title = "Cómo funcionan las formas de onda",
+                detail = "Las vistas previas usan un patrón demostrativo fijo. " +
+                    "Barras y Continuo analizan PCM real de archivos locales accesibles. " +
+                    "Si falta el archivo, permiso o códec, se muestra la barra Original. " +
+                    "Liquid Glass mantiene su acabado compatible.",
+                testTag = "settings_seeker_technical_help",
+            )
         }
     }
 }
