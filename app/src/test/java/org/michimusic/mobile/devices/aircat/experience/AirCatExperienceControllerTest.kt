@@ -481,7 +481,8 @@ class AirCatExperienceControllerTest {
         val requests = mutableListOf<Pair<String, String>>()
         val controller = AirCatExperienceController(
             CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
-            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+            { listOf(source("dev-1").copy(canonicalMichiId = "michi-dev-1")) },
+            { 200L * 1024 * 1024 },
             checkpointEvidence = { sourceId, transferId ->
                 requests += sourceId to transferId
                 emptyList()
@@ -500,7 +501,35 @@ class AirCatExperienceControllerTest {
             checksumVerified = true, libraryCommitted = true,
         )
         advanceUntilIdle()
-        assertEquals(listOf("dev-1" to "xfer-1"), requests)
+        assertEquals(listOf("michi-dev-1" to "xfer-1"), requests)
+    }
+
+    @Test
+    fun evidenceIsNotReadWithARegistryIdWhenTheSourceHasNoCanonicalIdentity() = runTest {
+        val engine = FakeEngine()
+        var calls = 0
+        val controller = AirCatExperienceController(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)), engine,
+            { listOf(source("dev-1")) }, { 200L * 1024 * 1024 },
+            checkpointEvidence = { _, _ ->
+                calls += 1
+                emptyList()
+            },
+        )
+        controller.dispatch(AirCatIntent.ChooseSource("dev-1"))
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.ToggleTrack("rem-1"))
+        controller.dispatch(AirCatIntent.Review)
+        advanceUntilIdle()
+        controller.dispatch(AirCatIntent.Confirm)
+        engine.progressFlow.value = AirCatProgressEvent(
+            transferId = "xfer-1", currentTrackIndex = 1, totalTracks = 1,
+            bytesTransferred = 100L, totalBytes = 100L,
+            state = AirCatTransferState.COMPLETED,
+            checksumVerified = true, libraryCommitted = true,
+        )
+        advanceUntilIdle()
+        assertEquals(0, calls)
     }
 
     @Test

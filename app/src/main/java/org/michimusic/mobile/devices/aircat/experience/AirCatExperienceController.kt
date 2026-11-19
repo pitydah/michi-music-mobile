@@ -414,14 +414,18 @@ internal class AirCatExperienceController(
 
     /** Explicit/on-terminal read, no resident polling. Source and transfer IDs must both match. */
     private fun refreshFileEvidence() {
-        val sourceId = _state.value.selectedSourceId ?: return
+        val selectedSourceId = _state.value.selectedSourceId ?: return
+        // Checkpoints use the canonical source identity as key. The registry id
+        // still identifies the selected row, so keep both guards separate.
+        val canonicalSourceId = sources().firstOrNull { it.deviceId == selectedSourceId }
+            ?.canonicalMichiId?.takeIf { it.isNotBlank() } ?: return
         val transferId = expectedTransferId ?: return
         val generation = epoch
         scope.launch {
-            val evidence = runCatching { checkpointEvidence(sourceId, transferId) }
+            val evidence = runCatching { checkpointEvidence(canonicalSourceId, transferId) }
                 .getOrDefault(emptyList())
             if (generation == epoch && expectedTransferId == transferId &&
-                _state.value.selectedSourceId == sourceId) {
+                _state.value.selectedSourceId == selectedSourceId) {
                 _state.value = _state.value.copy(fileEvidence = evidence)
             }
         }

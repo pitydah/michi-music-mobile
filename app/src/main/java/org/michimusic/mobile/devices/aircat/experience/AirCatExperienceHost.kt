@@ -91,9 +91,14 @@ internal fun AirCatExperienceHost(
     // Only when Devices/AirCat is visible; no periodic LAN or Room polling.
     val recoveries by produceState(initialValue = emptyList<AirCatRecoveryUi>(), devices) {
         value = withContext(Dispatchers.IO) {
-            runCatching { recoveryProvider(devices.filter { it.isPaired && !it.isRevoked }
-                .map { it.id }.filter { it.isNotBlank() }.toSet()) }
-                .getOrDefault(emptyList())
+            // Checkpoints are persisted under the canonical source Michi identity,
+            // never under the registry device id. A device without a verified
+            // identity cannot own recoverable checkpoints.
+            val canonicalIds = devices.asSequence()
+                .filter { it.isPaired && !it.isRevoked }
+                .mapNotNull { it.canonicalMichiId?.takeIf(String::isNotBlank) }
+                .toSet()
+            runCatching { recoveryProvider(canonicalIds) }.getOrDefault(emptyList())
         }
     }
 
@@ -114,7 +119,12 @@ internal fun AirCatExperienceHost(
         onSearchDevices = onSearchDevices,
         onManageHome = onManageHome,
         recoveries = recoveries,
-        onRepairSource = onRepairSource,
+        // Recovery rows are keyed by the canonical Michi identity, where the
+        // checkpoints are persisted. The coordinator repairs by registry id.
+        onRepairSource = { canonicalId ->
+            val registryId = devices.firstOrNull { it.canonicalMichiId == canonicalId }?.id
+            if (registryId != null) onRepairSource(registryId)
+        },
     )
 }
 
