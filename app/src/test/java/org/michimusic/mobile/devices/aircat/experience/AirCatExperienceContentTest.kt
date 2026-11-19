@@ -84,12 +84,52 @@ class AirCatExperienceContentTest {
         )
     }
 
-    private fun render(state: AirCatExperienceState, onIntent: (AirCatIntent) -> Unit = {}) {
+    private fun render(
+        state: AirCatExperienceState,
+        recoveries: List<AirCatRecoveryUi> = emptyList(),
+        onRepairSource: (String) -> Unit = {},
+        onIntent: (AirCatIntent) -> Unit = {},
+    ) {
         compose.setContent {
             MichiTheme {
-                AirCatExperienceContent(state = state, onIntent = onIntent)
+                AirCatExperienceContent(
+                    state = state,
+                    onIntent = onIntent,
+                    recoveries = recoveries,
+                    onRepairSource = onRepairSource,
+                )
             }
         }
+    }
+
+    @Test
+    fun aRecoveryIsNotRepairedUntilTheReviewIsConfirmed() {
+        var repaired: String? = null
+        render(
+            AirCatExperienceState(phase = AirCatPhase.HUB),
+            recoveries = listOf(AirCatRecoveryUi("michi-dev-1", "xfer-123456789", 2, 123L)),
+            onRepairSource = { repaired = it },
+        )
+        compose.onNodeWithText("Reparar estado local").assertDoesNotExist()
+        compose.onNodeWithText("Revisar reparación local").performClick()
+        compose.onNodeWithText("Reparar estado local").assertExists()
+        assertEquals(null, repaired)
+        compose.onNodeWithText("Cancelar").performClick()
+        compose.onNodeWithText("Reparar estado local").assertDoesNotExist()
+        assertEquals(null, repaired)
+    }
+
+    @Test
+    fun confirmingTheReviewRepairsTheCanonicalSource() {
+        var repaired: String? = null
+        render(
+            AirCatExperienceState(phase = AirCatPhase.HUB),
+            recoveries = listOf(AirCatRecoveryUi("michi-dev-1", "xfer-123456789", 2, 123L)),
+            onRepairSource = { repaired = it },
+        )
+        compose.onNodeWithText("Revisar reparación local").performClick()
+        compose.onNodeWithText("Reparar estado local").performClick()
+        assertEquals("michi-dev-1", repaired)
     }
 
     @Test
