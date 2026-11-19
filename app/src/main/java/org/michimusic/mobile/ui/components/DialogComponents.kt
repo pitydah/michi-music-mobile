@@ -902,6 +902,11 @@ fun QrScannerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // A71-S9: at 2.0x the content is taller than the dialog window, and a
+                    // plain Column squeezes its last child — the confirm button dropped to
+                    // 42.6 dp, below the 48 dp touch target. Scrolling keeps every action at
+                    // its declared size instead of clipping it to fit.
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -916,8 +921,12 @@ fun QrScannerDialog(
                         color = PureWhite,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
+                        // A71-S9: without the weight the title keeps the whole row width at
+                        // 2.0x and pushes the close button out of the Row, leaving the dialog
+                        // with no visible way to dismiss it.
+                        modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Cerrar",
@@ -947,6 +956,7 @@ fun QrScannerDialog(
                         if (cameraGranted) cameraActive = !cameraActive
                         else cameraPermission.launch(android.Manifest.permission.CAMERA)
                     },
+                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text(
                         text = if (cameraActive) "Ocultar cámara" else "Escanear con la cámara",
@@ -1016,7 +1026,7 @@ fun QrScannerDialog(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .heightIn(min = 48.dp)
                         .testTag(if (purpose == QrScannerPurpose.HOME_ADMIN)
                             "home_admin_qr_confirm" else "pairing_link_confirm"),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
