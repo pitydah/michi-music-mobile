@@ -488,7 +488,11 @@ private fun TrackRow(track: AirCatTrackUi, checked: Boolean, onIntent: (AirCatIn
         // Same contract as the album header: the whole 48dp row is the target.
         modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
-            .background(org.michimusic.mobile.ui.theme.GlassFillLow.copy(alpha = 0.64f))
+            // A71-S9: `GlassFillLow` is already a ~6% white glass. Overriding its alpha
+            // with .copy(alpha = 0.64f) produced a near-opaque pale plate, and white
+            // titles on it measured ~1.3:1 contrast. The track row now uses the same
+            // fill as the album header it belongs to.
+            .background(org.michimusic.mobile.ui.theme.GlassFillLow)
             .toggleable(
                 value = checked,
                 onValueChange = { onIntent(AirCatIntent.ToggleTrack(track.remoteTrackId)) },

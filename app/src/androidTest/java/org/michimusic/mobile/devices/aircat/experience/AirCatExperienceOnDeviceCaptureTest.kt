@@ -36,6 +36,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -242,6 +243,7 @@ class AirCatExperienceOnDeviceCaptureTest {
         val directory = File(context.getExternalFilesDir(null), "a71-s7").apply { mkdirs() }
         val manifest = StringBuilder()
         var captures = 0
+        var trackRowContrastChecks = 0
 
         for (target in Screen.entries) {
             for (width in widths) {
@@ -278,6 +280,31 @@ class AirCatExperienceOnDeviceCaptureTest {
                     }
 
                     val bitmap = compose.onNodeWithTag(CAPTURE_FRAME).captureToImage().asAndroidBitmap()
+                    // A71-S9: a track row once painted `GlassFillLow.copy(alpha = 0.64f)`,
+                    // which turns a 6% glass into a near-opaque pale plate and drops the
+                    // white title to ~1.3:1 contrast. Sample the row's own fill from the
+                    // capture: a row that is not dark cannot carry the white title.
+                    if (target == Screen.CATALOGUE) {
+                        val frameNode = compose.onNodeWithTag(CAPTURE_FRAME).fetchSemanticsNode()
+                        compose.onAllNodes(hasTestTag("aircat_track_selection"))
+                            .fetchSemanticsNodes()
+                            .forEach { row ->
+                                val top = row.positionInRoot.y - frameNode.positionInRoot.y
+                                val right = row.positionInRoot.x - frameNode.positionInRoot.x + row.size.width
+                                val centerY = (top + row.size.height / 2f).toInt()
+                                val sampleX = (right - 6).toInt()
+                                if (centerY in 0 until bitmap.height && sampleX in 0 until bitmap.width) {
+                                    val luminance = rowFillLuminance(bitmap.getPixel(sampleX, centerY))
+                                    trackRowContrastChecks++
+                                    assertTrue(
+                                        "$target at ${width}dp/${fontScale}x: track row fill " +
+                                            "luminance=$luminance is too pale for a white title",
+                                        luminance < 0.20f,
+                                    )
+                                }
+                            }
+                    }
+
                     val colors = sampledColors(bitmap)
                     assertTrue(
                         "$target at ${width}dp/${fontScale}x drew only $colors sampled colours",
@@ -326,6 +353,10 @@ class AirCatExperienceOnDeviceCaptureTest {
             }
         }
 
+        assertTrue(
+            "no track row was sampled across the matrix, so the pale-fill guard proved nothing",
+            trackRowContrastChecks > 0,
+        )
         File(directory, "manifest.tsv").writeText(
             "screen\twidthDp\tfontScale\tpixels\tpath\n" + manifest,
         )
@@ -491,6 +522,21 @@ class AirCatExperienceOnDeviceCaptureTest {
     }
 
     /** Samples a fixed grid so a blank or single-colour frame cannot pass. */
+    /**
+     * WCAG relative luminance of a packed ARGB pixel. Used to prove that a row which
+     * carries white text is actually dark, instead of trusting the fills that produced it.
+     */
+    private fun rowFillLuminance(pixel: Int): Float {
+        fun channel(value: Int): Float {
+            val srgb = value / 255f
+            return if (srgb <= 0.03928f) srgb / 12.92f
+            else ((srgb + 0.055f) / 1.055f).pow(2.4f)
+        }
+        return 0.2126f * channel(android.graphics.Color.red(pixel)) +
+            0.7152f * channel(android.graphics.Color.green(pixel)) +
+            0.0722f * channel(android.graphics.Color.blue(pixel))
+    }
+
     private fun sampledColors(bitmap: Bitmap): Int {
         val colors = HashSet<Int>()
         var x = 0
