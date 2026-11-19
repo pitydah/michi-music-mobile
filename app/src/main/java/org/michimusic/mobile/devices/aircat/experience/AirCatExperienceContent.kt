@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -120,6 +121,40 @@ internal fun AirCatExperienceContent(
 // --- Hub -------------------------------------------------------------------
 
 @Composable
+private fun AirCatRecoveryReviewDialog(
+    record: AirCatRecoveryUi,
+    sourceName: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        containerColor = SurfaceObsidian,
+        title = {
+            Text("Revisar reparación local", color = PureWhite, fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(MichiSpacing.xs)) {
+                Text("Equipo: $sourceName", color = PureWhite)
+                Text("Transferencia: ${record.transferId.take(12)}…", color = TextSecondary)
+                Text("${record.pendingTracks} archivo(s) afectado(s)", color = TextSecondary)
+                Text(
+                    "Repara el estado local de este teléfono. No descarga archivos " +
+                        "ni solicita permisos.",
+                    color = TextSecondary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Reparar estado local") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("Cancelar") }
+        },
+    )
+}
+
+@Composable
 private fun AirCatHubContent(
     state: AirCatExperienceState,
     onIntent: (AirCatIntent) -> Unit,
@@ -128,6 +163,9 @@ private fun AirCatHubContent(
     recoveries: List<AirCatRecoveryUi>,
     onRepairSource: (String) -> Unit,
 ) {
+    // A recovery is only a proposal until the person reviews it. Nothing is
+    // repaired from the row itself; this local state gates the confirmation.
+    var review by remember { mutableStateOf<AirCatRecoveryUi?>(null) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("aircat_hub_screen"),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(screenPadding),
@@ -150,11 +188,26 @@ private fun AirCatHubContent(
                     "Checkpoints persistidos; no hay reanudación automática de red.")
             }
             items(recoveries, key = { "recover:${it.sourceDeviceId}:${it.transferId}" }) { record ->
+                // Recovery rows carry the canonical Michi identity; the registry
+                // id is only a legacy fallback for display, never for the key.
+                val sourceName = state.sources.firstOrNull { it.canonicalMichiId == record.sourceDeviceId }?.name
+                    ?: state.sources.firstOrNull { it.deviceId == record.sourceDeviceId }?.name
+                    ?: "Equipo Michi conocido"
                 AirCatAeroRecoveryCard(record,
-                    sourceName = state.sources.firstOrNull { it.deviceId == record.sourceDeviceId }?.name
-                        ?: "Equipo Michi conocido",
-                    onReview = { onRepairSource(record.sourceDeviceId) },
+                    sourceName = sourceName,
+                    onReview = { review = record },
                 )
+                if (review == record) {
+                    AirCatRecoveryReviewDialog(
+                        record = record,
+                        sourceName = sourceName,
+                        onConfirm = {
+                            onRepairSource(record.sourceDeviceId)
+                            review = null
+                        },
+                        onCancel = { review = null },
+                    )
+                }
             }
         }
 
