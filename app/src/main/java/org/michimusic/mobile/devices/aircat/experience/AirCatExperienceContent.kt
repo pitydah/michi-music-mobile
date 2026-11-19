@@ -1,5 +1,7 @@
 package org.michimusic.mobile.devices.aircat.experience
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -238,8 +243,14 @@ private fun AirCatCatalogueContent(state: AirCatExperienceState, onIntent: (AirC
                 modifier = Modifier.fillMaxWidth().testTag("aircat_catalog_query"),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm)) {
-                TextButton(onClick = { onIntent(AirCatIntent.SelectAll) }) { Text("Seleccionar todo") }
-                TextButton(onClick = { onIntent(AirCatIntent.ClearSelection) }) { Text("Limpiar") }
+                TextButton(
+                    onClick = { onIntent(AirCatIntent.SelectAll) },
+                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
+                ) { Text("Seleccionar todo") }
+                TextButton(
+                    onClick = { onIntent(AirCatIntent.ClearSelection) },
+                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
+                ) { Text("Limpiar") }
             }
         }
 
@@ -287,13 +298,21 @@ private fun AlbumHeader(album: AirCatAlbumUi, selection: Set<String>, onIntent: 
         else -> ToggleableState.Indeterminate
     }
     Row(
+        // The row is the target: 48dp tall and toggleable, so the checkbox is a
+        // visual indicator instead of a 24dp hit area. TalkBack announces the
+        // album and its tri-state from the row itself.
         modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+            .triStateToggleable(
+                state = state,
+                onClick = { onIntent(AirCatIntent.ToggleAlbum(album.album)) },
+                role = Role.Checkbox,
+            )
             .testTag("aircat_album_${album.album}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TriStateCheckbox(
             state = state,
-            onClick = { onIntent(AirCatIntent.ToggleAlbum(album.album)) },
+            onClick = null,
         )
         Column(Modifier.weight(1f)) {
             Text(album.album, color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
@@ -309,14 +328,22 @@ private fun AlbumHeader(album: AirCatAlbumUi, selection: Set<String>, onIntent: 
 @Composable
 private fun TrackRow(track: AirCatTrackUi, checked: Boolean, onIntent: (AirCatIntent) -> Unit) {
     Row(
+        // Same contract as the album header: the whole 48dp row is the target.
         modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
-            .testTag("aircat_track_selection")
-            .testTag("aircat_track_${track.remoteTrackId}"),
+            .toggleable(
+                value = checked,
+                onValueChange = { onIntent(AirCatIntent.ToggleTrack(track.remoteTrackId)) },
+                role = Role.Checkbox,
+            )
+            .testTag("aircat_track_selection"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // One testTag per node: a second one on the row would be ignored (the
+        // first wins), so the remote identity lives on the checkbox.
         Checkbox(
             checked = checked,
-            onCheckedChange = { onIntent(AirCatIntent.ToggleTrack(track.remoteTrackId)) },
+            onCheckedChange = null,
+            modifier = Modifier.testTag("aircat_track_${track.remoteTrackId}"),
         )
         Column(Modifier.weight(1f)) {
             Text(track.title, color = PureWhite, fontSize = 14.sp, maxLines = 1,
@@ -594,15 +621,16 @@ private fun NoticeText(message: String) {
 
 /**
  * A71-09: trust administration, moved out of the overflow menu and out of a
- * chain of dialogs. It renders state only; revoking remains a two-step action
- * owned by the caller's use case.
+ * chain of dialogs. It renders [MichiLinkTrustState] only; every read happens in
+ * [MichiLinkTrustHost] and every revocation stays a two-step action owned by
+ * [MichiLinkTrustController].
  */
 @Composable
 internal fun MichiLinkTrustContent(
-    homeId: String?,
-    sources: List<AirCatSourceUi>,
-    onRevokeSource: (String) -> Unit,
+    state: MichiLinkTrustState,
+    onIntent: (MichiLinkTrustIntent) -> Unit,
     onLinkHome: () -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -615,43 +643,245 @@ internal fun MichiLinkTrustContent(
                 Text("Administrar confianza", style = MichiTypography.screenEyebrowTechnical)
                 Spacer(Modifier.height(MichiSpacing.xs))
                 Text(
-                    "Home es la autoridad que firma las transferencias AirCat. Revocar un origen no borra la música ya recibida.",
+                    "Home es la autoridad que firma las transferencias AirCat. " +
+                        "Revocar un origen no borra la música ya recibida.",
                     color = TextSecondary, fontSize = 13.sp,
                 )
             }
         }
-        item {
-            AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(MichiSpacing.lg)) {
-                    Text("Autoridad Home", color = PureWhite, fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Text(
-                        homeId?.take(12)?.plus("…") ?: "Sin Home vinculada",
-                        color = TextSecondary, fontSize = 13.sp,
-                    )
-                    Text("${sources.size} orígenes autorizados",
-                        color = TextSecondary, fontSize = 12.sp)
+
+        state.notice?.let { notice ->
+            item { TrustNoticeCard(notice, onIntent) }
+        }
+
+        state.pending?.let { pending ->
+            item { TrustConfirmationCard(pending, busy = state.busy, onIntent = onIntent) }
+        }
+
+        when {
+            state.loading -> item { TrustMessage("Leyendo vínculos locales cifrados…", "michi_link_trust_loading") }
+            state.loadFailure != null -> item { TrustReadFailure(onIntent) }
+            else -> {
+                if (!state.hasInventory) {
+                    item {
+                        TrustMessage(
+                            "No hay autoridades Home vinculadas en este dispositivo.",
+                            "michi_link_trust_empty",
+                        )
+                    }
+                }
+                if (state.homes.isNotEmpty()) {
+                    item { TrustSectionTitle("Autoridades Home") }
+                    items(state.homes, key = { it.homeId }) { home ->
+                        TrustHomeCard(home, enabled = state.canRequest, onIntent = onIntent)
+                    }
+                }
+                if (state.sources.isNotEmpty()) {
+                    item { TrustSectionTitle("Orígenes autorizados") }
+                    items(state.sources, key = { it.sourceMichiId }) { source ->
+                        TrustSourceCard(source, enabled = state.canRequest, onIntent = onIntent)
+                    }
                 }
             }
         }
-        items(sources, key = { it.deviceId }) { source ->
-            AeroSurface(role = AeroSurfaceRole.Content, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(MichiSpacing.lg)) {
-                    Text(source.name, color = PureWhite, fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Text(source.statusLine, color = TextSecondary, fontSize = 12.sp)
-                    TextButton(
-                        onClick = { onRevokeSource(source.deviceId) },
-                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
-                    ) { Text("Desvincular", color = PrimaryPinkContainer) }
-                }
-            }
-        }
+
         item {
             Button(
                 onClick = onLinkHome,
-                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
+                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+                    .testTag("michi_link_trust_link_home"),
             ) { Text("Vincular nuevo Home", color = SurfaceObsidian) }
+        }
+        item {
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+                    .testTag("michi_link_trust_close"),
+            ) { Text("Cerrar") }
+        }
+    }
+}
+
+@Composable
+private fun TrustSectionTitle(text: String) {
+    Text(
+        text,
+        color = PureWhite,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.semantics { heading() },
+    )
+}
+
+@Composable
+private fun TrustMessage(message: String, tag: String) {
+    Text(
+        message,
+        color = TextSecondary,
+        fontSize = 13.sp,
+        modifier = Modifier.testTag(tag),
+    )
+}
+
+/** One Home root, with the exact source count and bindings digest it covers. */
+@Composable
+private fun TrustHomeCard(
+    home: org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority,
+    enabled: Boolean,
+    onIntent: (MichiLinkTrustIntent) -> Unit,
+) {
+    val noun = if (home.sourceCount == 1) "origen registrado" else "orígenes registrados"
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        modifier = Modifier.fillMaxWidth().testTag("michi_link_trust_home_${home.homeId}"),
+    ) {
+        Column(Modifier.padding(MichiSpacing.lg)) {
+            Text(
+                "Home ${airCatShortId(home.homeId)}",
+                color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Autoridad: ${airCatShortId(home.authorityMichiId)}",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            Text(
+                "${home.sourceCount} $noun",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            Text(
+                "Huella de vínculos: ${airCatShortDigest(home.sourceBindingsSha256)}",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            TextButton(
+                onClick = { onIntent(MichiLinkTrustIntent.RequestHomeRevocation(home)) },
+                enabled = enabled,
+                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                    .testTag("michi_link_trust_home_revoke_${home.homeId}"),
+            ) { Text("Desvincular este Home", color = PrimaryPinkContainer) }
+        }
+    }
+}
+
+/** One authorised source binding, with the endpoint this phone pinned for it. */
+@Composable
+private fun TrustSourceCard(
+    source: org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource,
+    enabled: Boolean,
+    onIntent: (MichiLinkTrustIntent) -> Unit,
+) {
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        modifier = Modifier.fillMaxWidth().testTag("michi_link_trust_source_${source.sourceMichiId}"),
+    ) {
+        Column(Modifier.padding(MichiSpacing.lg)) {
+            Text(
+                "Origen ${airCatShortId(source.sourceMichiId)}",
+                color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Endpoint fijado: ${source.pinnedBaseUrl}",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            Text(
+                "Home: ${airCatShortId(source.homeId)}",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            Text(
+                "Huella TLS: ${airCatShortDigest(source.tlsSpkiSha256)}",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+            TextButton(
+                onClick = { onIntent(MichiLinkTrustIntent.RequestSourceRevocation(source)) },
+                enabled = enabled,
+                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                    .testTag("michi_link_trust_source_revoke_${source.sourceMichiId}"),
+            ) { Text("Desvincular", color = PrimaryPinkContainer) }
+        }
+    }
+}
+
+/** The second step: the exact impact, then a separate confirmation. */
+@Composable
+private fun TrustConfirmationCard(
+    pending: MichiLinkTrustPending,
+    busy: Boolean,
+    onIntent: (MichiLinkTrustIntent) -> Unit,
+) {
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        modifier = Modifier.fillMaxWidth().testTag("michi_link_trust_confirmation"),
+    ) {
+        Column(Modifier.padding(MichiSpacing.lg)) {
+            Text(
+                "Confirmar desvinculación",
+                color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(MichiSpacing.sm))
+            Text(
+                pending.impact,
+                color = TextSecondary, fontSize = 13.sp,
+                modifier = Modifier.testTag("michi_link_trust_impact"),
+            )
+            Spacer(Modifier.height(MichiSpacing.sm))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = { onIntent(MichiLinkTrustIntent.ConfirmRevocation) },
+                    enabled = !busy,
+                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                        .testTag("michi_link_trust_confirm"),
+                ) { Text("Desvincular", color = SurfaceObsidian) }
+                TextButton(
+                    onClick = { onIntent(MichiLinkTrustIntent.CancelRevocation) },
+                    enabled = !busy,
+                    modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                        .testTag("michi_link_trust_cancel"),
+                ) { Text("Conservar") }
+            }
+        }
+    }
+}
+
+/** The persisted outcome, told apart from a stale snapshot and a failed commit. */
+@Composable
+private fun TrustNoticeCard(
+    notice: MichiLinkTrustNotice,
+    onIntent: (MichiLinkTrustIntent) -> Unit,
+) {
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        modifier = Modifier.fillMaxWidth().testTag("michi_link_trust_notice"),
+    ) {
+        Column(Modifier.padding(MichiSpacing.lg)) {
+            Text(notice.message, color = PureWhite, fontSize = 13.sp)
+            TextButton(
+                onClick = { onIntent(MichiLinkTrustIntent.DismissNotice) },
+                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget),
+            ) { Text("Descartar") }
+        }
+    }
+}
+
+/** Encrypted inventory unreadable: no row may be drawn from a stale snapshot. */
+@Composable
+private fun TrustReadFailure(onIntent: (MichiLinkTrustIntent) -> Unit) {
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        modifier = Modifier.fillMaxWidth().testTag("michi_link_trust_read_failed"),
+    ) {
+        Column(Modifier.padding(MichiSpacing.lg)) {
+            Text(
+                "No pudimos leer la confianza Home cifrada (Keystore). " +
+                    "No se modificó ninguna autorización.",
+                color = PureWhite, fontSize = 13.sp,
+            )
+            TextButton(
+                onClick = { onIntent(MichiLinkTrustIntent.Refresh) },
+                modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                    .testTag("michi_link_trust_retry"),
+            ) { Text("Reintentar") }
         }
     }
 }

@@ -32,7 +32,7 @@ data class AirCatEnrolledHomeAuthority(
     val sourceCount: Int get() = sourceMichiIds.size
 }
 
-class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeAuthorityProvider {
+class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeTrustAdmin {
     // A58: @Synchronized alone protects only one instance. Koin and Compose may
     // create different store instances that access the same preferences file.
     // All local trust mutations and administrative snapshots share one lock.
@@ -76,7 +76,7 @@ class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeAuthorityProvider 
      * prove that any source is still enrolled.
      */
     @Synchronized
-    fun enrolledSources(): List<AirCatEnrolledHomeSource> = synchronized(mutationLock) {
+    override fun enrolledSources(): List<AirCatEnrolledHomeSource> = synchronized(mutationLock) {
         prefs.all.keys.asSequence()
             .filter { it.startsWith("source:") }
             .mapNotNull { key ->
@@ -106,7 +106,7 @@ class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeAuthorityProvider 
      * This does not remove the shared Home root or other source records.
      */
     @Synchronized
-    fun revokeSourceIfUnchanged(expected: AirCatEnrolledHomeSource): Boolean = synchronized(mutationLock) {
+    override fun revokeSourceIfUnchanged(expected: AirCatEnrolledHomeSource): Boolean = synchronized(mutationLock) {
         val current = anchorForSource(expected.sourceMichiId) ?: return false
         if (current.homeId != expected.homeId ||
             current.pinnedBaseUrl != expected.pinnedBaseUrl ||
@@ -120,7 +120,7 @@ class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeAuthorityProvider 
      * for valid source records, not limited by the UI's 128-item source display.
      */
     @Synchronized
-    fun enrolledHomes(): List<AirCatEnrolledHomeAuthority> = synchronized(mutationLock) {
+    override fun enrolledHomes(): List<AirCatEnrolledHomeAuthority> = synchronized(mutationLock) {
         prefs.all.keys.asSequence()
             .filter { it.startsWith("home:") }
             .map { it.removePrefix("home:") }
@@ -202,7 +202,7 @@ class AirCatHomeEnrollmentStore(context: Context) : AirCatHomeAuthorityProvider 
      * Rotation of the Michi root is a separate explicit fresh QR enrollment.
      */
     @Synchronized
-    fun revokeHomeIfUnchanged(expected: AirCatEnrolledHomeAuthority): Boolean = synchronized(mutationLock) {
+    override fun revokeHomeIfUnchanged(expected: AirCatEnrolledHomeAuthority): Boolean = synchronized(mutationLock) {
         val current = homeSnapshot(expected.homeId) ?: return false
         if (current != expected) return false
         val editor = prefs.edit()

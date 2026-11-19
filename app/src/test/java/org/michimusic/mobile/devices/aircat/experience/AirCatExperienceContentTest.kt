@@ -13,6 +13,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority
+import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource
 import org.michimusic.mobile.devices.aircat.AirCatTransferState
 import org.michimusic.mobile.ui.theme.MichiTheme
 import org.robolectric.RobolectricTestRunner
@@ -33,6 +35,25 @@ class AirCatExperienceContentTest {
 
     private companion object {
         private val DIGEST = "a".repeat(64)
+        private const val SOURCE_A = "source-a"
+        private const val SOURCE_B = "source-b"
+        private const val HOME_ID = "home-authority-identifier"
+        private const val PINNED_URL = "https://home.example:8443"
+
+        private fun enrolledSource(id: String, url: String = PINNED_URL) = AirCatEnrolledHomeSource(
+            sourceMichiId = id,
+            homeId = HOME_ID,
+            pinnedBaseUrl = url,
+            tlsSpkiSha256 = "b".repeat(64),
+        )
+
+        private fun enrolledHome(sourceIds: List<String>) = AirCatEnrolledHomeAuthority(
+            homeId = HOME_ID,
+            authorityMichiId = HOME_ID,
+            authorityPublicKeyBase64Url = "authority-public-key",
+            sourceMichiIds = sourceIds,
+            sourceBindingsSha256 = "c".repeat(64),
+        )
 
         private fun track(id: String, album: String) = AirCatTrackUi(
             remoteTrackId = id,
@@ -204,23 +225,170 @@ class AirCatExperienceContentTest {
     }
 
     @Test
-    fun theTrustScreenListsTheHomeAuthorityAndLetsEachSourceGo() {
-        var revoked: String? = null
+    fun theTrustScreenListsEveryHomeAndItsPinnedEndpoint() {
+        val home = enrolledHome(listOf(SOURCE_A, SOURCE_B))
+        renderTrust(
+            MichiLinkTrustState(
+                loading = false,
+                homes = listOf(home),
+                sources = listOf(
+                    enrolledSource(SOURCE_A),
+                    enrolledSource(SOURCE_B, url = "https://home-b.example:8443"),
+                ),
+            ),
+        )
+
+        compose.onNodeWithTag("michi_link_trust_screen").assertIsDisplayed()
+        compose.onNodeWithText("Administrar confianza").assertIsDisplayed()
+        compose.onNodeWithTag("michi_link_trust_home_${home.homeId}").assertIsDisplayed()
+        compose.onNodeWithText("2 orígenes registrados").assertIsDisplayed()
+        compose.onNodeWithTag("michi_link_trust_source_$SOURCE_A").assertIsDisplayed()
+        compose.onNodeWithText("Endpoint fijado: $PINNED_URL").assertIsDisplayed()
+    }
+
+    @Test
+    fun askingToRevokeASourceCarriesTheExactSnapshotThatWasDisplayed() {
+        var dispatched: MichiLinkTrustIntent? = null
+        val source = enrolledSource(SOURCE_A)
+        renderTrust(
+            MichiLinkTrustState(loading = false, sources = listOf(source)),
+            onIntent = { dispatched = it },
+        )
+
+        compose.onNodeWithTag("michi_link_trust_source_revoke_$SOURCE_A").performClick()
+
+        assertEquals(MichiLinkTrustIntent.RequestSourceRevocation(source), dispatched)
+    }
+
+    @Test
+    fun theSecondStepNamesTheImpactAndWaitsForTheExplicitConfirmation() {
+        var dispatched: MichiLinkTrustIntent? = null
+        val source = enrolledSource(SOURCE_A)
+        renderTrust(
+            MichiLinkTrustState(
+                loading = false,
+                sources = listOf(source),
+                pending = MichiLinkTrustPending.Source(source),
+            ),
+            onIntent = { dispatched = it },
+        )
+
+        compose.onNodeWithTag("michi_link_trust_confirmation").assertIsDisplayed()
+        compose.onNodeWithTag("michi_link_trust_impact").assertIsDisplayed()
+        compose.onNodeWithText(
+            "Se retirará la confianza Home local del origen ${airCatShortId(SOURCE_A)}.",
+            substring = true,
+        ).assertIsDisplayed()
+
+        compose.onNodeWithTag("michi_link_trust_confirm").performClick()
+        assertEquals(MichiLinkTrustIntent.ConfirmRevocation, dispatched)
+
+        compose.onNodeWithTag("michi_link_trust_cancel").performClick()
+        assertEquals(MichiLinkTrustIntent.CancelRevocation, dispatched)
+    }
+
+    @Test
+    fun revokingAWholeHomeSaysExactlyHowManySourcesItCovers() {
+        val home = enrolledHome(listOf(SOURCE_A, SOURCE_B))
+        renderTrust(
+            MichiLinkTrustState(
+                loading = false,
+                homes = listOf(home),
+                sources = listOf(
+                    enrolledSource(SOURCE_A),
+                    enrolledSource(SOURCE_B, url = "https://home-b.example:8443"),
+                ),
+                pending = MichiLinkTrustPending.Home(home),
+            ),
+        )
+
+        compose.onNodeWithText("y la confianza local de sus 2 orígenes registrados", substring = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun onlyACommittedRevocationIsAllowedToClaimSuccess() {
+        val notices = androidx.compose.runtime.mutableStateOf(
+            MichiLinkTrustNotice(MichiLinkTrustOutcome.REVOKED, MichiLinkTrustSubject.SOURCE),
+        )
         compose.setContent {
             MichiTheme {
                 MichiLinkTrustContent(
-                    homeId = "home-authority-identifier",
-                    sources = listOf(source("dev-1")),
-                    onRevokeSource = { revoked = it },
+                    state = MichiLinkTrustState(loading = false, notice = notices.value),
+                    onIntent = {},
                     onLinkHome = {},
+                    onClose = {},
                 )
             }
         }
 
-        compose.onNodeWithTag("michi_link_trust_screen").assertIsDisplayed()
-        compose.onNodeWithText("Administrar confianza").assertIsDisplayed()
-        compose.onNodeWithText("Desvincular").performClick()
+        compose.onNodeWithTag("michi_link_trust_notice").assertIsDisplayed()
+        compose.onNodeWithText("quedó guardado", substring = true).assertIsDisplayed()
 
-        assertEquals("dev-1", revoked)
+        notices.value = MichiLinkTrustNotice(
+            MichiLinkTrustOutcome.HOME_CHANGED, MichiLinkTrustSubject.SOURCE,
+        )
+        compose.onNodeWithText("No se modificó nada", substring = true).assertIsDisplayed()
+
+        notices.value = MichiLinkTrustNotice(
+            MichiLinkTrustOutcome.ALREADY_REMOVED, MichiLinkTrustSubject.HOME,
+        )
+        compose.onNodeWithText("ya no existía", substring = true).assertIsDisplayed()
+
+        notices.value = MichiLinkTrustNotice(
+            MichiLinkTrustOutcome.PERSISTENCE_ERROR, MichiLinkTrustSubject.HOME,
+        )
+        compose.onNodeWithText("No pudimos confirmar que la revocación se guardara", substring = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun anUnreadableKeystoreSaysThatNothingWasModified() {
+        var dispatched: MichiLinkTrustIntent? = null
+        renderTrust(
+            MichiLinkTrustState(
+                loading = false,
+                loadFailure = MichiLinkTrustLoadFailure.KEYSTORE_UNAVAILABLE,
+            ),
+            onIntent = { dispatched = it },
+        )
+
+        compose.onNodeWithTag("michi_link_trust_read_failed").assertIsDisplayed()
+        compose.onNodeWithText("No se modificó ninguna autorización.", substring = true)
+            .assertIsDisplayed()
+        compose.onNodeWithTag("michi_link_trust_retry").performClick()
+
+        assertEquals(MichiLinkTrustIntent.Refresh, dispatched)
+    }
+
+    @Test
+    fun theTrustScreenOffersANewHomeWithoutRevokingAnything() {
+        var linked = false
+        renderTrust(
+            MichiLinkTrustState(loading = false),
+            onLinkHome = { linked = true },
+        )
+
+        compose.onNodeWithTag("michi_link_trust_empty").assertIsDisplayed()
+        compose.onNodeWithTag("michi_link_trust_link_home").performClick()
+
+        assertTrue(linked)
+    }
+
+    private fun renderTrust(
+        state: MichiLinkTrustState,
+        onIntent: (MichiLinkTrustIntent) -> Unit = {},
+        onLinkHome: () -> Unit = {},
+    ) {
+        compose.setContent {
+            MichiTheme {
+                MichiLinkTrustContent(
+                    state = state,
+                    onIntent = onIntent,
+                    onLinkHome = onLinkHome,
+                    onClose = {},
+                )
+            }
+        }
     }
 }
