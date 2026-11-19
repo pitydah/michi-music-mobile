@@ -1037,7 +1037,10 @@ fun DevicesScreen(
                     airCatPickerForRecovery = false
                 },
                 title = { androidx.compose.material3.Text(
-                    if (airCatPickerForRecovery) "Recuperar transferencia AirCat" else "Seleccionar destino AirCat"
+                    // A71-08: this entry repairs local journal, checkpoints and files.
+                    // Calling it "recover the transfer" promised a network resume that
+                    // needs a fresh Home grant this screen does not request.
+                    if (airCatPickerForRecovery) "Revisar y reparar transferencia AirCat" else "Seleccionar destino AirCat"
                 ) },
                 text = {
                     Column(
@@ -1046,7 +1049,9 @@ fun DevicesScreen(
                     ) {
                         androidx.compose.material3.Text(
                             text = if (airCatPickerForRecovery)
-                                "Selecciona el equipo de origen para recuperar la transferencia fallida."
+                                "Selecciona el equipo de origen. Esta revisión repara archivos, checkpoints y diario " +
+                                    "en este teléfono; una reanudación por red exige una autorización Home nueva, " +
+                                    "que este acceso todavía no solicita."
                             else "Selecciona el nodo con el que deseas sincronizar:",
                             style = MichiTypography.metadata,
                             color = TextMuted,
