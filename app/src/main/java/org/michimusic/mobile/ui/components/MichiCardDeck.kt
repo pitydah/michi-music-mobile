@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -183,7 +184,16 @@ fun <T> MichiCardDeck(
                 Box(Modifier.width(stageWidth).height(stageHeight).clipToBounds()) {
                     Box(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp,
                         top = 8.dp, bottom = 32.dp)) {
-                    val previewDirection = if (dragPx > 0f) -1 else 1
+                    // UI8/C2: the preview direction is the only thing this composition
+                    // needs to know about the live drag, and its value changes exactly
+                    // when the sign flips. Measured on device: a drag that keeps the same
+                    // sign re-executes no card body today. Deriving the boolean keeps the
+                    // live offset out of composition, so that stays true even if the card
+                    // content later grows a cheaper-to-read dependency on the drag.
+                    val draggingRight by remember(itemKeys, frontKey, motionEnabled) {
+                        derivedStateOf { dragPx > 0f }
+                    }
+                    val previewDirection = if (draggingRight) -1 else 1
                     for (depth in (visibleCount - 1) downTo 0) {
                         val item = safeItems[michiCardPreviewIndex(index, depth, previewDirection, safeItems.size)]
                         val isFront = depth == 0
