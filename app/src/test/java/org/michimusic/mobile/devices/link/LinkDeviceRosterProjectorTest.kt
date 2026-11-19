@@ -4,6 +4,8 @@ import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.core.models.DiscoveredPeer
@@ -117,6 +119,87 @@ class LinkDeviceRosterProjectorTest {
         assertEquals("Migrated", roster.single().name)
         assertEquals("10.0.0.2", roster.single().ip)
         assertEquals("old-id", roster.single().id)
+    }
+
+    @Test fun canonicalIdentityComesFromTheRegistryNotFromTheRegistryId() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "registry-id", deviceName = "Micro", deviceToken = "secret",
+                michiId = "canonical-michi", lastUrl = "https://10.0.0.2:8400"),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap()).single()
+        assertEquals("registry-id", device.id)
+        assertEquals("canonical-michi", device.canonicalMichiId)
+        assertNotEquals(device.id, device.canonicalMichiId)
+    }
+
+    @Test fun legacyRegistryMichiIdIsTheCanonicalIdentity() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "legacy-id", deviceName = "Legacy", deviceToken = "secret",
+                michiId = "legacy-michi", lastUrl = "https://10.0.0.2:8400"),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap()).single()
+        assertEquals("legacy-id", device.id)
+        assertEquals("legacy-michi", device.canonicalMichiId)
+    }
+
+    @Test fun remoteMichiIdWinsOverTheStoredLocalOne() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "registry-id", deviceName = "Micro", deviceToken = "secret",
+                michiId = "local-michi", remoteMichiId = "remote-michi",
+                lastUrl = "https://10.0.0.2:8400"),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap()).single()
+        assertEquals("remote-michi", device.canonicalMichiId)
+    }
+
+    @Test fun registryWithoutVerifiedIdentityLeavesTheSourceUnanchored() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "registry-id", deviceName = "Micro", deviceToken = "secret",
+                lastUrl = "https://10.0.0.2:8400"),
+        )
+        val roster = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap())
+        assertNull(roster.first { it.isPaired }.canonicalMichiId)
+    }
+
+    @Test fun verifiedDiscoveryCannotInventACanonicalIdentity() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "registry-id", deviceName = "Micro", deviceToken = "secret",
+                lastUrl = "https://10.0.0.2:8400"),
+        )
+        val roster = LinkDeviceRosterProjector(registry).project(
+            peers = listOf(DiscoveredPeer(alias = "Micro", ip = "10.0.0.2", port = 8400,
+                deviceId = "peer-id", michiId = "peer-michi", identityTrust = "VERIFIED")), emptyMap())
+        assertNull(roster.first { it.isPaired }.canonicalMichiId)
+    }
+
+    @Test fun revokedRegistryKeepsItsCanonicalIdentityAndRevocationFlag() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "registry-id", deviceName = "Micro", deviceToken = "secret",
+                michiId = "canonical-michi", lastUrl = "https://10.0.0.2:8400", isRevoked = true),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap()).single()
+        assertTrue(device.isRevoked)
+        assertEquals("canonical-michi", device.canonicalMichiId)
+    }
+
+    @Test fun duplicateNamesKeepDistinctCanonicalIdentities() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "id-a", deviceName = "Michi", deviceToken = "secret-a",
+                michiId = "canonical-a", lastUrl = "https://10.0.0.2:8400"),
+            PairedDevice(deviceId = "id-b", deviceName = "Michi", deviceToken = "secret-b",
+                michiId = "canonical-b", lastUrl = "https://10.0.0.3:8400"),
+        )
+        val devices = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap())
+        assertEquals(2, devices.size)
+        assertNotEquals(devices[0].canonicalMichiId, devices[1].canonicalMichiId)
+        assertEquals(setOf("canonical-a", "canonical-b"), devices.map { it.canonicalMichiId }.toSet())
     }
 
 }

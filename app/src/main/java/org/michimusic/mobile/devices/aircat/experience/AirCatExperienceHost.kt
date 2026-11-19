@@ -131,9 +131,14 @@ private fun UnifiedDevice.toSourceUi(
     store: AirCatHomeEnrollmentStore, observed: Boolean,
 ): AirCatSourceUi {
     val connected = connectionState == SyncConnectionState.CONNECTED
-    val enrolledResult = runCatching { store.anchorForSource(id) }
-    val enrolled = enrolledResult.getOrNull() != null
+    // Home anchors are stored under the verified Michi identity, never under the
+    // registry/discovery id. Keep `deviceId` for coordinator actions, and use the
+    // canonical id only for the encrypted trust lookup.
+    val canonical = canonicalMichiId?.takeIf { it.isNotBlank() }
+    val enrolledResult = canonical?.let { runCatching { store.anchorForSource(it) } }
+    val enrolled = enrolledResult?.getOrNull() != null
     val advertised = runCatching { AirCatCapabilityPolicy.hasFeature(features) }.getOrDefault(false)
+    val trustFailure = enrolledResult?.isFailure == true
     return AirCatSourceUi(
         deviceId = id,
         name = name.ifBlank { "Equipo Michi" },
@@ -144,7 +149,11 @@ private fun UnifiedDevice.toSourceUi(
         homeEnrolled = enrolled,
         airCatAdvertised = advertised,
         revoked = isRevoked,
-        blockedReason = if (enrolledResult.isFailure)
-            "No pudimos leer la confianza Home cifrada de este equipo" else null,
+        blockedReason = when {
+            trustFailure -> "No pudimos leer la confianza Home cifrada de este equipo"
+            isPaired && canonical == null -> "Este equipo no tiene una identidad Michi verificada"
+            else -> null
+        },
+        canonicalMichiId = canonical,
     )
 }

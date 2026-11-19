@@ -33,6 +33,9 @@ internal data class AirCatSourceUi(
     val airCatAdvertised: Boolean,
     val revoked: Boolean = false,
     val blockedReason: String? = null,
+    // Michi Link canonical identity resolved from the trusted pairing registry.
+    // `deviceId` remains the registry/discovery id used by the transfer coordinator.
+    val canonicalMichiId: String? = null,
 ) {
     /** Connected, trusted by Home, advertises AirCat and was not revoked. */
     val canExplore: Boolean

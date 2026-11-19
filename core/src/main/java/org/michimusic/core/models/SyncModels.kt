@@ -59,6 +59,9 @@ data class UnifiedDevice(
     val roles: List<String> = emptyList(),
     val features: List<String> = emptyList(),
     val isRevoked: Boolean = false,
+    // Michi Link canonical identity verified from the trusted pairing registry.
+    // Never infer it from id, IP, name or an unsigned discovery announce.
+    val canonicalMichiId: String? = null,
 )
 
 @Serializable
