@@ -25,7 +25,10 @@ internal object UI8VisualSpec {
     // opacity of the radial scrim that fades out behind the words; it must stay high
     // enough that a white title keeps AA contrast over a white banner, and low enough
     // that no rectangular edge is visible.
-    const val captionScrimAlpha = 0.78f
+    // Measured: at 0.78 the median luma behind the letters over a near-white banner
+    // was 0.290, i.e. 3.09:1 with white text, below AA. 0.86 keeps the letters at or
+    // above 4.5:1 while the radial edge still fades to transparent.
+    const val captionScrimAlpha = 0.86f
 
     // Short finite transitions; reduced-motion alternatives stay unanimated.
     const val disclosureExpandMillis = 180

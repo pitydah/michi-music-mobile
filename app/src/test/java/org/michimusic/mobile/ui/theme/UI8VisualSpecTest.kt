@@ -14,7 +14,7 @@ class UI8VisualSpecTest {
     }
 
     @Test fun captionStaysLocalAndMotionIsBounded() {
-        assertEquals(0.78f, UI8VisualSpec.captionScrimAlpha, 0f)
+        assertEquals(0.86f, UI8VisualSpec.captionScrimAlpha, 0f)
         assertTrue(UI8VisualSpec.disclosureExpandMillis in 100..240)
         assertTrue(UI8VisualSpec.deckExitMillis in 120..240)
         assertTrue(UI8VisualSpec.searchDetailOpenMillis <= 240)

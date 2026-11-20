@@ -173,11 +173,14 @@ internal fun PlaylistCatalogSpotlight(
                                 brush = Brush.radialGradient(
                                     colorStops = arrayOf(
                                         0f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha),
-                                        0.5f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.8f),
+                                        0.6f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.92f),
                                         1f to Color.Transparent,
                                     ),
-                                    center = Offset(size.width * 0.45f, size.height * 0.5f),
-                                    radius = size.maxDimension * 0.72f,
+                                    // Wider than the caption itself so the letters never sit
+                                    // on the falling edge of the gradient, while the last stop
+                                    // still reaches full transparency.
+                                    center = Offset(size.width * 0.42f, size.height * 0.5f),
+                                    radius = size.maxDimension * 1.05f,
                                 ),
                             )
                         }
