@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -39,8 +40,7 @@ class UI8PlaylistDeckComposeTest {
                     visual = PlaylistVisualState(),
                     onOpen = { opens++ },
                     actions = {},
-                    deck = true,
-                    modifier = Modifier.size(320.dp, 278.dp),
+                    modifier = Modifier.width(320.dp),
                 )
             }
         }

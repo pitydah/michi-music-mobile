@@ -211,7 +211,6 @@ class UI8VisualMatrixCaptureTest {
             // Production's list path gives the spotlight its intrinsic height, so the
             // card and its banner are exactly as tall as the content column.
             modifier = Modifier.fillMaxWidth(),
-            deck = false,
         )
     }
 
@@ -419,7 +418,6 @@ class UI8VisualMatrixCaptureTest {
                                 visual = PlaylistVisualState(),
                                 onOpen = {},
                                 actions = {},
-                                deck = true,
                             )
                         }
                     }
@@ -454,7 +452,6 @@ class UI8VisualMatrixCaptureTest {
                             visual = PlaylistVisualState(),
                             onOpen = {},
                             actions = {},
-                            deck = true,
                         )
                     }
                 }
@@ -507,7 +504,6 @@ class UI8VisualMatrixCaptureTest {
                             visual = PlaylistVisualState(),
                             onOpen = {},
                             actions = {},
-                            deck = true,
                         )
                     }
                 }

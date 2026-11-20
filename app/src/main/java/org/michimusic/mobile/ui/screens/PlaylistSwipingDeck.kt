@@ -6,8 +6,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CoroutineStart
@@ -90,10 +92,16 @@ internal fun <T> PlaylistSwipingDeck(
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
-    BoxWithConstraints(modifier = modifier) {
+    // UI8-KILLCRITIC: the front card defines the deck size. It is laid out in the
+    // normal flow, so the container measures exactly the hero card — the same
+    // contract Lista uses — and the back cards are drawn with matchParentSize
+    // behind it. The size is read through onSizeChanged because a caller that
+    // wraps the deck in a vertical scroll hands down an infinite maxHeight.
+    var deckSize by remember { mutableStateOf(IntSize.Zero) }
+    Box(modifier = modifier.onSizeChanged { deckSize = it }) {
         val density = LocalDensity.current.density
-        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }.coerceAtLeast(1f)
-        val heightPx = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(1f)
+        val widthPx = deckSize.width.toFloat().coerceAtLeast(1f)
+        val heightPx = deckSize.height.toFloat().coerceAtLeast(1f)
         val visible = order.take(maxVisibleCards).filter { it in byKey }
 
         fun settle(frontId: Any, commit: Boolean, backward: Boolean = false) {
@@ -163,8 +171,10 @@ internal fun <T> PlaylistSwipingDeck(
                 val canDrag = isFront && !settling && lastExternalIds == ids &&
                     PlaylistDeckPolicy.canAdvance(order, id, isSwipeEnabled)
                 val pull = (abs(offsetX) / widthPx).coerceIn(0f, 1f)
+                // Only the front card takes part in measurement; the cards behind it
+                // mirror the measured size instead of imposing one of their own.
                 val layer = Modifier
-                    .fillMaxSize()
+                    .then(if (isFront) Modifier.fillMaxWidth() else Modifier.matchParentSize())
                     .zIndex((maxVisibleCards - position).toFloat())
                     .graphicsLayer {
                         val depth = position.toFloat()

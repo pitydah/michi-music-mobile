@@ -22,13 +22,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +52,17 @@ import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
+ * A one-pixel-offset shadow under the caption letters. It is what keeps the words
+ * readable on a bright banner while the scrim stays soft, without any blur pass at
+ * runtime: the blur radius is a text-layout value, not a RenderEffect.
+ */
+private fun captionShadow(blurRadius: Float): Shadow = Shadow(
+    color = Color.Black.copy(alpha = 0.85f),
+    offset = Offset(0f, 1.5f),
+    blurRadius = blurRadius,
+)
+
+/**
  * Editorial hero for the first visible playlist. It grows with its content
  * instead of freezing a height that clips large fonts, and it applies the same
  * banner focal point and scale as the detail hero.
@@ -59,7 +74,6 @@ internal fun PlaylistCatalogSpotlight(
     onOpen: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
-    deck: Boolean = false,
 ) {
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(
@@ -116,8 +130,12 @@ internal fun PlaylistCatalogSpotlight(
         }
 
         Column(
-            modifier = (if (deck) Modifier.fillMaxSize()
-                else Modifier.fillMaxWidth().heightIn(min = 198.dp))
+            // UI8-KILLCRITIC: one measurement contract for both modes. The card wraps
+            // its content with the 198 dp floor whether it is the Lista hero or the
+            // front of the deck, so switching mode cannot change its height.
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 198.dp)
                 .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -145,9 +163,24 @@ internal fun PlaylistCatalogSpotlight(
                 )
                 Column(
                     modifier = Modifier.weight(1f)
-                        // Localized caption matte only: no full-width scrim, no blur.
-                        .clip(RoundedCornerShape(UI8VisualSpec.captionCorner))
-                        .background(Color.Black.copy(alpha = UI8VisualSpec.captionMatteAlpha))
+                        // UI8-KILLCRITIC: the caption used to sit on a 72% black plate, which
+                        // read as a second card inside the hero. The words now stand on a
+                        // soft radial scrim that fades out in every direction (no straight
+                        // edge anywhere) plus a typographic shadow, so the banner stays
+                        // visible up to the letters instead of being covered by a rectangle.
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.radialGradient(
+                                    colorStops = arrayOf(
+                                        0f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha),
+                                        0.5f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.8f),
+                                        1f to Color.Transparent,
+                                    ),
+                                    center = Offset(size.width * 0.45f, size.height * 0.5f),
+                                    radius = size.maxDimension * 0.72f,
+                                ),
+                            )
+                        }
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
@@ -158,6 +191,7 @@ internal fun PlaylistCatalogSpotlight(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.2.sp,
+                            style = TextStyle(shadow = captionShadow(4f)),
                         )
                     }
                     Text(
@@ -168,12 +202,14 @@ internal fun PlaylistCatalogSpotlight(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = titleLines,
                         overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(shadow = captionShadow(7f)),
                         modifier = Modifier.testTag("playlist_spotlight_title_${playlist.id}"),
                     )
                     Text(
                         text = trackCountLabel(playlist.trackCount),
                         color = PureWhite,
                         fontSize = 12.sp,
+                        style = TextStyle(shadow = captionShadow(5f)),
                     )
                 }
             }
