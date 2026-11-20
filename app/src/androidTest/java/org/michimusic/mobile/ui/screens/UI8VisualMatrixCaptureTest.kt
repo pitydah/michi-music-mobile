@@ -67,7 +67,7 @@ class UI8VisualMatrixCaptureTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
 
-    private val widths = listOf(320, 360, 393, 412, 600)
+    private val widths = listOf(320, 360, 393, 412, 430, 600)
     private val scales = listOf(1.0f, 1.5f, 2.0f)
 
     private val outRoot by lazy { File(context.getExternalFilesDir(null), "ui8-matrix") }
@@ -201,6 +201,30 @@ class UI8VisualMatrixCaptureTest {
         return if (count == 0) 0.0 else dark.toDouble() / count
     }
 
+    /** Median luma of a band. A plate makes almost every pixel equally dark; a scrim only
+     * darkens the centre, so the median plus the outer strip distinguish the two. */
+    private fun medianLuminance(
+        bitmap: Bitmap,
+        fromY: Float,
+        toY: Float,
+        fromX: Float,
+        toX: Float,
+    ): Double {
+        val values = ArrayList<Double>()
+        val x0 = (bitmap.width * fromX).toInt()
+        val x1 = (bitmap.width * toX).toInt()
+        val y0 = (bitmap.height * fromY).toInt()
+        val y1 = (bitmap.height * toY).toInt()
+        for (y in y0 until y1 step 2) for (x in x0 until x1 step 2) {
+            val color = bitmap.getPixel(x, y)
+            values += (0.2126 * Color.red(color) + 0.7152 * Color.green(color) +
+                0.0722 * Color.blue(color)) / 255.0
+        }
+        if (values.isEmpty()) return 0.0
+        values.sort()
+        return values[values.size / 2]
+    }
+
     @Composable
     private fun spotlight(item: PlaylistItem, visual: PlaylistVisualState) {
         PlaylistCatalogSpotlight(
@@ -322,7 +346,7 @@ class UI8VisualMatrixCaptureTest {
     }
 
     @Test
-    fun spotlightKeepsCaptionPlateLocalOverLightArtwork() {
+    fun spotlightCaptionStaysLegibleOverLightArtworkWithoutAPlate() {
         var width by mutableStateOf(320)
         var density by mutableStateOf(baseDensity)
         var scale by mutableStateOf(1f)
@@ -350,13 +374,45 @@ class UI8VisualMatrixCaptureTest {
             }
             val bitmap = captureNode("spotlight_light_banner", w, fontScale, d)
             val artwork = luminance(bitmap, 0.02f, 0.20f)
-            // The plate starts after the 54 dp cover; x >= 0.32 never samples the artwork.
-            val plate = luminance(bitmap, 0.80f, 0.96f, 0.32f, 0.95f)
-            val plateDark = darkFraction(bitmap, 0.80f, 0.96f, 0.32f, 0.95f)
+            // Measure where the letters actually are. Sampling the whole caption box mixes
+            // the scrim with the part of the radial gradient that has already faded out,
+            // which understates the contrast the title really has.
+            val frame = rule.onNodeWithTag(HARNESS).fetchSemanticsNode()
+            // The card root is clickable, so its children only exist in the unmerged tree.
+            val titleNode = rule.onNodeWithTag("playlist_spotlight_title_pl-light", useUnmergedTree = true)
+                .fetchSemanticsNode()
+            val left = (titleNode.positionInRoot.x - frame.positionInRoot.x) / frame.size.width
+            val right = left + titleNode.size.width / frame.size.width.toFloat()
+            val top = (titleNode.positionInRoot.y - frame.positionInRoot.y) / frame.size.height
+            val bottom = top + titleNode.size.height / frame.size.height.toFloat()
+            val caption = medianLuminance(bitmap, top, bottom, left, right)
+            // The banner just above the caption must stay bright: the darkening is local to
+            // the words, not a heavy scrim over the whole lower half.
+            val above = medianLuminance(
+                bitmap,
+                (top - 0.14f).coerceAtLeast(0.02f),
+                (top - 0.03f).coerceAtLeast(0.03f),
+                left,
+                right,
+            )
+            val dark = darkFraction(bitmap, top, bottom, left, right)
+            println(
+                "CAPTION-CONTRAST width=${w}dp fs=$fontScale artwork=$artwork caption=$caption " +
+                    "above=$above dark=$dark ratio=${1.05 / (caption + 0.05)}",
+            )
             assertTrue("light artwork must remain visible at ${w}dp (luma=$artwork)", artwork > 0.55)
+            // White text needs 4.5:1 over its background, i.e. a background luma <= 0.183.
             assertTrue(
-                "the caption plate must be local and dark at ${w}dp (mean=$plate dark=$plateDark)",
-                plateDark >= 0.5,
+                "the white caption needs 4.5:1 at ${w}dp (median=$caption)",
+                caption <= 0.183,
+            )
+            assertTrue(
+                "the banner above the caption must stay visible at ${w}dp (above=$above)",
+                above > 0.45,
+            )
+            assertTrue(
+                "some dark area must still exist behind the caption at ${w}dp (dark=$dark)",
+                dark >= 0.30,
             )
         }
     }
@@ -383,11 +439,12 @@ class UI8VisualMatrixCaptureTest {
         rule.runOnUiThread { width = 393; density = d; scale = fs }
         val bitmap = captureNode("spotlight_dark_banner", 393, 1f, d)
         assertTrue("dark artwork must stay dark", luminance(bitmap, 0.02f, 0.20f) < 0.35)
-        val plate = luminance(bitmap, 0.80f, 0.96f, 0.32f, 0.95f)
-        val plateDark = darkFraction(bitmap, 0.80f, 0.96f, 0.32f, 0.95f)
+        // Over dark artwork the caption band must be dark on its own: the scrim is not
+        // allowed to be the only thing keeping the white counter legible.
+        val caption = medianLuminance(bitmap, 0.80f, 0.96f, 0.32f, 0.95f)
         assertTrue(
-            "caption plate must be present over dark artwork (mean=$plate dark=$plateDark)",
-            plateDark >= 0.5,
+            "the caption over dark artwork must stay dark (median=$caption)",
+            caption <= 0.183,
         )
         rule.onNodeWithTag("playlist_spotlight_title_pl-dark", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("20 canciones", useUnmergedTree = true).assertExists()
