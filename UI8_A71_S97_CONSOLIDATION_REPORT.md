@@ -3,7 +3,7 @@
 **Repositorio:** `pitydah/michi-music-mobile`
 **Ramas:** `feat/aircat-a71-experience` (PR #22), `feat/ui8-integration-2026-11-18` (PR #23)
 **Fecha:** 2026-11-19
-**Estado:** correcciones verificadas y publicadas; merges condicionados a CI verde. `RELEASE = NO-GO` hasta completar D.
+**Estado:** ambas ramas mergeadas a `master` con CI verde en cada head. `RELEASE = NO-GO` por los bloqueantes externos de §11 (jank físico e interoperabilidad), no por este trabajo.
 
 ## 1. Línea base
 
@@ -13,7 +13,8 @@
 | `master` (tras #22) | `ad9a5da9a5998bd644dadaffba59b488a499d914` | merge commit de PR #22 |
 | `eeb3b943` | `eeb3b94392fff307ff4d5cca5bd346490a48bda9` | head previo de PR #22 (FIX_UI-05), no se reaplicó |
 | `feat/aircat-a71-experience` | `6623fae5` | 11 commits sobre `eeb3b943`, mergeada en `master` vía #22 |
-| `feat/ui8-integration-2026-11-18` | `9b881727` → `42eaffa3` | 4 commits sobre `master` + merge de `master`, CI 9/9 previa |
+| `feat/ui8-integration-2026-11-18` | `b1375696` | 4 commits + merge de `master` (`42eaffa3`) + informe, CI combinada 9/9, mergeada vía #23 |
+| `master` (final) | `e492b6b14b311c0d25f033a1534bedff6563effb` | merge commit de PR #23 |
 
 Árbol de trabajo: limpio salvo `?? aircat-transfer/build/` (nunca stageado, nunca borrado).
 
@@ -210,7 +211,7 @@ Conclusión honesta: Job G es inestable en el emulador de CI bajo carga, con dos
 
 El merge de `master` (con #22 dentro) sobre `feat/ui8-integration-2026-11-18` es el commit `42eaffa3`. El único conflicto fue `build/verification/michi-audio/skills-used.tsv` y se resolvió conservando **los dos bloques completos** (48 líneas base + 11 de UI8 + 10 de A71 = 69 líneas). `bash scripts/verify_michi_opencode_skills.sh --check` → `RECEIPT_FORMAT_PASS: nine Chris Banes skills declared with references`, exit 0.
 
-La validación combinada es el run de GitHub Actions ligado al head de esa rama; sus 9 jobs quedan registrados en el PR #23. Este informe no inventa ese número: se consulta en el PR.
+Run `44650757775` sobre `b1375696e3bda8fb951bce2391c81f72613de200`: **attempt 1, completed / success, 9/9** (A Lint, B Unit Normal, C Unit F-Droid, D Room, E Build Normal, F Build F-Droid, G Instrumented API 36, H UI7 Release Gate, Quality Gate). Ese head contiene a la vez el trabajo de A71 (ya en `master` vía #22), la integración de UI8, la resolución del TSV y este informe. A diferencia de la validación de A71, aquí Job G pasó al primer intento.
 
 ## 9. Conflicto de merge y resolución
 
@@ -237,7 +238,7 @@ Se separan los porcentajes porque miden cosas distintas y promediarlos ocultarí
 | Rendimiento del deck — jank físico | sin teléfono conectado | **0%** | NOT_CERTIFIED |
 | Interoperabilidad externa con un par real | no hay par Michi en el entorno | **0%** | BLOCKED_EXTERNAL |
 | Fase D — merge de #22 | ejecutado sobre CI 9/9 | **100%** | MERGED (`ad9a5da9`) |
-| Fase D — merge de #23 | merge de master resuelto; CI combinada pendiente | **50%** | EN CURSO |
+| Fase D — merge de #23 | CI combinada 9/9 en attempt 1 | **100%** | MERGED (`e492b6b1`) |
 
 ## 11. Bloqueantes y siguiente paso
 
@@ -246,6 +247,8 @@ Se separan los porcentajes porque miden cosas distintas y promediarlos ocultarí
 1. **Jank físico NOT_CERTIFIED.** Sólo hay emulador con SwiftShader; la evidencia física previa no se pudo reproducir. Requiere conectar el teléfono `26dfb91d` y correr `MichiCardDeckFrameCaptureTest`.
 2. **EXTERNAL_INTEROP BLOCKED_EXTERNAL.** No hay un par Michi real; catalogue, review, transfer y result se capturan desde sus composables de producción con estado explícito, no desde una sesión viva.
 3. **Una celda de la matriz visual comparte hash** (`trust` y `trust_confirm` a 360/2.0x) por la tarjeta inline bajo el pliegue, no por un defecto.
-4. **`RELEASE = NO-GO`** hasta completar la fase D (merges) con CI verde.
+4. **`RELEASE = NO-GO`** por los puntos 1 y 2, que dependen de hardware y de un par externo, no por el estado de este trabajo.
 
-**Fase D, en orden y con lo ya cumplido marcado:** CI verde en `6623fae5` (9/9, run `44641438284`) → **hecho**: `gh pr ready 22` y merge commit normal `ad9a5da9` en `master` → **hecho**: merge de `master` en `feat/ui8-integration-2026-11-18` (`42eaffa3`) resolviendo el TSV con ambos bloques → CI combinada de 9 jobs sobre esa rama → `gh pr ready 23` → merge de #23. Sin force push, sin squash que borre trazabilidad.
+**Fase D, completa:** CI verde en `6623fae5` (9/9, run `44641438284`, attempt 3) → `gh pr ready 22` y **merge commit normal `ad9a5da9`** en `master` → merge de `master` en `feat/ui8-integration-2026-11-18` (**`42eaffa3`**) resolviendo el TSV con ambos bloques → CI combinada de 9 jobs (**run `44650757775`, 9/9 en attempt 1**) → `gh pr ready 23` y **merge commit normal `e492b6b1`**. Sin force push, sin squash, sin reset destructivo, sin stagear `aircat-transfer/build/`.
+
+**Lo que queda para levantar los bloqueantes:** conectar el teléfono `26dfb91d` y correr `MichiCardDeckFrameCaptureTest` para certificar jank físico; levantar un par Michi real (Micro Server o Desktop Player) para mover `EXTERNAL_INTEROP` de `BLOCKED_EXTERNAL` a medido.
