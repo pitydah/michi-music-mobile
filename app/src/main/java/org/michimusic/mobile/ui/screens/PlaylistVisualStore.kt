@@ -40,15 +40,23 @@ internal data class PlaylistVisualEditRequest(
     val bannerFocalX: Float = 0.5f,
     val bannerFocalY: Float = 0.5f,
     val bannerScale: Float = 1f,
+    // Appended to preserve existing positional constructors and named defaults.
+    val expectedVisual: PlaylistVisualState? = null,
 )
 
 internal sealed interface PlaylistVisualEditResult {
     data object Success : PlaylistVisualEditResult
+    /** Another editor changed artwork or crop after this draft opened. */
+    data object Conflict : PlaylistVisualEditResult
     data class Rejected(
         val field: String,
         val reason: PlaylistImageImportFailure,
     ) : PlaylistVisualEditResult
 }
+
+/** Do not reject artwork edits solely because pinning changed elsewhere. */
+internal fun playlistVisualBaselineMatches(expected: PlaylistVisualState, observed: PlaylistVisualState): Boolean =
+    expected.copy(pinned = false) == observed.copy(pinned = false)
 
 /**
  * Per-playlist UI metadata stored alongside existing user preferences, never in
@@ -204,6 +212,12 @@ internal class PlaylistVisualStore(
         // Serialized with pruning and direct imports. This intentionally holds
         // a global short-lived IO lock while the bounded 25 MB copies are staged.
         synchronized(mutationLock) {
+            // Reject a stale draft BEFORE importing any private image or changing prefs.
+            // The lock also protects other store instances and pruning.
+            val expected = request.expectedVisual
+            if (expected != null && !playlistVisualBaselineMatches(expected, readNow(id))) {
+                return@synchronized PlaylistVisualEditResult.Conflict
+            }
             val coverImport = when (val change = request.cover) {
                 is PlaylistVisualImageChange.Replace ->
                     importer.importFromUri(id, "cover", change.uri)

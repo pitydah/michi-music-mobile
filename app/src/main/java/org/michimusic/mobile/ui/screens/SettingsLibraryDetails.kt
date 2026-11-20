@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FolderSpecial
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -85,85 +87,34 @@ internal fun SettingsLibraryDetails(
 ) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsLibraryRootSection(
+            currentRoot = currentRoot,
+            busy = busy,
+            progress = progress,
+            message = message,
+            permissionRevoked = permissionRevoked,
+            permissionError = permissionError,
+            permissionReady = permissionReady,
+            onSelectTree = onSelectTree,
+        )
         SettingsSectionCard(
-            icon = Icons.Default.FolderSpecial,
-            title = "Biblioteca & Almacenamiento",
-            subtitle = "Carpeta de música, carátulas y sincronización",
+            icon = Icons.Default.Storage,
+            title = "Espacio de Michi Link",
+            subtitle = "Almacenamiento privado de la aplicación",
             accent = TertiaryCyan,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(GlassFillLow)
-                    .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                    .clickable(enabled = !busy) {
-                        onSelectTree()
-                    }
-                    .padding(14.dp)
-                    .testTag("settings_library_root"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Carpeta de música",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = PureWhite,
-                        ),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = when {
-                            busy -> "Actualizando biblioteca… ${progress.coerceAtLeast(0)} pista(s)"
-                            else -> currentRoot.label
-                        },
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
-                    )
-                }
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = TertiaryCyan,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-
-            if (!permissionReady) {
-                Text("Comprobando permisos de esta carpeta…",
-                    style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
-            }
-            if (permissionError) {
-                Text("No se pudo verificar el permiso de esta carpeta. Escritura deshabilitada.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFFFB4AB)),
-                    modifier = Modifier.testTag("settings_library_permission_unknown"))
-            }
-            if (permissionRevoked) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "El permiso de esta carpeta se revocó. Vuelve a elegirla para recuperar el acceso.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFFFB4AB)),
-                )
-            }
-
-
-            if (message != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = message!!,
-                    style = MaterialTheme.typography.bodySmall.copy(color = TertiaryCyan),
-                )
-            }
-
-
             SettingsLibraryStorageMetrics(
                 snapshot = snapshot,
                 context = context,
                 onRefresh = onRefreshStorage,
             )
-
+        }
+        SettingsSectionCard(
+            icon = Icons.Default.Build,
+            title = "Mantenimiento de biblioteca",
+            subtitle = "Operaciones manuales: no se ejecutan por abrir Ajustes",
+            accent = TertiaryCyan,
+        ) {
             lastScanText?.let { message ->
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -214,9 +165,13 @@ internal fun SettingsLibraryDetails(
             )
 
 
-            Spacer(Modifier.height(12.dp))
-
-
+        }
+        SettingsSectionCard(
+            icon = Icons.Default.FolderSpecial,
+            title = "Acceso y contenido",
+            subtitle = "Permisos SAF y canciones ocultas",
+            accent = TertiaryCyan,
+        ) {
             SettingsLibraryAccessControls(
                 currentRoot = currentRoot,
                 busy = busy || !permissionReady,
@@ -230,15 +185,15 @@ internal fun SettingsLibraryDetails(
             Spacer(Modifier.height(12.dp))
 
 
-            Text("ESCANEO Y CARÁTULAS", style = MaterialTheme.typography.labelSmall,
-                color = TertiaryCyan)
-            Text(
-                "El escaneo manual está disponible aquí. " +
+            Text(settingsTruthLine(SettingsTruthArea.LIBRARY_AUTOMATION),
+                style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                modifier = Modifier.testTag("settings_library_unconnected_status"))
+            SettingsDisclosureNote(
+                title = "Escaneo y carátulas: disponibilidad",
+                detail = "El escaneo manual está disponible aquí. " +
                     "El escaneo al iniciar y la descarga automática de carátulas " +
                     "no están habilitados: requieren coordinadores específicos.",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                modifier = Modifier.testTag("settings_library_unconnected_options"),
+                testTag = "settings_library_unconnected_options",
             )
 
 

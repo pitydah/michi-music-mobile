@@ -53,6 +53,36 @@ class AeroSignalStripMetadataLayoutTest {
     }
 
     @Test
+    fun exactLongSourceRemainsVisibleWithAudioRouteAndNoMetadataMutation() {
+        val source = "MP3 · 44,1 kHz · 320 kb/s (promedio)"
+        rule.setContent {
+            MichiTheme {
+                Box(Modifier.width(393.dp)) {
+                    AeroSignalRouteStrip(
+                        signalLabel = source,
+                        signalDescription = "Decodificación interna: PCM 16 bit · 44,1 kHz. No determina la calidad del archivo ni del DAC.",
+                        destination = "Este teléfono",
+                        onSignalClick = {}, onDestinationClick = {},
+                    )
+                }
+            }
+        }
+        val node = rule.onNodeWithTag("signal_strip_source_value", useUnmergedTree = true)
+            .assertExists()
+        val layouts = mutableListOf<TextLayoutResult>()
+        val action = node.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult]
+        assertTrue(action.action?.invoke(layouts) == true)
+        val layout = layouts.single()
+        for (i in 0 until layout.lineCount) {
+            assertFalse("Do not ellipsize source bitrate metadata", layout.isLineEllipsized(i))
+        }
+        rule.onNodeWithTag("signal_truth_button")
+            .assertHeightIsAtLeast(48.dp)
+        rule.onNodeWithTag("audio_route_button")
+            .assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
     fun commonSourceQualityLabelFitsAcrossResponsiveWidthsAndFontScales() {
         val width = mutableStateOf(320)
         val fontScale = mutableStateOf(1f)

@@ -472,11 +472,18 @@ fun GradientProgressBar(
                 modifier = Modifier
                     .offset(x = thumbOffset.coerceIn(0.dp, (totalWidth - animatedThumbSize).coerceAtLeast(0.dp)))
                     .size(animatedThumbSize)
-                    .shadow(elevation = if (isDragging) 6.dp else 2.dp, shape = CircleShape)
+                    .shadow(
+                        elevation = if (seekerStyle == AeroSeekerStyle.LIQUID_GLASS) {
+                            if (isDragging) 3.dp else 1.dp
+                        } else if (isDragging) 6.dp else 2.dp,
+                        shape = CircleShape,
+                    )
                     .clip(CircleShape)
                     .background(if (appearance == ProgressAppearance.MICHI_AURORA) MichiAuroraThumb else PureWhite)
                     .border(
-                        if (isDragging) 2.5.dp else 2.dp,
+                        if (seekerStyle == AeroSeekerStyle.LIQUID_GLASS) {
+                            if (isDragging) 1.5.dp else 1.dp
+                        } else if (isDragging) 2.5.dp else 2.dp,
                         if (appearance == ProgressAppearance.MICHI_AURORA) MichiAuroraLavender
                         else if (isDragging) PrimaryPinkContainer else AeroGraphite,
                         CircleShape,

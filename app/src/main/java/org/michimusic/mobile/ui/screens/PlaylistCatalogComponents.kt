@@ -44,6 +44,7 @@ import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
@@ -58,12 +59,13 @@ internal fun PlaylistCatalogSpotlight(
     onOpen: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
+    deck: Boolean = false,
 ) {
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(UI8VisualSpec.playlistHeroCorner))
             .clickable(onClick = onOpen)
             .testTag("playlist_item_${playlist.id}"),
     ) {
@@ -88,18 +90,7 @@ internal fun PlaylistCatalogSpotlight(
                         transformOrigin = TransformOrigin(focalX, focalY)
                     },
             )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.42f to Color.Transparent,
-                            0.72f to SurfaceObsidian.copy(alpha = 0.72f),
-                            1f to SurfaceObsidian.copy(alpha = 0.97f),
-                        ),
-                    ),
-            )
+            // UI8: never darken/fade the lower image. The banner stays intact.
         } else {
             Box(
                 modifier = Modifier
@@ -125,9 +116,8 @@ internal fun PlaylistCatalogSpotlight(
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 198.dp)
+            modifier = (if (deck) Modifier.fillMaxSize()
+                else Modifier.fillMaxWidth().heightIn(min = 198.dp))
                 .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -154,7 +144,11 @@ internal fun PlaylistCatalogSpotlight(
                     corner = 14.dp,
                 )
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f)
+                        // Localized caption matte only: no full-width scrim, no blur.
+                        .clip(RoundedCornerShape(UI8VisualSpec.captionCorner))
+                        .background(Color.Black.copy(alpha = UI8VisualSpec.captionMatteAlpha))
+                        .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     if (visual.pinned) {
@@ -178,7 +172,7 @@ internal fun PlaylistCatalogSpotlight(
                     )
                     Text(
                         text = trackCountLabel(playlist.trackCount),
-                        color = TextSecondary,
+                        color = PureWhite,
                         fontSize = 12.sp,
                     )
                 }

@@ -150,11 +150,8 @@ internal fun SettingsPlaybackPanel() {
                                 subtitle = "Normalización y preamplificación de reproducción",
                                 accent = TertiaryCyan,
                             ) {
-                                Text(
-                                    "Normaliza el volumen usando las etiquetas de tus archivos. " +
-                                        "El modo de procesamiento y los dispositivos tienen pantallas propias.",
-                                    color = TextSecondary, style = MaterialTheme.typography.bodySmall,
-                                )
+                                Text("Ajuste de volumen mediante etiquetas ReplayGain.",
+                                    color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                                 Spacer(Modifier.height(8.dp))
                                 Text(settingsReplayGainTruth(
                                     selectedMode,
@@ -164,7 +161,14 @@ internal fun SettingsPlaybackPanel() {
                                 ), color = TextSecondary,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.testTag("settings_replaygain_truth"))
-                                Spacer(Modifier.height(16.dp))
+                                SettingsDisclosureNote(
+                                    title = "Acerca de ReplayGain y las salidas",
+                                    detail = "Normaliza el volumen usando etiquetas de los archivos. " +
+                                        "El modo de procesamiento y las salidas tienen pantallas propias; " +
+                                        "guardar un modo no demuestra procesamiento en el DAC.",
+                                    testTag = "settings_rg_help",
+                                )
+                                Spacer(Modifier.height(12.dp))
 
 
                                 Text(

@@ -357,8 +357,9 @@ fun NowPlayingScreen(
                         .size(artSide)
                         .aeroNowPlayingHeroEnter(currentTrack != null),
                     cornerRadius = 18.dp,
-                    inset = 4.dp,
+                    inset = 3.dp,
                     emphasis = AeroArtworkEmphasis.Hero,
+                    showInnerBorder = false,
                 ) {
                     AeroTrackArtworkMotion(
                         track = currentTrack,

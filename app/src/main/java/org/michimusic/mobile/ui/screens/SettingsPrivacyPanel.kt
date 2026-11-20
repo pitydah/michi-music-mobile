@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,9 +8,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,6 +25,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -36,6 +41,7 @@ import org.michimusic.data.cache.SettingsEntity
 import org.michimusic.data.intelligence.MichiIntelligencePrivacyPreferences
 import org.michimusic.data.intelligence.MichiIntelligenceRepository
 import org.michimusic.mobile.ui.theme.PrimaryPink
+import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
  * MI-05: user-owned privacy controls in the existing Aero Settings section.
@@ -185,21 +191,23 @@ internal fun SettingsPrivacyPanel() {
         SettingsSectionCard(
             icon = Icons.Default.Security,
             title = "Privacidad de Intelligence",
-            subtitle = "Elige cuánto estarías dispuesto a compartir en el futuro",
+            subtitle = "Preferencia local para solicitudes futuras, nunca un permiso automático",
             accent = PrimaryPink,
         ) {
             val options = listOf(
                 Triple(MichiSharingConsentPolicy.PrivacyMode.MAXIMUM,
-                    "Máxima privacidad", "Todo local. Nunca enviar datos a servicios externos."),
+                    "Máxima privacidad", "Solo en este teléfono"),
                 Triple(MichiSharingConsentPolicy.PrivacyMode.LIMITED_SHARING,
-                    "Compartición limitada", "Solo información pública o géneros elegidos, con aprobación por tarea."),
+                    "Compartición limitada", "Información pública; permiso por tarea"),
                 Triple(MichiSharingConsentPolicy.PrivacyMode.CUSTOM_SHARING,
-                    "Compartición personalizada", "Podrás elegir canciones o listas concretas y revisar los datos antes de enviar."),
+                    "Compartición personalizada", "Elige y revisa antes de enviar"),
             )
             options.forEach { (mode, title, subtitle) ->
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .heightIn(min = 56.dp)
+                        .heightIn(min = 64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (privacyMode == mode) PrimaryPink.copy(alpha = 0.10f) else Color.Transparent)
                         .testTag("settings_intelligence_privacy_${mode.name.lowercase()}")
                         .selectable(
                             selected = privacyMode == mode,
@@ -228,15 +236,25 @@ internal fun SettingsPrivacyPanel() {
                 ) {
                     RadioButton(selected = privacyMode == mode, onClick = null,
                         enabled = loaded && !modePending)
-                    Column(Modifier.padding(start = 8.dp)) {
-                        Text(title)
-                        Text(subtitle)
+                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text(title, style = MaterialTheme.typography.bodyMedium)
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     }
                 }
             }
             Text(
-                "Gemini no está conectado. Este ajuste no habilita proveedores ni autoriza envíos: cada solicitud futura requerirá revisar sus datos y aprobarla una sola vez.",
+                "Gemini no está conectado. Ninguna opción autoriza envíos.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
                 modifier = Modifier.testTag("settings_intelligence_provider_off"),
+            )
+            SettingsDisclosureNote(
+                title = "Qué permite cada nivel de privacidad",
+                detail = "Máxima: todo local, sin enviar datos a servicios externos. " +
+                    "Limitada: solo información pública o géneros elegidos, siempre con aprobación por tarea. " +
+                    "Personalizada: podrás elegir canciones o playlists concretas y revisar " +
+                    "los datos antes de enviarlos. Cada solicitud futura exige una aprobación explícita.",
+                testTag = "settings_intelligence_sharing_help",
             )
         }
 

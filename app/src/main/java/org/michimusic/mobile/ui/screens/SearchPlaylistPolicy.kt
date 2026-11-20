@@ -30,7 +30,9 @@ internal fun rankedPlaylistSearch(
     query: String,
     limit: Int = 12,
 ): List<SearchPlaylistEntry> {
-    if (limit <= 0 || query != query.trim() || query.trim().length < 2) return emptyList()
+    // A trailing space must not temporarily hide a real playlist or disable its click.
+    // Normalization is shared with the navigation guard below.
+    if (limit <= 0 || query.trim().length < 2) return emptyList()
     val needle = normalizedPlaylistSearchText(query)
     if (needle.length < 2) return emptyList()
 

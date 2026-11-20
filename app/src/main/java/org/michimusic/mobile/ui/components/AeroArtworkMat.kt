@@ -36,6 +36,8 @@ fun AeroArtworkMat(
     cornerRadius: Dp = 22.dp,
     inset: Dp = 5.dp,
     emphasis: AeroArtworkEmphasis = AeroArtworkEmphasis.Standard,
+    // Now Playing uses one outer rim + directional lip, not two bright rings.
+    showInnerBorder: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
@@ -90,8 +92,10 @@ fun AeroArtworkMat(
             .padding(inset)
             .clip(inner)
             .background(SurfaceObsidian)
-            .border(if (highContrast) 1.dp else 0.5.dp,
-                Color.White.copy(alpha = if (highContrast) 0.85f else 0.12f), inner),
+            .then(if (showInnerBorder) Modifier.border(
+                if (highContrast) 1.dp else 0.5.dp,
+                Color.White.copy(alpha = if (highContrast) 0.85f else 0.12f), inner,
+            ) else Modifier),
     ) {
         content()
     }

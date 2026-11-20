@@ -7,10 +7,12 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Text
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.MichiTypography
 
 
 import org.michimusic.mobile.ui.theme.SecondaryPurple
@@ -34,6 +36,7 @@ internal fun SettingsSystemPanel(
         linkLater = onboardingSnapshot?.linkLater == true,
     )
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("HERRAMIENTAS", style = MichiTypography.microLabel)
         SettingsCategoryNavCard(
             icon = Icons.Default.BugReport,
             title = "Diagnóstico del sistema",
@@ -42,6 +45,7 @@ internal fun SettingsSystemPanel(
             onClick = onNavigateToDiagnostics,
             testTag = "settings_open_diagnostics",
         )
+        Text("ASISTENTE Y CONFIGURACIÓN", style = MichiTypography.microLabel)
         SettingsCategoryNavCard(
             icon = Icons.Default.Info,
             iconRes = org.michimusic.mobile.R.drawable.wizard_fluent_history,

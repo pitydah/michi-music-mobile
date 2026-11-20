@@ -1,5 +1,8 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -57,13 +61,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.mobile.R
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -73,7 +81,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -115,6 +122,7 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import org.michimusic.player.AudioController
 
 @Composable
@@ -158,6 +166,29 @@ fun SearchScreen(
         if (isSearching || searchError == null) retryPending = false
     }
     val keyboardController = LocalSoftwareKeyboardController.current
+    var fieldFocused by remember { mutableStateOf(false) }
+    val visualPreferences = LocalVisualPreferences.current
+    val filterRailState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var playbackNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedFilter, visualPreferences.reducedMotion) {
+        val selectedIndex = SearchFilter.entries.indexOf(selectedFilter)
+        if (selectedIndex >= 0) {
+            if (visualPreferences.reducedMotion) filterRailState.scrollToItem(selectedIndex)
+            else filterRailState.animateScrollToItem(selectedIndex)
+        }
+        playbackNotice = null
+    }
+    val focusBorder by animateColorAsState(
+        targetValue = when {
+            visualPreferences.highContrast -> Color.White.copy(alpha = 0.85f)
+            fieldFocused -> PrimaryPinkContainer
+            query.isNotEmpty() -> PrimaryPinkContainer.copy(alpha = 0.62f)
+            else -> GlassBorderLow
+        },
+        animationSpec = tween(durationMillis = if (visualPreferences.reducedMotion) 0
+            else UI8VisualSpec.searchFocusMillis),
+        label = "UI8SearchFocusBorder",
+    )
     val audioController: AudioController = koinInject()
     val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val playerState by audioController.state.collectAsStateWithLifecycle()
@@ -181,9 +212,9 @@ fun SearchScreen(
         searchActionPermitted(query, selectedFilter.name, "ALBUM", it.album)
     }
     val visibleTracks = displayResults.tracks.filter { item ->
-        // File system checks belong on the ViewModel IO dispatcher; the result
-        // list has already passed DOWNLOADED filtering before it is emitted.
-        searchActionPermitted(query, selectedFilter.name, "TRACK", item.track.title) &&
+        // Same semantic predicate as production and live-click validation.
+        // DOWNLOADED membership is resolved on IO by SearchViewModel, never in composition.
+        searchTrackActionPermitted(query, selectedFilter.name, item.track) &&
             (selectedFilter != SearchFilter.LOSSLESS || item.track.isLossless)
     }
     // Playlist matching is on the current query, not a debounced music snapshot.
@@ -198,8 +229,14 @@ fun SearchScreen(
         sessionManager.playQueue(tracks, validIndex)
     }
 
-    fun playCurrentTrackById(tracks: List<Track>, trackId: String) {
-        val index = safeSearchQueueTrackIdIndex(tracks.map { it.id }, trackId) ?: return
+    fun playCurrentTrack(tracks: List<Track>, selected: Track) {
+        val index = safeSearchQueueTrackIndex(tracks, selected)
+        if (index == null) {
+            // Never guess between two different sources with the same local ID.
+            playbackNotice = "No se pudo verificar esta pista. Actualiza la búsqueda e inténtalo nuevamente."
+            return
+        }
+        playbackNotice = null
         sessionManager.playQueue(tracks, index)
     }
 
@@ -236,6 +273,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .imePadding()
                 .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
             Spacer(Modifier.height(MichiSpacing.md))
@@ -259,10 +297,8 @@ fun SearchScreen(
                     .testTag("search_inset_surface"),
                 shape = MichiShapes.md,
                 borderStroke = BorderStroke(
-                    width = if (LocalVisualPreferences.current.highContrast) 1.2.dp else 0.65.dp,
-                    color = if (LocalVisualPreferences.current.highContrast) Color.White.copy(alpha = 0.85f)
-                        else if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.62f)
-                        else GlassBorderLow,
+                    width = if (visualPreferences.highContrast) 1.2.dp else 0.65.dp,
+                    color = focusBorder,
                 ),
                 contentAlignment = Alignment.CenterStart,
             ) {
@@ -283,6 +319,7 @@ fun SearchScreen(
                         onValueChange = viewModel::setQuery,
                         modifier = Modifier
                             .weight(1f)
+                            .onFocusChanged { fieldFocused = it.isFocused }
                             .semantics { contentDescription = "Buscar en la biblioteca" }
                             .testTag("search_text_field"),
                         textStyle = TextStyle(
@@ -324,6 +361,7 @@ fun SearchScreen(
 
             // M55: shared selection policy, contrast and responsive targets.
             LazyRow(
+                state = filterRailState,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 24.dp),
                 modifier = Modifier.testTag("m60_search_filter_rail"),
@@ -339,12 +377,27 @@ fun SearchScreen(
                 }
             }
 
-            if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 390 && SearchFilter.entries.size > 3) {
+            if (filterRailState.canScrollBackward || filterRailState.canScrollForward) {
                 Text(
                     text = "Desliza para explorar más filtros",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 5.dp).testTag("search_filter_scroll_hint"),
+                )
+            }
+            // Explicit user action; never reload/scans on every keystroke or timer.
+            androidx.compose.material3.TextButton(
+                onClick = { viewModel.loadLocalTracks(force = true); playbackNotice = null },
+                modifier = Modifier.testTag("search_refresh_catalog"),
+            ) { Text("Actualizar resultados", color = TertiaryCyan) }
+            playbackNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    color = PrimaryPinkContainer,
+                    style = MichiTypography.metadata,
+                    modifier = Modifier.testTag("search_playback_notice").semantics {
+                        liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite
+                    },
                 )
             }
 
@@ -399,14 +452,22 @@ fun SearchScreen(
             } else if (selectedFilter != SearchFilter.PLAYLISTS &&
                 (isSearching || (query.length >= 2 && currentResults().requestGeneration < 0L))) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize().padding(top = 24.dp),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        color = PrimaryPinkContainer,
-                        strokeWidth = 2.dp,
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp).testTag("search_loading_indicator"),
+                            color = PrimaryPinkContainer,
+                            strokeWidth = 2.dp,
+                        )
+                        Text("Buscando en tu biblioteca", color = TextSecondary,
+                            style = MichiTypography.metadata,
+                            modifier = Modifier.testTag("search_loading_label"))
+                    }
                 }
             } else if (query.isBlank()) {
                 SearchEmptyGuidance()
@@ -417,32 +478,51 @@ fun SearchScreen(
                 }
             } else if (visibleArtists.isEmpty() && visibleAlbums.isEmpty() && visibleTracks.isEmpty() && visiblePlaylists.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize().padding(top = 24.dp),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Icon(
                             Icons.Default.MusicNote,
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(40.dp),
                         )
-                        Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "No se encontraron coincidencias",
+                            text = "Sin coincidencias en ${selectedFilter.displayName}",
                             style = MichiTypography.cardTitle,
                             color = PureWhite,
+                            modifier = Modifier.testTag("search_no_results_title"),
                         )
                         Text(
-                            text = "Prueba con una canción, álbum, artista o playlist",
+                            text = when (selectedFilter) {
+                                SearchFilter.LOSSLESS -> "Prueba otra canción, artista o álbum con archivos Lossless."
+                                SearchFilter.DOWNLOADED -> "No hay coincidencias descargadas; revisa Todo."
+                                else -> "Prueba otra búsqueda o cambia a Todo para explorar tu biblioteca."
+                            },
                             style = MichiTypography.metadata,
                             color = TextSecondary,
                         )
                     }
                 }
             } else {
+                // Animate only the verified new result snapshot; never keep stale rows interactive.
+                val resultReveal = remember(displayResults.requestGeneration, selectedFilter) { Animatable(0f) }
+                LaunchedEffect(resultReveal, visualPreferences.reducedMotion) {
+                    if (visualPreferences.reducedMotion) resultReveal.snapTo(1f)
+                    else resultReveal.animateTo(1f, tween(UI8VisualSpec.searchResultMillis))
+                }
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize()
+                        .graphicsLayer {
+                            alpha = resultReveal.value
+                            translationY = (1f - resultReveal.value) * 6.dp.toPx()
+                        }
+                        .testTag("search_results_list"),
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(MichiSpacing.lg),
                 ) {
@@ -509,7 +589,7 @@ fun SearchScreen(
                         items(visibleTracks) { item ->
                             val activeTrack = presentation.currentTrack
                             val isAudioPlaying = presentation.isPlaying
-                            val isPlayingThis = activeTrack?.id == item.track.id
+                            val isPlayingThis = sameSearchTrackIdentity(activeTrack, item.track)
                             TrackSearchRow(
                                 track = item.track,
                                 source = item.source,
@@ -519,12 +599,14 @@ fun SearchScreen(
                                     // Live query and filter can change during the 250ms debounce.
                                     // Recheck against the current StateFlow before playing.
                                     val currentTracks = currentResults().tracks.map { it.track }
-                                    val selected = currentTracks.singleOrNull { it.id == item.track.id }
-                                    if (selected != null && actionAllowed("TRACK", selected.title) &&
-                                        (viewModel.selectedFilter.value != SearchFilter.LOSSLESS || selected.isLossless)) {
+                                    val selected = safeSearchQueueTrackIndex(currentTracks, item.track)
+                                        ?.let { currentTracks[it] }
+                                    if (selected != null && searchTrackActionPermitted(
+                                            viewModel.query.value, viewModel.selectedFilter.value.name, selected,
+                                        ) && (viewModel.selectedFilter.value != SearchFilter.LOSSLESS || selected.isLossless)) {
                                         // No synchronous disk I/O on the Compose click thread.
                                         // DOWNLOADED membership was checked in SearchViewModel.
-                                        playCurrentTrackById(currentTracks, selected.id)
+                                        playCurrentTrack(currentTracks, selected)
                                     }
                                 },
                             )
@@ -554,7 +636,7 @@ fun SearchScreen(
                     onTrackClick = { track ->
                         if (!actionAllowed("ARTIST", snapshot.artist)) return@ArtistDetailDialog
                         val currentTracks = currentResults().artists.firstOrNull { it.artist == snapshot.artist }?.tracks.orEmpty()
-                        playCurrentTrackById(currentTracks, track.id)
+                        playCurrentTrack(currentTracks, track)
                     },
                 )
             }
@@ -580,7 +662,7 @@ fun SearchScreen(
                         if (!actionAllowed("ALBUM", snapshot.album)) return@AlbumDetailDialog
                         val currentTracks = currentResults().albums.firstOrNull { it.artist == snapshot.artist && it.album == snapshot.album }
                             ?.tracks.orEmpty()
-                        playCurrentTrackById(currentTracks, track.id)
+                        playCurrentTrack(currentTracks, track)
                     },
                 )
             }
@@ -644,19 +726,29 @@ private fun ArtistSearchRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(TertiaryCyan.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = TertiaryCyan,
-                    modifier = Modifier.size(22.dp),
+            val representative = artist.sampleTrack
+            // Album cover is a representative visual, NOT an asserted artist portrait.
+            if (representative != null && (representative.coverId.isNotBlank() ||
+                    representative.filepath.isNotBlank())) {
+                AlbumArtView(
+                    coverStyle = coverStyleFor(representative.coverId.ifEmpty { artist.artist }),
+                    imageModel = representative.coverId,
+                    fallbackMediaUri = representative.filepath,
+                    modifier = Modifier.size(48.dp).clip(CircleShape),
                 )
+            } else {
+                Box(
+                    modifier = Modifier.size(48.dp).clip(CircleShape)
+                        .background(TertiaryCyan.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = TertiaryCyan,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -804,7 +896,7 @@ private fun ArtistDetailDialog(
     onShuffle: () -> Unit,
     onTrackClick: (Track) -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    UI8SearchDetailDialog(onDismiss = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = SurfaceContainer,
@@ -858,7 +950,7 @@ private fun ArtistDetailDialog(
                         onClick = onPlayAll,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .heightIn(min = 48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                         shape = MichiShapes.sm,
                     ) {
@@ -871,7 +963,7 @@ private fun ArtistDetailDialog(
                         onClick = onShuffle,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .heightIn(min = 48.dp),
                         shape = MichiShapes.sm,
                     ) {
                         Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(16.dp), tint = PureWhite)
@@ -885,7 +977,9 @@ private fun ArtistDetailDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(240.dp),
+                        .height(searchDetailHeight(artist.tracks.size,
+                            LocalDensity.current.fontScale, hasSubtitle = true,
+                            availableViewport = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp)),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(artist.tracks) { track ->
@@ -936,7 +1030,7 @@ private fun AlbumDetailDialog(
     onShuffle: () -> Unit,
     onTrackClick: (Track) -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    UI8SearchDetailDialog(onDismiss = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = SurfaceContainer,
@@ -1006,7 +1100,7 @@ private fun AlbumDetailDialog(
                         onClick = onPlayAll,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .heightIn(min = 48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                         shape = MichiShapes.sm,
                     ) {
@@ -1019,7 +1113,7 @@ private fun AlbumDetailDialog(
                         onClick = onShuffle,
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp),
+                            .heightIn(min = 48.dp),
                         shape = MichiShapes.sm,
                     ) {
                         Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(16.dp), tint = PureWhite)
@@ -1033,7 +1127,9 @@ private fun AlbumDetailDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(240.dp),
+                        .height(searchDetailHeight(album.tracks.size,
+                            LocalDensity.current.fontScale, hasSubtitle = false,
+                            availableViewport = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp)),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(album.tracks) { track ->

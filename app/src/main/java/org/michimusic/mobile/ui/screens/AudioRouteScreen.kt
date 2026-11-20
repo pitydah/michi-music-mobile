@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -102,6 +102,8 @@ fun AudioRouteScreen(
     })
 
     var pendingUsbConfirmation by remember { mutableStateOf<UsbPhysicalDescriptor?>(null) }
+    // UI-only disclosure: never persists route preferences or changes playback.
+    var showTechnicalSpecs by rememberSaveable { mutableStateOf(false) }
     var systemDevices by remember {
         mutableStateOf(audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList())
     }
@@ -151,34 +153,14 @@ fun AudioRouteScreen(
                 style = MichiTypography.screenTitle,
                 color = TextPrimary,
             )
-            Spacer(Modifier.height(16.dp))
-            val preferredPresence = preferredPhysicalUsbPresence(
-                selectedUsbId,
-                systemDevices.associate { it.id to it.type },
-                outputDevices.filter { it.isUsbDac || it.isUsbHeadset }.map { it.id }.toSet(),
-            ) { type -> type in setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
-                AudioDeviceInfo.TYPE_USB_ACCESSORY, AudioDeviceInfo.TYPE_USB_HEADSET) }
-            preferredUsbGuidance(preferredPresence)?.let { guidance ->
-                Text(guidance, style = MaterialTheme.typography.bodySmall,
-                    color = if (preferredPresence == PreferredUsbPresence.DISCONNECTED)
-                        org.michimusic.mobile.ui.theme.PrimaryPinkContainer else TextSecondary,
-                    modifier = Modifier.testTag("audio_route_preferred_usb_status"))
-            }
-            if (selectedUsbId != null && usbDacManager != null) {
-                TextButton(
-                    onClick = { usbDacManager.clearDeviceSelection() },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_automatic"),
-                ) { Text("Volver a ruta automática") }
-                Text("Esto cambia una preferencia; la ruta efectiva debe verificarse otra vez.",
-                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-            }
-            if (systemDevices.isEmpty()) {
-                Text("Android no comunica salidas en este momento.", color = TextSecondary)
-            }
+            Spacer(Modifier.height(12.dp))
+            Text("ESTADO DE LA RUTA", style = MichiTypography.screenEyebrowTechnical,
+                modifier = Modifier.testTag("audio_route_truth_heading"))
+            Spacer(Modifier.height(8.dp))
 
             // Observed route receives material emphasis; it is not a bit-perfect claim.
             AeroSurface(role = AeroSurfaceRole.Raised, finish = AeroFinish.Anodized,
-                modifier = Modifier.fillMaxWidth()) {
+                modifier = Modifier.fillMaxWidth().testTag("audio_route_truth_card")) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -228,6 +210,27 @@ fun AudioRouteScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+            // A saved preference belongs below the observed output, never above it.
+            val preferredPresence = preferredPhysicalUsbPresence(
+                selectedUsbId,
+                systemDevices.associate { it.id to it.type },
+                outputDevices.filter { it.isUsbDac || it.isUsbHeadset }.map { it.id }.toSet(),
+            ) { type -> type in setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
+                AudioDeviceInfo.TYPE_USB_ACCESSORY, AudioDeviceInfo.TYPE_USB_HEADSET) }
+            preferredUsbGuidance(preferredPresence)?.let { guidance ->
+                Text(guidance, style = MaterialTheme.typography.bodySmall,
+                    color = if (preferredPresence == PreferredUsbPresence.DISCONNECTED)
+                        org.michimusic.mobile.ui.theme.PrimaryPinkContainer else TextSecondary,
+                    modifier = Modifier.testTag("audio_route_preferred_usb_status"))
+            }
+            if (selectedUsbId != null && usbDacManager != null) {
+                TextButton(
+                    onClick = { usbDacManager.clearDeviceSelection() },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_automatic"),
+                ) { Text("Volver a ruta automática") }
+                Text("Esto cambia una preferencia; la ruta efectiva debe verificarse otra vez.",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
 
             // Real Android 14+ mixer controls are confined to a confirmed USB
             // AudioTrack route; the UI cannot certify physical DAC delivery.
@@ -236,7 +239,19 @@ fun AudioRouteScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            Text("Dispositivos disponibles (no necesariamente activos)", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
+            Text("SALIDAS DETECTADAS (${systemDevices.size})",
+                style = MichiTypography.screenEyebrowTechnical,
+                modifier = Modifier.testTag("audio_route_inventory_heading"))
+            Text("Detectada no significa en uso; solo AudioTrack confirma una ruta.",
+                style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            TextButton(
+                onClick = { showTechnicalSpecs = !showTechnicalSpecs },
+                modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_toggle_specs"),
+            ) { Text(if (showTechnicalSpecs) "Ocultar especificaciones" else "Ver especificaciones") }
+            if (systemDevices.isEmpty()) {
+                Text("Android no comunica salidas en este momento.", color = TextSecondary,
+                    modifier = Modifier.testTag("audio_route_inventory_empty"))
+            }
             Spacer(Modifier.height(8.dp))
 
             systemDevices.forEach { device ->
@@ -251,8 +266,12 @@ fun AudioRouteScreen(
                         .map { it.id }.toSet(),
                 )
                 val observedHere = isObservedOutputInUse(routeStatus, device.id)
-                val requestedHere = (routeStatus as? AudioRouteStatus.Requested)
-                    ?.device?.androidDeviceId == device.id
+                // A mismatch still has a requested device, but not an observed route.
+                val requestedHere = when (val state = routeStatus) {
+                    is AudioRouteStatus.Requested -> state.device.androidDeviceId == device.id
+                    is AudioRouteStatus.RoutedElsewhere -> state.requested.androidDeviceId == device.id
+                    else -> false
+                }
                 val deviceName = device.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "Salida disponible"
                 val typeName = when (device.type) {
                     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz integrado"
@@ -266,13 +285,6 @@ fun AudioRouteScreen(
                     AudioDeviceInfo.TYPE_DOCK -> "Base / Dock de audio"
                     else -> "Tipo ${device.type}"
                 }
-                val sampleRatesStr = if (device.sampleRates.isNotEmpty()) {
-                    "Frecuencias anunciadas: " + device.sampleRates.asSequence().distinct().sorted()
-                        .mapNotNull { sampleRateLabel(it) }.take(12).joinToString(", ").ifBlank { "No disponibles" }
-                } else {
-                    "Frecuencias: Según mixer de Android"
-                }
-
                 // Only a real USB output can request a preferred route. Bluetooth and
                 // speakers remain informational. A request is never labelled confirmed.
                 AeroSurface(
@@ -317,11 +329,26 @@ fun AudioRouteScreen(
                         if (usbType) Text(usbDacRouteLabel(routeStatus, device.id),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (observedHere) org.michimusic.mobile.ui.theme.PrimaryPinkContainer else TextSecondary)
-                        Text(audioRouteSelectionHint(canSelect, observedHere, requestedHere,
-                            preferredHere = selectedUsbId == device.id),
-                            style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                        Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary.copy(alpha = 0.7f))
+                        else if (observedHere) Text("EN USO · ruta AudioTrack observada",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = org.michimusic.mobile.ui.theme.PrimaryPinkContainer)
+                        // No duplicate observed/requested sentence beneath its status.
+                        compactAudioRouteHint(usbType, canSelect, observedHere, requestedHere,
+                            preferredHere = selectedUsbId == device.id)?.let { hint ->
+                            Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
+                        if (showTechnicalSpecs) {
+                            // No announced-rate string building while details are hidden.
+                            val sampleRatesStr = if (device.sampleRates.isNotEmpty()) {
+                                "Frecuencias anunciadas: " + device.sampleRates.asSequence().distinct().sorted()
+                                    .mapNotNull { sampleRateLabel(it) }.take(12).joinToString(", ").ifBlank { "No disponibles" }
+                            } else {
+                                "Frecuencias: Según mixer de Android"
+                            }
+                            Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.testTag("audio_route_specs_${device.id}"),
+                                color = TextSecondary.copy(alpha = 0.7f))
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -345,21 +372,13 @@ fun AudioRouteScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider(color = TextSecondary.copy(alpha = 0.18f))
-            Spacer(Modifier.height(16.dp))
-
-            Text(
-                text = "Observación de señal y fidelidad",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Las tasas anunciadas por un dispositivo no son medidas de la señal física. " +
+            Spacer(Modifier.height(12.dp))
+            // Supplemental theory may be hidden; route certainty never is.
+            SettingsDisclosureNote(
+                title = "Qué puede confirmar Android",
+                detail = "Las tasas anunciadas por un dispositivo no son medidas de la señal física. " +
                     "La aplicación no certifica salida bit-perfect ni la frecuencia que recibe un DAC.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
+                testTag = "audio_route_evidence_explanation",
             )
         }
     }
