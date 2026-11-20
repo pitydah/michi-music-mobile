@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import io.mockk.every
@@ -181,6 +184,88 @@ class UI8PlaylistGeometryParityTest {
 
         assertEquals("single playlist width drifted", lista.first, cards.first, 1f)
         assertEquals("single playlist height drifted", lista.second, cards.second, 1f)
+    }
+
+    @Test
+    fun everyCardKeepsTheHeroGeometryWhateverItsPosition() {
+        render(
+            listOf(
+                playlist("p-1", "Primera", 61),
+                playlist("p-2", "Segunda", 12),
+                playlist("p-3", "Tercera", 4),
+            ),
+        )
+        // The catalog is lazy: each card is measured where it is actually laid out, and the
+        // values are compared afterwards so a disposed card cannot skew the result.
+        val measured = linkedMapOf<String, Pair<Float, Float>>()
+        listOf("p-1", "p-2", "p-3").forEachIndexed { index, id ->
+            if (index > 0) {
+                compose.onNodeWithTag("playlist_catalog_list").performScrollToIndex(index)
+                compose.waitForIdle()
+            }
+            measured[id] = heroWidthDp("playlist_item_$id") to heroHeightDp("playlist_item_$id")
+        }
+        val reference = measured.getValue("p-1")
+
+        measured.filterKeys { it != "p-1" }.forEach { (id, size) ->
+            println("GEOMETRY-POSITION id=$id width=${size.first}dp height=${size.second}dp")
+            assertEquals("card $id is not as wide as the first card", reference.first, size.first, 1f)
+            assertEquals("card $id is not as tall as the first card", reference.second, size.second, 1f)
+        }
+
+        // The deck front is the same card, so the reference must survive the mode change.
+        compose.onNodeWithTag("playlist_catalog_list").performScrollToIndex(0)
+        compose.waitForIdle()
+        switchToCards()
+        assertEquals("the deck front drifted", reference.first, heroWidthDp("playlist_item_p-1"), 1f)
+        assertEquals("the deck front drifted", reference.second, heroHeightDp("playlist_item_p-1"), 1f)
+    }
+
+    @Test
+    fun aPinnedPlaylistKeepsTheHeroGeometry() {
+        val context = androidx.test.core.app.ApplicationProvider
+            .getApplicationContext<Application>()
+        kotlinx.coroutines.runBlocking {
+            PlaylistVisualStore(context).setPinned("p-2", true)
+        }
+
+        render(
+            listOf(
+                playlist("p-1", "Primera", 61),
+                playlist("p-2", "Segunda", 12),
+            ),
+        )
+        compose.waitForIdle()
+
+        // Pinned first is the order contract; the geometry must not be what changes.
+        val pinnedTop = compose.onNodeWithTag("playlist_item_p-2").fetchSemanticsNode()
+            .boundsInRoot.top
+        val otherTop = compose.onNodeWithTag("playlist_item_p-1").fetchSemanticsNode()
+            .boundsInRoot.top
+        assertTrue(
+            "the pinned playlist is not first (pinned.top=$pinnedTop other.top=$otherTop)",
+            pinnedTop < otherTop,
+        )
+        assertEquals(
+            "the pinned card is not as wide as the other card",
+            heroWidthDp("playlist_item_p-1"),
+            heroWidthDp("playlist_item_p-2"),
+            1f,
+        )
+        // Height is content driven with the 198 dp floor, and the pinned card legitimately
+        // carries one extra line (the FIJADA marker), so the contract is: same width, never
+        // shorter than the other card, and never below the floor. Position must not shrink it.
+        val plainHeight = heroHeightDp("playlist_item_p-1")
+        val pinnedHeight = heroHeightDp("playlist_item_p-2")
+        println("GEOMETRY-PINNED plain=${plainHeight}dp pinned=${pinnedHeight}dp")
+        assertTrue("the plain card lost the 198 dp floor (height=${plainHeight}dp)", plainHeight >= 198f)
+        assertTrue("the pinned card lost the 198 dp floor (height=${pinnedHeight}dp)", pinnedHeight >= 198f)
+        assertTrue(
+            "the pinned card is shorter than the plain card (pinned=${pinnedHeight}dp plain=${plainHeight}dp)",
+            pinnedHeight >= plainHeight,
+        )
+        // The marker is composited with the card; the geometric claim above is what matters.
+        compose.onNodeWithText("FIJADA", useUnmergedTree = true).assertExists()
     }
 
     @Test

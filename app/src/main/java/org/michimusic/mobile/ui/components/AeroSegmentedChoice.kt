@@ -67,6 +67,11 @@ fun aeroSegmentStacking(availableWidthDp: Float, fontScale: Float): Boolean =
 fun AeroSegmentRail(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    /**
+     * Default keeps every existing caller full width. A header that needs a compact
+     * control passes `false` and lets the rail size to its own content.
+     */
+    fillWidth: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
     val visual = LocalVisualPreferences.current
@@ -80,7 +85,10 @@ fun AeroSegmentRail(
     )
     val shape = RoundedCornerShape(if (compact) 14.dp else 17.dp)
     Row(
-        modifier = modifier.fillMaxWidth()
+        // UI8-KILLCRITIC: fillWidth = false is what makes a compact header control
+        // possible. Everything else about the rail is unchanged, so Library, Search
+        // and Settings keep the full-width rail they already had.
+        modifier = modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
             .aeroFinishDrawing(material.finish, material.spec, null, shape)

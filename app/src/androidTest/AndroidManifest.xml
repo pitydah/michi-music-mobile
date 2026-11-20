@@ -7,6 +7,15 @@
       an instrumented test can contend for the very same lock file the app uses.
     -->
     <application>
+        <!--
+          UI8-KILLCRITIC: the playlist image import only accepts content:// URIs, so the
+          full-screen capture publishes its generated banners through this provider and
+          imports them through the same path a user pick uses.
+        -->
+        <provider
+            android:name="org.michimusic.mobile.ui.screens.ArtworkProbeProvider"
+            android:authorities="${applicationId}.artworkprobe"
+            android:exported="true" />
         <provider
             android:name="org.michimusic.mobile.sync.AirCatLockProbeProvider"
             android:authorities="${applicationId}.aircatlockprobe"
