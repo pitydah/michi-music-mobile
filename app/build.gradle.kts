@@ -212,6 +212,10 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.compose.ui.test.junit4)
+    // A71-S7: the playback-continuity test drives a real ExoPlayer. :player keeps
+    // media3 as an implementation dependency, so the instrumented source set
+    // declares it explicitly; the app runtime graph is unchanged.
+    androidTestImplementation(libs.media3.exoplayer)
     // Espresso 3.6.x calls the hidden InputManager.getInstance(), which no longer
     // exists on API 36, so every onIdle() failed on the API 36 emulator. Pin a
     // newer Espresso that uses the public input APIs instead.

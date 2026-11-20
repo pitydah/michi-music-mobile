@@ -329,10 +329,7 @@ class DefaultAirCatTransferClient(
             return@withContext Result.success(emptyList())
         }
 
-        val safetyMargin = 100L * 1024 * 1024
-        val requiredBytes = try {
-            Math.addExact(manifest.totalBytes, safetyMargin)
-        } catch (e: ArithmeticException) {
+        val requiredBytes = AirCatStorageRequirement.requiredBytes(manifest.totalBytes) ?: run {
             val err = AirCatException.InvalidManifestStructure("Desbordamiento numérico al calcular espacio requerido: totalBytes excede el rango admisible")
             emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
             return@withContext Result.failure(err)

@@ -47,9 +47,9 @@ class AirCatOperationCoordinatorTest {
 
     @Test fun unavailableServiceFailsSynchronouslyOnce() {
         val messages = mutableListOf<Pair<Boolean, String>>()
-        coordinator(null).startTransfer("device", kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), null) { a, b ->
+        coordinator(null).startTransfer("device", kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), null, onResult = { a, b ->
             messages += a to b
-        }
+        })
         assertEquals(1, messages.size)
         assertFalse(messages.single().first)
         assertTrue(messages.single().second.contains("no disponible"))
@@ -61,9 +61,9 @@ class AirCatOperationCoordinatorTest {
         )
         val service = mockk<AirCatTransferClient>(relaxed = true)
         val messages = mutableListOf<Pair<Boolean, String>>()
-        coordinator(service).recover("revoked", kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), null) { a, b ->
+        coordinator(service).recover("revoked", kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), null, onResult = { a, b ->
             messages += a to b
-        }
+        })
         assertEquals(1, messages.size)
         assertFalse(messages.single().first)
         assertTrue(messages.single().second.contains("revocado"))
@@ -91,10 +91,10 @@ class AirCatOperationCoordinatorTest {
         coEvery { secure.getServerInfo() } returns Result.failure(IllegalStateException("offline"))
         val results = mutableListOf<Pair<Boolean, String>>()
         val first = CompletableDeferred<Unit>()
-        coordinator(service) { _, _ -> transient }.startTransfer("micro", this, null) { ok, message ->
+        coordinator(service) { _, _ -> transient }.startTransfer("micro", this, null, onResult = { ok, message ->
             results += ok to message
             first.complete(Unit)
-        }
+        })
         withTimeout(5000) { first.await() }
         // Join all child operations before verifying the finally path.
         coroutineContext[kotlinx.coroutines.Job]!!.children.forEach { it.join() }
@@ -131,10 +131,10 @@ class AirCatOperationCoordinatorTest {
         every { moved.pairedClientDeviceId } returns ""
         val results = mutableListOf<Pair<Boolean, String>>()
         val first = CompletableDeferred<Unit>()
-        coordinator(service) { _, _ -> moved }.startTransfer("micro", this, null) { ok, message ->
+        coordinator(service) { _, _ -> moved }.startTransfer("micro", this, null, onResult = { ok, message ->
             results += ok to message
             first.complete(Unit)
-        }
+        })
         withTimeout(5000) { first.await() }
         coroutineContext[kotlinx.coroutines.Job]!!.children.forEach { it.join() }
         assertEquals(1, results.size)

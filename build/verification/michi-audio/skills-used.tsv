@@ -57,3 +57,13 @@ ui8-gradle	gradle-run	LOADED	session:skill-tool:gradle-run:ui8-workflow-e651fe04
 ui8-ui-animation	compose-animations	LOADED	session:skill-tool:compose-animations:ui8-deck-2026-11-18
 ui8-focus	compose-focus-navigation	LOADED	session:skill-tool:compose-focus-navigation:ui8-deck-actions-2026-11-18
 ui8-performance	compose-performance	LOADED	session:skill-tool:compose-performance:ui8-frames-2026-11-18
+# A71 (2026-11-18): to-plan and deliver-spec were invoked after the implementation; that ordering deviation is disclosed in /tmp/opencode/a71/A71_AIRCAT_LINK_IMPLEMENTATION_REPORT.md. No session id was available from this runtime, so these rows name the native skill-tool call and its phase instead of inventing a ses_ value.
+a71-bootstrap	using-chrisbanes-skills	LOADED	session:skill-tool:using-chrisbanes-skills:a71-bootstrap-2026-11-18
+a71-plan	to-plan	LOADED	session:skill-tool:to-plan:a71-post-hoc-2026-11-18
+a71-implement	deliver-spec	LOADED	session:skill-tool:deliver-spec:a71-post-hoc-2026-11-18
+a71-concurrency	kotlin-concurrency-and-flow	LOADED	session:skill-tool:kotlin-concurrency-and-flow:a71-s6-2026-11-18
+a71-api	kotlin-api-design	LOADED	session:skill-tool:kotlin-api-design:a71-s6-2026-11-18
+a71-ui-state	compose-state-and-effects	LOADED	session:skill-tool:compose-state-and-effects:a71-s6-2026-11-18
+a71-ui-component	compose-component-design	LOADED	session:skill-tool:compose-component-design:a71-s6-2026-11-18
+a71-ui-test	compose-ui-testing-patterns	LOADED	session:skill-tool:compose-ui-testing-patterns:a71-s7-2026-11-18
+a71-gradle	gradle-run	LOADED	session:skill-tool:gradle-run:a71-workflow-6539dd50-2026-11-18

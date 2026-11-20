@@ -35,6 +35,7 @@ internal class LinkDeviceRosterProjector(private val registry: PairedDeviceRegis
             unified.add(
                 UnifiedDevice(
                     id = reg.deviceId,
+                    canonicalMichiId = pinnedId.takeIf { it.isNotBlank() },
                     name = dPeer?.alias ?: reg.deviceName,
                     ip = hostFromUrl,
                     port = portFromUrl,
