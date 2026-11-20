@@ -12,8 +12,10 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -21,6 +23,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -131,19 +134,99 @@ class UI8PlaylistModeSelectorTest {
     }
 
     @Test
-    fun theStackedSelectorKeepsBothLabelsAtTheSmallestWidthAndLargestScale() {
+    fun theSelectorSitsInTheHeaderLeftOfTheCreateButton() {
+        render()
+
+        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
+            .fetchSemanticsNode().boundsInRoot
+        val create = compose.onNodeWithContentDescription("Nueva Playlist")
+            .fetchSemanticsNode().boundsInRoot
+        val summary = compose.onNodeWithTag("playlist_catalog_summary")
+            .fetchSemanticsNode().boundsInRoot
+        val root = compose.onRoot().fetchSemanticsNode().size.width
+        val selectorWidthDp = with(compose.density) { selector.width.toDp().value }
+        val rootWidthDp = with(compose.density) { root.toDp().value }
+
+        // Selector and "+" are one group: same band, no overlap, selector first.
+        assertTrue(
+            "the selector is not left of the create button " +
+                "(selector.right=${selector.right} create.left=${create.left})",
+            selector.right <= create.left + 0.5f,
+        )
+        assertTrue(
+            "the selector and the create button overlap vertically or horizontally",
+            selector.left < create.right && selector.top < create.bottom && create.top < selector.bottom,
+        )
+        assertTrue(
+            "the create button leaves the viewport (right=${create.right} viewport=$root)",
+            create.right <= root + 0.5f,
+        )
+        assertTrue(
+            "the selector is not compact: ${selectorWidthDp}dp of ${rootWidthDp}dp",
+            selectorWidthDp < rootWidthDp * 0.55f,
+        )
+        // It belongs to the header: above the summary/sort row, not to its own band under it.
+        assertTrue(
+            "the selector is not in the header band (selector.top=${selector.top} summary.top=${summary.top})",
+            selector.top < summary.top,
+        )
+        println(
+            "SELECTOR-GEOMETRY width=393dp fs=1.0 selector=${selectorWidthDp}dp " +
+                "gap=${with(compose.density) { (create.left - selector.right).toDp().value }}dp",
+        )
+    }
+
+    @Test
+    fun theSelectorStaysWithTheCreateButtonAtTheSmallestWidthAndLargestScale() {
         render(widthDp = 320, fontScale = 2.0f)
 
-        // The rail stacks instead of squeezing the words: both labels are still
-        // whole at 320 dp and 200%, and the choice is still mutually exclusive.
+        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
+            .fetchSemanticsNode().boundsInRoot
+        val create = compose.onNodeWithContentDescription("Nueva Playlist")
+            .fetchSemanticsNode().boundsInRoot
+        val summary = compose.onNodeWithTag("playlist_catalog_summary")
+            .fetchSemanticsNode().boundsInRoot
+        val root = compose.onRoot().fetchSemanticsNode().size.width
+
+        assertTrue(
+            "the selector left the viewport at 320 dp (left=${selector.left})",
+            selector.left >= -0.5f,
+        )
+        assertTrue(
+            "the create button left the viewport at 320 dp (right=${create.right} viewport=$root)",
+            create.right <= root + 0.5f,
+        )
+        assertTrue(
+            "the pair no longer fits its group: selector.right=${selector.right} create.left=${create.left}",
+            selector.right <= create.left + 0.5f,
+        )
+        assertTrue(
+            "the selector left the header band at 320 dp/2.0 " +
+                "(selector.top=${selector.top} summary.top=${summary.top})",
+            selector.top < summary.top,
+        )
         compose.onNodeWithText("Lista").assertIsDisplayed()
         compose.onNodeWithText("Tarjetas").assertIsDisplayed()
-        classic().assertIsSelected()
 
+        // The choice stays mutually exclusive at this size too.
+        classic().assertIsSelected()
         cards().performClick()
         compose.waitForIdle()
-
         cards().assertIsSelected()
         classic().assertIsNotSelected()
+    }
+
+    @Test
+    fun theSelectorDoesNotOwnAFullWidthRow() {
+        render(widthDp = 393, fontScale = 1.0f)
+
+        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
+            .fetchSemanticsNode().size.width
+        val root = compose.onRoot().fetchSemanticsNode().size.width
+        assertTrue(
+            "the selector still takes ${with(compose.density) { selector.toDp().value }}dp " +
+                "of ${with(compose.density) { root.toDp().value }}dp",
+            selector < root * 0.5f,
+        )
     }
 }
