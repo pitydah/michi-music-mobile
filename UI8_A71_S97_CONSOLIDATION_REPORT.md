@@ -3,7 +3,7 @@
 **Repositorio:** `pitydah/michi-music-mobile`
 **Ramas:** `feat/aircat-a71-experience` (PR #22), `feat/ui8-integration-2026-11-18` (PR #23)
 **Fecha:** 2026-11-19
-**Estado:** ambas ramas mergeadas a `master` con CI verde en cada head. `RELEASE = NO-GO` por los bloqueantes externos de §11 (jank físico e interoperabilidad), no por este trabajo.
+**Estado:** ambas ramas mergeadas a `master` con CI verde en cada head. `RELEASE = NO-GO` por el bloqueante externo de §11 (interoperabilidad con un par Michi real) y por el alcance acotado de la medición de rendimiento (§7.4), no por el estado de este trabajo.
 
 ## 1. Línea base
 
@@ -158,11 +158,30 @@ Aun así se aplicó el cambio defensivo `derivedStateOf { dragPx > 0f }`, con un
 - Resultado en emulador (`sdk_gphone64_x86_64`, API 36, SwiftShader): `DECK-FRAMES device=Google/sdk_gphone64_x86_64 api=36`, `refreshHz=60.00`, `frames=187 p50=16ms p95=16ms max=16ms`, `janky=0`.
 - Test nuevo `MichiCardDeckRecompositionTest`: falla si un arrastre continuo recompone más de una vez los cuerpos de tarjeta.
 
-### 7.3 Lo que NO se puede afirmar
+### 7.3 Medición en hardware físico (cierre del bloqueante)
 
-- La evidencia física previa (200 frames, 46 janky, p95 37,98 ms) **no se reprodujo en esta sesión**: `adb devices` sólo lista `emulator-5554` y el teléfono `26dfb91d` no está conectado.
-- El emulador renderiza con **SwiftShader** (software). Sus 16 ms por frame no son evidencia de suavidad en un teléfono.
-- **Jank físico = NOT_CERTIFIED.** No se inventó un umbral para convertir una limitación del entorno en un gate falso.
+Con el teléfono conectado (`26dfb91d`, Xiaomi 25010PN30G, API 36, pantalla de 120 Hz) se corrió el mismo arnés tres veces, sobre el APK `normal` debug compilado desde `master` `e75f5d95`:
+
+| Corrida | Frames | p50 | p95 | max | Janky |
+|---|---|---|---|---|---|
+| 1 | 279 | 8 ms | 8 ms | 33 ms | 1 |
+| 2 | 301 | 8 ms | 8 ms | 24 ms | 1 |
+| 3 | 295 | 8 ms | 8 ms | 16 ms | 1 |
+
+`refreshHz=120.00` en las tres. **p50 y p95 = 8 ms contra un presupuesto de display de 8.33 ms** (120 Hz), con **1 frame janky por corrida** (0.3–0.4%): un único hitch de 16–33 ms en ~300 frames, siempre el primero tras iniciar el arrastre.
+
+El emulador, para comparar, dio 16 ms p50/p95 con `janky=0` (SwiftShader, 60 Hz): por eso el emulador nunca sirvió como evidencia de suavidad y el número de hardware es el que vale.
+
+### 7.4 Alcance exacto de esta certificación
+
+Lo medido es el **costo de gesto, animación y composición del deck con contenido sintético** (tarjetas de color plano; sin decode de imágenes, sin red, sin Coil). Con ese alcance, el jank del deck **deja de estar `NOT_CERTIFIED`**.
+
+Lo que **sigue sin medir** y no se presenta como certificado:
+
+- Arranque en frío y primera composición con artwork real decodificándose.
+- Scroll/arrastre con imágenes grandes y caché de disco fría.
+- Rendimiento en dispositivos de gama baja distintos de este.
+- La evidencia física previa de este informe (200 frames, 46 janky, p95 37,98 ms) provenía de un arnés que ya no existe en el repo y de un escenario no documentado; **no se usa como comparación** porque cambian a la vez el arnés y el escenario.
 
 ## 8. CI
 
@@ -235,7 +254,8 @@ Se separan los porcentajes porque miden cosas distintas y promediarlos ocultarí
 | UI8 — integración (library, playlists, settings, search) | 4 commits, diffs completos | **100%** | PASS |
 | UI8 — Settings dentro del límite arquitectónico | checker en verde | **100%** | PASS |
 | Rendimiento del deck — recomposición | 1 hipótesis medida y descartada; guarda agregada | **100%** del análisis | PASS (sin defecto) |
-| Rendimiento del deck — jank físico | sin teléfono conectado | **0%** | NOT_CERTIFIED |
+| Rendimiento del deck — jank de gesto/animación en hardware | 3 corridas, 279/301/295 frames en 120 Hz | **100%** | PASS (p95 8 ms, 1 janky) |
+| Rendimiento del deck — artwork real y arranque en frío | sin medir | **0%** | NOT_CERTIFIED |
 | Interoperabilidad externa con un par real | no hay par Michi en el entorno | **0%** | BLOCKED_EXTERNAL |
 | Fase D — merge de #22 | ejecutado sobre CI 9/9 | **100%** | MERGED (`ad9a5da9`) |
 | Fase D — merge de #23 | CI combinada 9/9 en attempt 1 | **100%** | MERGED (`e492b6b1`) |
@@ -244,11 +264,11 @@ Se separan los porcentajes porque miden cosas distintas y promediarlos ocultarí
 
 **Bloqueantes y límites declarados:**
 
-1. **Jank físico NOT_CERTIFIED.** Sólo hay emulador con SwiftShader; la evidencia física previa no se pudo reproducir. Requiere conectar el teléfono `26dfb91d` y correr `MichiCardDeckFrameCaptureTest`.
+1. **Jank de gesto/animación del deck: MEDIDO en hardware** (§7.3): p50/p95 8 ms a 120 Hz, 1 janky en ~300 frames, tres corridas consistentes. Queda fuera de alcance, y así se declara, el artwork real y el arranque en frío (§7.4).
 2. **EXTERNAL_INTEROP BLOCKED_EXTERNAL.** No hay un par Michi real; catalogue, review, transfer y result se capturan desde sus composables de producción con estado explícito, no desde una sesión viva.
 3. **Una celda de la matriz visual comparte hash** (`trust` y `trust_confirm` a 360/2.0x) por la tarjeta inline bajo el pliegue, no por un defecto.
 4. **`RELEASE = NO-GO`** por los puntos 1 y 2, que dependen de hardware y de un par externo, no por el estado de este trabajo.
 
 **Fase D, completa:** CI verde en `6623fae5` (9/9, run `44641438284`, attempt 3) → `gh pr ready 22` y **merge commit normal `ad9a5da9`** en `master` → merge de `master` en `feat/ui8-integration-2026-11-18` (**`42eaffa3`**) resolviendo el TSV con ambos bloques → CI combinada de 9 jobs (**run `44650757775`, 9/9 en attempt 1**) → `gh pr ready 23` y **merge commit normal `e492b6b1`**. Sin force push, sin squash, sin reset destructivo, sin stagear `aircat-transfer/build/`.
 
-**Lo que queda para levantar los bloqueantes:** conectar el teléfono `26dfb91d` y correr `MichiCardDeckFrameCaptureTest` para certificar jank físico; levantar un par Michi real (Micro Server o Desktop Player) para mover `EXTERNAL_INTEROP` de `BLOCKED_EXTERNAL` a medido.
+**Lo que queda para levantar los bloqueantes:** levantar un par Michi real (Micro Server o Desktop Player) para mover `EXTERNAL_INTEROP` de `BLOCKED_EXTERNAL` a medido; y, si se quiere certificar rendimiento más allá del gesto, medir arranque en frío y drag con artwork real decodificándose.
