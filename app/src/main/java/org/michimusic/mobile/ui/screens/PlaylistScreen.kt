@@ -43,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import org.michimusic.mobile.ui.theme.UI8VisualSpec
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 
@@ -52,10 +51,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroFilterChip
+import org.michimusic.mobile.ui.components.AeroSegmentRail
+import org.michimusic.mobile.ui.components.AeroSegmentStack
+import org.michimusic.mobile.ui.components.AeroSegmentedChoice
+import org.michimusic.mobile.ui.components.aeroSegmentStacking
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -294,23 +299,51 @@ fun PlaylistScreen(
                 }
             }
             if (playlists.isNotEmpty() && !isLoading) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
-                        .testTag("playlist_catalog_mode_picker"),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AeroFilterChip(
-                        label = "Clásica",
-                        selected = !cardsMode,
-                        onClick = { cardsMode = false; menuPlaylist = null },
-                        testTag = "playlist_mode_classic",
-                    )
-                    AeroFilterChip(
-                        label = "Tarjetas",
-                        selected = cardsMode,
-                        onClick = { cardsMode = true; menuPlaylist = null },
-                        testTag = "playlist_mode_cards",
-                    )
+                // UI8-KILLCRITIC: one rail with two segments. Two independent chips read as
+                // two unrelated filters; the mode is a single mutually exclusive choice.
+                // On narrow screens or at large font scales the same choice stacks instead
+                // of squeezing or ellipsizing its labels.
+                val stacked = aeroSegmentStacking(
+                    availableWidthDp = LocalConfiguration.current.screenWidthDp.toFloat() -
+                        2f * MichiSpacing.screenHorizontal.value,
+                    fontScale = LocalDensity.current.fontScale,
+                )
+                val pickerModifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+                    .testTag("playlist_catalog_mode_picker")
+                if (stacked) {
+                    AeroSegmentStack(modifier = pickerModifier) {
+                        AeroSegmentedChoice(
+                            label = "Lista",
+                            selected = !cardsMode,
+                            onClick = { cardsMode = false; menuPlaylist = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "playlist_mode_classic",
+                        )
+                        AeroSegmentedChoice(
+                            label = "Tarjetas",
+                            selected = cardsMode,
+                            onClick = { cardsMode = true; menuPlaylist = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "playlist_mode_cards",
+                        )
+                    }
+                } else {
+                    AeroSegmentRail(modifier = pickerModifier) {
+                        AeroSegmentedChoice(
+                            label = "Lista",
+                            selected = !cardsMode,
+                            onClick = { cardsMode = false; menuPlaylist = null },
+                            modifier = Modifier.weight(1f),
+                            testTag = "playlist_mode_classic",
+                        )
+                        AeroSegmentedChoice(
+                            label = "Tarjetas",
+                            selected = cardsMode,
+                            onClick = { cardsMode = true; menuPlaylist = null },
+                            modifier = Modifier.weight(1f),
+                            testTag = "playlist_mode_cards",
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -376,10 +409,13 @@ fun PlaylistScreen(
                     PlaylistSwipingDeck(
                         cards = orderedPlaylists,
                         key = { it.id },
-                        modifier = Modifier.fillMaxWidth()
-                            .height(UI8VisualSpec.playlistDeckHeightFor(
-                                androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp))
-                            .padding(horizontal = 12.dp),
+                        // UI8-KILLCRITIC: no fixed height and no horizontal inset of its
+                        // own. The front card owns the geometry, so the deck is exactly as
+                        // wide and as tall as the Lista hero. The bottom space is drawing
+                        // room for the stacked cards, not part of the card.
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 26.dp),
                         maxVisibleCards = minOf(3, orderedPlaylists.size),
                         isSwipeEnabled = orderedPlaylists.size > 1 && menuPlaylist == null,
                         // Swipe cycles; it never plays, deletes or changes the data order.
@@ -389,12 +425,11 @@ fun PlaylistScreen(
                             visual = visualById[playlist.id] ?: PlaylistVisualState(),
                             onOpen = { onNavigateToPlaylist(playlist.id) },
                             actions = { playlistActions(playlist) },
-                            deck = true,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     Text(
-                        text = "Toca una tarjeta para abrirla. Usa Clásica para ver todas en lista.",
+                        text = "Toca una tarjeta para abrirla. Usa Lista para ver todas en lista.",
                         style = MichiTypography.metadata,
                         color = TextSecondary,
                     )

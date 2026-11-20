@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -52,15 +53,14 @@ class UI8DeckFrameMetricsTest {
                     PlaylistSwipingDeck(
                         cards = cards,
                         key = { it.id },
-                        modifier = Modifier.fillMaxSize().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                     ) { item ->
                         PlaylistCatalogSpotlight(
                             playlist = item,
                             visual = PlaylistVisualState(),
                             onOpen = {},
                             actions = {},
-                            modifier = Modifier.fillMaxSize(),
-                            deck = true,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }

@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -39,8 +40,7 @@ class UI8PlaylistDeckComposeTest {
                     visual = PlaylistVisualState(),
                     onOpen = { opens++ },
                     actions = {},
-                    deck = true,
-                    modifier = Modifier.size(320.dp, 278.dp),
+                    modifier = Modifier.width(320.dp),
                 )
             }
         }
@@ -71,6 +71,53 @@ class UI8PlaylistDeckComposeTest {
             .performCustomAccessibilityActionWithLabel("Playlist anterior")
         compose.waitForIdle()
         compose.onNodeWithTag("deck_card_p1").assertExists()
+    }
+
+    @Test fun aFullForwardCycleReturnsToTheFirstCardInOrder() {
+        val playlists = listOf("p1", "p2", "p3", "p4")
+        compose.setContent {
+            AeroTheme {
+                PlaylistSwipingDeck(
+                    cards = playlists,
+                    key = { it },
+                    maxVisibleCards = 3,
+                    modifier = Modifier.size(320.dp, 278.dp),
+                ) { id -> Box(Modifier.testTag("deck_card_$id")) }
+            }
+        }
+        // UI8-KILLCRITIC: one advance per card, in the same order the list shows, and
+        // back to the first after the last — a rotation, not a reordering.
+        val expected = listOf("p2", "p3", "p4", "p1")
+        expected.forEach { next ->
+            compose.onNodeWithTag("playlist_swiping_front")
+                .performCustomAccessibilityActionWithLabel("Siguiente playlist")
+            compose.waitForIdle()
+            compose.onNodeWithTag("deck_card_$next").assertExists()
+            playlists.filter { it != next }.forEach {
+                compose.onNodeWithTag("deck_card_$it").let { node ->
+                    // The cards behind are decorative; only the front carries semantics.
+                    node.assertDoesNotExist()
+                }
+            }
+        }
+    }
+
+    @Test fun goingBackwardWalksTheSameCycleInReverse() {
+        compose.setContent {
+            AeroTheme {
+                PlaylistSwipingDeck(
+                    cards = listOf("p1", "p2", "p3"),
+                    key = { it },
+                    modifier = Modifier.size(320.dp, 278.dp),
+                ) { id -> Box(Modifier.testTag("deck_card_$id")) }
+            }
+        }
+        listOf("p3", "p2", "p1").forEach { next ->
+            compose.onNodeWithTag("playlist_swiping_front")
+                .performCustomAccessibilityActionWithLabel("Playlist anterior")
+            compose.waitForIdle()
+            compose.onNodeWithTag("deck_card_$next").assertExists()
+        }
     }
 
     @Test fun disabledDeckExposesNoSwipeActionAndKeepsFront() {

@@ -14,19 +14,21 @@ internal object UI8VisualSpec {
     // Overlay and image geometry
     val popupCorner = 18.dp
     val playlistHeroCorner = 20.dp
-    val captionCorner = 12.dp
     val disclosureCorner = 10.dp
     val screenSideInset = 20.dp
     val minTouchTarget = 48.dp
-    val playlistDeckHeight = 278.dp
-    val playlistDeckMinHeight = 210.dp
+    // UI8-KILLCRITIC: the deck has no height policy of its own. A screen-derived
+    // height was what made the Tarjetas card taller than the Lista hero; the card
+    // now measures itself and the deck simply wraps it.
 
-    /** Proportionate to the screen; small devices may scroll the surrounding panel. */
-    fun playlistDeckHeightFor(screenHeightDp: Int) =
-        (screenHeightDp.coerceAtLeast(1) * 0.40f).dp.coerceIn(playlistDeckMinHeight, playlistDeckHeight)
-
-    // Only behind the caption; NEVER over the entire playlist banner.
-    const val captionMatteAlpha = 0.72f
+    // UI8-KILLCRITIC: the caption no longer sits on a black plate. This is the peak
+    // opacity of the radial scrim that fades out behind the words; it must stay high
+    // enough that a white title keeps AA contrast over a white banner, and low enough
+    // that no rectangular edge is visible.
+    // Measured: at 0.78 the median luma behind the letters over a near-white banner
+    // was 0.290, i.e. 3.09:1 with white text, below AA. 0.86 keeps the letters at or
+    // above 4.5:1 while the radial edge still fades to transparent.
+    const val captionScrimAlpha = 0.86f
 
     // Short finite transitions; reduced-motion alternatives stay unanimated.
     const val disclosureExpandMillis = 180
