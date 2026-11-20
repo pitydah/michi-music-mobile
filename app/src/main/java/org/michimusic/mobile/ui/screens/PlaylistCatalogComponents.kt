@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -44,12 +42,10 @@ import org.michimusic.mobile.ui.components.PlaylistCoverMosaic
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
-import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.UI8VisualSpec
-import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
  * A one-pixel-offset shadow under the caption letters. It is what keeps the words
@@ -163,11 +159,12 @@ internal fun PlaylistCatalogSpotlight(
                 )
                 Column(
                     modifier = Modifier.weight(1f)
-                        // UI8-KILLCRITIC: the caption used to sit on a 72% black plate, which
-                        // read as a second card inside the hero. The words now stand on a
-                        // soft radial scrim that fades out in every direction (no straight
-                        // edge anywhere) plus a typographic shadow, so the banner stays
-                        // visible up to the letters instead of being covered by a rectangle.
+                        // UI8-KILLCRITIC: the 72% plate is gone; the words sit on a soft
+                        // radial scrim plus a typographic shadow. Two edge-free variants
+                        // were measured and rejected: an elliptical scrim (1.48:1 at the
+                        // letters over a near-white banner) and a bottom-anchored gradient
+                        // (2.94:1 at 320 dp/2.0x, where the caption spans 33%-74% of the
+                        // card). WCAG AA for the words wins over the softer edge.
                         .drawBehind {
                             drawRect(
                                 brush = Brush.radialGradient(
@@ -176,9 +173,6 @@ internal fun PlaylistCatalogSpotlight(
                                         0.6f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.92f),
                                         1f to Color.Transparent,
                                     ),
-                                    // Wider than the caption itself so the letters never sit
-                                    // on the falling edge of the gradient, while the last stop
-                                    // still reaches full transparency.
                                     center = Offset(size.width * 0.42f, size.height * 0.5f),
                                     radius = size.maxDimension * 1.05f,
                                 ),
@@ -217,70 +211,6 @@ internal fun PlaylistCatalogSpotlight(
                 }
             }
         }
-    }
-}
-
-/** Light secondary collection row: identity and actions, never a full card. */
-@Composable
-internal fun PlaylistCatalogRow(
-    playlist: PlaylistItem,
-    visual: PlaylistVisualState,
-    onOpen: () -> Unit,
-    actions: @Composable RowScope.() -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 80.dp)
-                .clickable(onClick = onOpen)
-                .padding(vertical = 10.dp)
-                .testTag("playlist_item_${playlist.id}"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            PlaylistCover(
-                playlist = playlist,
-                visual = visual,
-                size = 54.dp,
-                corner = 10.dp,
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    text = playlist.name,
-                    color = PureWhite,
-                    fontSize = 16.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (visual.pinned) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(PrimaryPinkContainer),
-                        )
-                    }
-                    Text(
-                        text = trackCountLabel(playlist.trackCount),
-                        color = TextSecondary,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
-            actions()
-        }
-        HorizontalDivider(thickness = 0.75.dp, color = AeroHairline)
     }
 }
 

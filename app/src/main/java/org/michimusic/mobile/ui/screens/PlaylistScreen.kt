@@ -7,6 +7,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -51,16 +54,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroFilterChip
 import org.michimusic.mobile.ui.components.AeroSegmentRail
-import org.michimusic.mobile.ui.components.AeroSegmentStack
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
-import org.michimusic.mobile.ui.components.aeroSegmentStacking
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -83,6 +82,7 @@ import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlaylistScreen(
     onNavigateToPlaylist: (String) -> Unit = {},
@@ -220,11 +220,16 @@ fun PlaylistScreen(
         ) {
             Spacer(Modifier.height(16.dp))
 
-            // Header
-            Row(
+            // UI8-KILLCRITIC (post-merge): the mode selector belongs to the header, next to
+            // the create button — never on a full-width row of its own. FlowRow keeps the
+            // pair together: they sit to the right of the title when they fit, and the whole
+            // group drops to a second line when they do not. The title is never truncated and
+            // the selector is never separated from "+".
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
                     Text(
@@ -240,15 +245,33 @@ fun PlaylistScreen(
                     )
                 }
 
-                // Add Playlist Button
-                MichiIconAction(
-                    icon = Icons.Default.Add,
-                    contentDescription = "Nueva Playlist",
-                    onClick = { showCreateDialog = true },
-                    tint = PureWhite,
-                    iconSize = 24.dp,
-                    minTargetSize = MichiSpacing.minTouchTarget,
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(
+                        10.dp,
+                        Alignment.End,
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (playlists.isNotEmpty() && !isLoading) {
+                        PlaylistModeSelector(
+                            cardsMode = cardsMode,
+                            onModeChange = { cards ->
+                                cardsMode = cards
+                                menuPlaylist = null
+                            },
+                        )
+                    }
+                    // Add Playlist Button
+                    MichiIconAction(
+                        icon = Icons.Default.Add,
+                        contentDescription = "Nueva Playlist",
+                        onClick = { showCreateDialog = true },
+                        tint = PureWhite,
+                        iconSize = 24.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
+                }
             }
 
             if (playlists.isNotEmpty() && !isLoading) {
@@ -295,54 +318,6 @@ fun PlaylistScreen(
                                 modifier = Modifier.testTag("playlist_sort_tracks"),
                             )
                         }
-                    }
-                }
-            }
-            if (playlists.isNotEmpty() && !isLoading) {
-                // UI8-KILLCRITIC: one rail with two segments. Two independent chips read as
-                // two unrelated filters; the mode is a single mutually exclusive choice.
-                // On narrow screens or at large font scales the same choice stacks instead
-                // of squeezing or ellipsizing its labels.
-                val stacked = aeroSegmentStacking(
-                    availableWidthDp = LocalConfiguration.current.screenWidthDp.toFloat() -
-                        2f * MichiSpacing.screenHorizontal.value,
-                    fontScale = LocalDensity.current.fontScale,
-                )
-                val pickerModifier = Modifier.fillMaxWidth().padding(top = 10.dp)
-                    .testTag("playlist_catalog_mode_picker")
-                if (stacked) {
-                    AeroSegmentStack(modifier = pickerModifier) {
-                        AeroSegmentedChoice(
-                            label = "Lista",
-                            selected = !cardsMode,
-                            onClick = { cardsMode = false; menuPlaylist = null },
-                            modifier = Modifier.fillMaxWidth(),
-                            testTag = "playlist_mode_classic",
-                        )
-                        AeroSegmentedChoice(
-                            label = "Tarjetas",
-                            selected = cardsMode,
-                            onClick = { cardsMode = true; menuPlaylist = null },
-                            modifier = Modifier.fillMaxWidth(),
-                            testTag = "playlist_mode_cards",
-                        )
-                    }
-                } else {
-                    AeroSegmentRail(modifier = pickerModifier) {
-                        AeroSegmentedChoice(
-                            label = "Lista",
-                            selected = !cardsMode,
-                            onClick = { cardsMode = false; menuPlaylist = null },
-                            modifier = Modifier.weight(1f),
-                            testTag = "playlist_mode_classic",
-                        )
-                        AeroSegmentedChoice(
-                            label = "Tarjetas",
-                            selected = cardsMode,
-                            onClick = { cardsMode = true; menuPlaylist = null },
-                            modifier = Modifier.weight(1f),
-                            testTag = "playlist_mode_cards",
-                        )
                     }
                 }
             }
@@ -435,39 +410,26 @@ fun PlaylistScreen(
                     )
                 }
             } else {
-                val spotlight = orderedPlaylists.first()
-                val others = orderedPlaylists.drop(1)
+                // UI8-KILLCRITIC (post-merge): Lista is the same card as the front of the
+                // deck, repeated for every playlist. A first hero plus compact rows made the
+                // same playlist change shape just by being second, so position no longer
+                // selects a different design: one measured component, one geometry.
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().testTag("playlist_catalog_list"),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    item(key = "spotlight_${spotlight.id}", contentType = "spotlight") {
+                    items(
+                        items = orderedPlaylists,
+                        key = { it.id },
+                        contentType = { "playlist_spotlight" },
+                    ) { playlist ->
                         PlaylistCatalogSpotlight(
-                            playlist = spotlight,
-                            visual = visualById[spotlight.id] ?: PlaylistVisualState(),
-                            onOpen = { onNavigateToPlaylist(spotlight.id) },
-                            actions = { playlistActions(spotlight) },
+                            playlist = playlist,
+                            visual = visualById[playlist.id] ?: PlaylistVisualState(),
+                            onOpen = { onNavigateToPlaylist(playlist.id) },
+                            actions = { playlistActions(playlist) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                    if (others.isNotEmpty()) {
-                        item(key = "others_header", contentType = "header") {
-                            Text(
-                                text = "Otras playlists",
-                                color = PureWhite,
-                                fontSize = 18.sp,
-                                lineHeight = 22.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(top = 22.dp, bottom = 4.dp),
-                            )
-                        }
-                        items(others, key = { "row_${it.id}" }, contentType = { "row" }) { playlist ->
-                            PlaylistCatalogRow(
-                                playlist = playlist,
-                                visual = visualById[playlist.id] ?: PlaylistVisualState(),
-                                onOpen = { onNavigateToPlaylist(playlist.id) },
-                                actions = { playlistActions(playlist) },
-                            )
-                        }
                     }
                     item(key = "catalog_bottom") {
                         Spacer(Modifier.height(24.dp))
@@ -515,5 +477,45 @@ fun PlaylistScreen(
                 onDismiss = { showCreateDialog = false },
             )
         }
+    }
+}
+
+/**
+ * UI8-KILLCRITIC: the Lista / Tarjetas choice as a compact control for the header.
+ *
+ * It is the same Aero rail and the same `AeroSegmentedChoice` items — only the outer
+ * fill is dropped, so the rail measures its own two labels instead of taking the whole
+ * width. The two tags and the mutually exclusive semantics are unchanged, so nothing
+ * that already drives this screen has to learn a new contract.
+ */
+@Composable
+private fun PlaylistModeSelector(
+    cardsMode: Boolean,
+    onModeChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AeroSegmentRail(
+        // IntrinsicSize.Max is what actually bounds the rail: the labels decide the width,
+        // both segments then split it equally, and no segment can be squeezed by a sibling.
+        modifier = modifier.width(IntrinsicSize.Max).testTag("playlist_catalog_mode_picker"),
+        compact = true,
+        fillWidth = false,
+    ) {
+        AeroSegmentedChoice(
+            label = "Lista",
+            selected = !cardsMode,
+            onClick = { onModeChange(false) },
+            modifier = Modifier.weight(1f),
+            compact = true,
+            testTag = "playlist_mode_classic",
+        )
+        AeroSegmentedChoice(
+            label = "Tarjetas",
+            selected = cardsMode,
+            onClick = { onModeChange(true) },
+            modifier = Modifier.weight(1f),
+            compact = true,
+            testTag = "playlist_mode_cards",
+        )
     }
 }
