@@ -26,6 +26,8 @@ import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkClient
+import org.michimusic.mobile.devices.aircat.experience.AirCatExperienceEngine
+import org.michimusic.mobile.devices.aircat.experience.AirCatOperationEngine
 import org.michimusic.link.LinkDiscovery
 
 
@@ -1225,6 +1227,87 @@ class SyncViewModel(
     fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         airCatOperations.startTransfer(targetDeviceId, viewModelScope, currentClient, onResult)
     }
+
+    /**
+     * A71: the experience screen talks to the same coordinator and the same
+     * engine that already enforce Home, the lease and the receipts. It borrows
+     * no authority of its own.
+     */
+    private val retainedAirCatExperienceEngine: AirCatExperienceEngine by lazy {
+        AirCatOperationEngine(airCatOperations, airCatClient) { currentClient }
+    }
+
+    internal fun airCatExperienceEngine(): AirCatExperienceEngine =
+        retainedAirCatExperienceEngine
+
+    /** A71-S9.6: do not throw away the operation identity when the overlay unmounts. */
+    private val airCatExperienceSources = MutableStateFlow(
+        emptyList<org.michimusic.mobile.devices.aircat.experience.AirCatSourceUi>()
+    )
+    private val retainedAirCatExperienceController by lazy {
+        org.michimusic.mobile.devices.aircat.experience.AirCatExperienceController(
+            scope = viewModelScope,
+            engine = retainedAirCatExperienceEngine,
+            operationScope = viewModelScope,
+            sources = { airCatExperienceSources.value },
+            currentClient = { currentClient },
+            freeBytes = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    android.os.StatFs(context.filesDir.absolutePath).availableBytes.also {
+                        require(it >= 0L) { "No se pudo comprobar el almacenamiento" }
+                    }
+                }
+            },
+            checkpointEvidence = { sourceId, transferId ->
+                airCatFileEvidence(sourceId, transferId)
+            },
+        )
+    }
+
+    internal fun airCatExperienceController() = retainedAirCatExperienceController
+
+    internal fun updateAirCatExperienceSources(
+        sources: List<org.michimusic.mobile.devices.aircat.experience.AirCatSourceUi>,
+    ) {
+        airCatExperienceSources.value = sources
+        retainedAirCatExperienceController.dispatch(
+            org.michimusic.mobile.devices.aircat.experience.AirCatIntent.RefreshSources
+        )
+    }
+
+    /** Bounded durable reads; neither operation requests a new grant or scans LAN. */
+    internal suspend fun airCatFileEvidence(
+        sourceId: String, transferId: String,
+    ): List<org.michimusic.mobile.devices.aircat.experience.AirCatFileEvidenceUi> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // A null repository must not look like an empty receipt. Prefer the
+            // effective Koin binding and fail loudly when none is available.
+            val repository = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
+                ?: error("Checkpoint repository unavailable")
+            val rows = repository.getCheckpointsForDevice(sourceId)
+            org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
+                .fileEvidence(sourceId, transferId, rows)
+        }
+
+    internal suspend fun airCatRecoverableSources(
+        sourceIds: Set<String>,
+    ): List<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // A missing repository is an unavailable store, not "no checkpoints".
+            val repository = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
+                ?: error("Checkpoint repository unavailable")
+            val candidates = mutableListOf<org.michimusic.mobile.devices.aircat.experience.AirCatRecoveryUi>()
+            for (id in sourceIds.filter { it.isNotBlank() }.take(64)) {
+                val rows = repository.getCheckpointsForDevice(id)
+                candidates += org.michimusic.mobile.devices.aircat.experience.AirCatCheckpointTruth
+                    .recoveries(id, rows)
+            }
+            candidates.sortedByDescending { it.latestCheckpointAt }.take(40)
+        }
+
+    /** Outlives an overlay; not an Android-process-death execution guarantee. */
+    internal fun airCatExperienceOperationScope(): kotlinx.coroutines.CoroutineScope = viewModelScope
+
 
 
     fun pairWithQr(qrData: String, pin: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
