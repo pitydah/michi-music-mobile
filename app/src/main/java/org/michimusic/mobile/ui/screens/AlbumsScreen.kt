@@ -1322,6 +1322,7 @@ fun AlbumsScreen(
                                                     isPlaying = isPlaying,
                                                     scopeKey = current.scopeKey,
                                                     scopeGeneration = current.generation,
+                                                    editorScopeGeneration = rootAuthority.revision.value,
                                                     captureIntelligenceTicket = {
                                                         sessionManager.intelligenceQueueTicket()
                                                     },

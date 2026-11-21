@@ -107,19 +107,22 @@ class MetadataEditorColdReadPolicyTest {
             report = null,
         )
         assertEquals(MetadataEditorColdRead.Unavailable(
-            ExtendedTagUnavailableReason.PERMISSION_DENIED, indexed), result)
+            ExtendedTagUnavailableReason.PERMISSION_DENIED, indexed,
+            MetadataReadPhase.COLD_TAG_READ), result)
     }
 
     @Test
     fun `provider failure is distinguished from an unsupported container`() {
         assertEquals(
             MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed),
+                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed,
+                MetadataReadPhase.COLD_TAG_READ),
             classify(EmbeddedTagReadResult.ReadFailed, report = null),
         )
         assertEquals(
             MetadataEditorColdRead.IndexedOnly(
-                indexed, ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED),
+                indexed, ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED,
+                MetadataReadPhase.COLD_TAG_READ),
             classify(EmbeddedTagReadResult.Unverifiable, report = null),
         )
     }
@@ -135,7 +138,8 @@ class MetadataEditorColdReadPolicyTest {
         )
         assertEquals(
             MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ, indexed),
+                ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ, indexed,
+                MetadataReadPhase.QUERY_STAMP_AFTER),
             result,
         )
     }
@@ -144,12 +148,14 @@ class MetadataEditorColdReadPolicyTest {
     fun `size mismatch and missing modification time are refused before parsing`() {
         assertEquals(
             MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed),
+                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE),
             classify(EmbeddedTagReadResult.Parsed(physical), report(), expectedSize = 2_048),
         )
         assertEquals(
             MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed),
+                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE),
             MetadataEditorColdReadPolicy.classify(
                 expectedSize = 1_024,
                 before = before.copy(modifiedAt = 0),

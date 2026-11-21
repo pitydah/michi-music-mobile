@@ -46,6 +46,12 @@ enum class ExtendedTagUnavailableReason {
 
     /** ME-11S: the document stamp changed between the two reads of one cold read. */
     DOCUMENT_CHANGED_DURING_READ,
+
+    /** ME-11W: the launch request and the canonical track resolved to different documents. */
+    SOURCE_IDENTITY_MISMATCH,
+
+    /** ME-11W: the music root revision changed between launch and destination entry. */
+    LIBRARY_SCOPE_CHANGED,
 }
 
 sealed interface ExtendedTagEvidenceResult {
@@ -205,16 +211,20 @@ class ExtendedTrackMetadataRepository(
         }
         if (!filepath.startsWith("content://"))
             return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.NOT_CONTENT_URI, indexed)
+                ExtendedTagUnavailableReason.NOT_CONTENT_URI, indexed,
+                MetadataReadPhase.URI_CLASSIFICATION)
         if (trackId.isBlank())
             return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.INVALID_TRACK_ID, indexed)
+                ExtendedTagUnavailableReason.INVALID_TRACK_ID, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
         if (expectedSize <= 0)
             return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.INVALID_SIZE, indexed)
+                ExtendedTagUnavailableReason.INVALID_SIZE, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
         val ctx = context
             ?: return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed)
+                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
         val uri = Uri.parse(filepath)
         val sizeCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.SIZE
             else DocumentsContract.Document.COLUMN_SIZE
@@ -236,19 +246,21 @@ class ExtendedTrackMetadataRepository(
             else -> ExtendedTagUnavailableReason.MISSING_STAMP
         }
         val before = stamp() ?: return@withContext MetadataEditorColdRead.Unavailable(
-            stampFailure(), indexed)
+            stampFailure(), indexed, MetadataReadPhase.QUERY_STAMP_BEFORE)
         if (before.size != expectedSize)
             return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed)
+                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
         if (before.modifiedAt <= 0)
             return@withContext MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed)
+                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
         // The physical read happens regardless of Room state. A revoked permission,
         // a failed provider or an unsupported container degrades the result; it does
         // not fabricate empty tags or promote cached display values.
         val read = UriEmbeddedTags.readEditorDetailed(ctx, uri)
         val after = stamp() ?: return@withContext MetadataEditorColdRead.Unavailable(
-            stampFailure(), indexed)
+            stampFailure(), indexed, MetadataReadPhase.QUERY_STAMP_AFTER)
         MetadataEditorColdReadPolicy.classify(
             expectedSize = expectedSize,
             before = before,

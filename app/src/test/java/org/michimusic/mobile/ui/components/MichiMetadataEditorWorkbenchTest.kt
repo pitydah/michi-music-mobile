@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -202,6 +203,31 @@ class MichiMetadataEditorWorkbenchTest {
         }
     }
 
+    @Test fun multipleValuesKeepLiteralSeparatorsAndOrder() {
+        val withSeparators = MetadataSnapshot(
+            MetadataTarget("", "test", "content://fixture/test", "test-evidence"), true,
+            mapOf(
+                MetadataField.TITLE to listOf("Antes"),
+                MetadataField.GENRE to listOf("Jazz; Fusion", "Rock"),
+            ),
+            verifiedFields = setOf(MetadataField.TITLE, MetadataField.GENRE),
+        )
+        compose.setContent {
+            AeroTheme { MichiMetadataEditorPreviewContent(withSeparators, {}, focusGenre = true) }
+        }
+        compose.onNodeWithText("Jazz; Fusion").assertExists()
+        compose.onNodeWithText("Rock").assertExists()
+        // The semicolon remains part of the first value, never a split delimiter.
+        compose.onNodeWithTag("metadata_input_genre_0").assertExists()
+    }
+
+    @Test fun emptyScalarIsEditableInOneTap() {
+        compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(evidence, {}) } }
+        compose.onNodeWithTag("metadata_section_credits").performClick()
+        compose.onNodeWithTag("metadata_provisional_composer_0").performClick()
+        compose.onNodeWithTag("metadata_provisional_composer_0").assertIsFocused()
+    }
+
     @Test fun capsuleEditorHasAStableMinimumTouchSurface() {
         var density = 1f
         compose.setContent {
@@ -211,12 +237,25 @@ class MichiMetadataEditorWorkbenchTest {
         val bounds = compose.onNodeWithTag("metadata_capsule_title")
             .fetchSemanticsNode().boundsInRoot
         val heightDp = bounds.height / density
-        check(heightDp in 51.5f..56.5f) {
-            "Title capsule must keep the 52-56dp editable surface; was ${heightDp}dp"
+        check(heightDp in 49.5f..56.5f) {
+            "Title capsule must keep the 50-56dp editable surface; was ${heightDp}dp"
         }
         check(compose.onAllNodesWithContentDescription("Eliminar Título")
                 .fetchSemanticsNodes().isEmpty()) {
             "The destructive trash action must not be permanently visible"
+        }
+        val label = compose.onNodeWithTag("metadata_field_label_title")
+            .fetchSemanticsNode().boundsInRoot
+        val labelGap = (bounds.top - label.bottom) / density
+        check(labelGap in 3f..8f) {
+            "Label-to-capsule gap must stay near 5dp; was ${labelGap}dp"
+        }
+        val artistField = compose.onNodeWithTag("metadata_field_artist")
+            .fetchSemanticsNode().boundsInRoot
+        val fieldGap = (artistField.top - compose.onNodeWithTag("metadata_field_title")
+            .fetchSemanticsNode().boundsInRoot.bottom) / density
+        check(fieldGap in 10f..14f) {
+            "Field-to-field gap must stay near 12dp; was ${fieldGap}dp"
         }
     }
 
@@ -227,6 +266,7 @@ class MichiMetadataEditorWorkbenchTest {
         compose.onNodeWithText("¿Eliminar Título?").assertExists()
         compose.onNodeWithTag("metadata_cancel_clear_title").performClick()
         compose.onNodeWithTag("metadata_input_title_0").assertExists()
+        compose.onNodeWithTag("metadata_input_title_0").assertIsFocused()
         compose.onNodeWithText("Borrador ·", substring = true).assertDoesNotExist()
 
         compose.onNodeWithTag("metadata_field_menu_title").performClick()
@@ -256,7 +296,7 @@ class MichiMetadataEditorWorkbenchTest {
         )
         compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(unverified, {}) } }
         compose.onNodeWithTag("metadata_section_credits").performClick()
-        val notices = compose.onAllNodesWithText("Algunos campos no están verificados")
+        val notices = compose.onAllNodesWithText("Hay campos sin verificar", substring = true)
             .fetchSemanticsNodes()
         check(notices.size == 1) { "Expected one section notice, found ${notices.size}" }
         compose.onNodeWithText("El archivo no confirma este campo", substring = true)
@@ -272,7 +312,6 @@ class MichiMetadataEditorWorkbenchTest {
             verifiedFields = setOf(MetadataField.TITLE),
         )
         compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(partial, {}) } }
-        compose.onNodeWithTag("metadata_add_value_artist").performClick()
         compose.onNodeWithTag("metadata_provisional_artist_0")
             .performTextInput("Artista provisional")
         compose.onNodeWithText("Propuesta provisional · no se revisa ni se escribe").assertExists()

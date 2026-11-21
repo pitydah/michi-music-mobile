@@ -17,14 +17,16 @@ enum class MetadataEditorOrigin {
 /**
  * ME-11S: typed, temporary launch request for the ONE metadata editor destination.
  *
- * The request deliberately carries identities, never a full URI or a Track payload:
- * the destination re-resolves the track, provider, permissions and scope on entry.
- * A process death clears the pending request, so the destination fails closed with
- * a safe message instead of resurrecting a stale document.
+ * The request carries the full canonical identity needed to revalidate the exact
+ * document (owner id, media id, URI and expected size). It lives only in process
+ * memory, never in a navigation route or serialized state. The destination still
+ * re-resolves the provider, permissions and scope on entry.
  */
 data class MetadataEditorLaunchRequest(
     val sourceId: String,
     val trackId: String,
+    val trackUri: String = "",
+    val expectedSize: Long = 0L,
     val scopeGeneration: Long = 0L,
     val origin: MetadataEditorOrigin,
     val initialSection: MetadataEditorSection = MetadataEditorSection.BASICS,

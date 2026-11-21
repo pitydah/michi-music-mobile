@@ -87,6 +87,12 @@ import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /** A library drill-down, not a second playback/navigation authority. */
+/**
+ * The editor validates MusicRootAuthority.revision, not the genre-index generation.
+ * Keep these identities separate; conflating them rejected a valid Genre launch.
+ */
+internal fun genreEditorScopeGeneration(rootRevision: Long): Long = rootRevision
+
 @Composable
 fun GenreLibraryPanel(
     genres: List<LibraryGenre>,
@@ -97,6 +103,12 @@ fun GenreLibraryPanel(
     globallyBlockedTrackIds: Set<String> = emptySet(),
     scopeKey: String = "",
     scopeGeneration: Long = 0L,
+    /**
+     * MusicRootAuthority revision, distinct from the genre-index generation above.
+     * The editor validates this value; reusing the genre generation falsely rejects
+     * the launch as a stale library scope.
+     */
+    editorScopeGeneration: Long = 0L,
     canPlayLocally: () -> Boolean = { true },
     captureIntelligenceTicket: () -> org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket? = { null },
     playIntelligenceQueue: (List<Track>, Int,
@@ -402,7 +414,9 @@ fun GenreLibraryPanel(
                 org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
                     sourceId = track.sourceId,
                     trackId = track.id,
-                    scopeGeneration = scopeGeneration,
+                    trackUri = track.filepath,
+                    expectedSize = track.size,
+                    scopeGeneration = genreEditorScopeGeneration(editorScopeGeneration),
                     origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.GENRE_LIBRARY,
                     focusGenre = true,
                 )

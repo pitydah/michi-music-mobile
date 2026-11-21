@@ -218,11 +218,12 @@ internal fun MetadataFieldShell(
     modifier: Modifier = Modifier,
     statusDetail: String? = null,
     hasActions: Boolean = false,
+    showStatusText: Boolean = false,
     actions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
-    val shape = RoundedCornerShape(13.dp)
+    val shape = RoundedCornerShape(MetadataFormTokens.inputRadius)
     val fill = if (highContrast) MaterialTheme.colorScheme.surfaceContainerHigh else AeroGraphite
     val neutralBorder = if (highContrast) MaterialTheme.colorScheme.outline
     else Color.White.copy(alpha = 0.10f)
@@ -235,7 +236,8 @@ internal fun MetadataFieldShell(
     val borderWidth = if (focused || errorText != null) 1.5.dp else 1.dp
     Column(modifier.fillMaxWidth().testTag("metadata_field_${field.name.lowercase()}")) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp).heightIn(min = 24.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp).heightIn(min = 24.dp)
+                .testTag("metadata_field_label_${field.name.lowercase()}"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -257,7 +259,7 @@ internal fun MetadataFieldShell(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (statusLabel != "Verificado" &&
+            if (showStatusText && statusLabel != "Verificado" &&
                 LocalDensity.current.fontScale <= 1.3f) {
                 Text(
                     statusLabel,
@@ -275,14 +277,17 @@ internal fun MetadataFieldShell(
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(MetadataFormTokens.labelGap))
         Column(
             Modifier.fillMaxWidth()
-                .heightIn(min = 52.dp)
+                .heightIn(min = MetadataFormTokens.inputMinHeight)
                 .background(fill, shape)
                 .border(borderWidth, borderColor, shape)
                 .testTag("metadata_capsule_${field.name.lowercase()}")
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(
+                    horizontal = MetadataFormTokens.inputHPad,
+                    vertical = 4.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             Column(Modifier.fillMaxWidth()

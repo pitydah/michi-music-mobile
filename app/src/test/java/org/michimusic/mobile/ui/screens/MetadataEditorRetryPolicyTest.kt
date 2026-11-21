@@ -13,6 +13,8 @@ class MetadataEditorRetryPolicyTest {
         assertNull(readRetryLabel(ExtendedTagUnavailableReason.NOT_CONTENT_URI))
         assertNull(readRetryLabel(ExtendedTagUnavailableReason.INVALID_TRACK_ID))
         assertNull(readRetryLabel(ExtendedTagUnavailableReason.INVALID_SIZE))
+        assertNull(readRetryLabel(ExtendedTagUnavailableReason.SOURCE_IDENTITY_MISMATCH))
+        assertNull(readRetryLabel(ExtendedTagUnavailableReason.LIBRARY_SCOPE_CHANGED))
     }
 
     @Test

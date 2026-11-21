@@ -71,6 +71,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataBlockReason
@@ -382,7 +383,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 LazyColumn(
                     state = fieldsState,
                     modifier = Modifier.fillMaxSize().testTag("metadata_fields_list"),
-                    verticalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(MetadataFormTokens.fieldGap),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         bottom = MichiSpacing.xxl),
                 ) {
@@ -465,7 +466,7 @@ internal fun MichiMetadataEditorPreviewContent(
                                 Text(
                                     if (LocalDensity.current.fontScale > 1.3f)
                                         "Campos sin verificar"
-                                    else "Algunos campos no están verificados",
+                                    else "Hay campos sin verificar · Ver detalles",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary,
                                     maxLines = 2,
@@ -550,7 +551,7 @@ internal fun MichiMetadataEditorPreviewContent(
                         if (wide) {
                             item(key = "field_album_pair") {
                                 Row(Modifier.padding(horizontal = MichiSpacing.xl),
-                                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.lg)) {
+                                    horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
                                     Box(Modifier.weight(1f)) { renderField(MetadataField.ALBUM, false) }
                                     Box(Modifier.weight(1f)) {
                                         renderField(MetadataField.ALBUM_ARTIST, false)
@@ -572,7 +573,7 @@ internal fun MichiMetadataEditorPreviewContent(
                         if (twoColumns) {
                             item(key = "field_track_pair") {
                                 Row(Modifier.padding(horizontal = MichiSpacing.xl),
-                                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.lg)) {
+                                    horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
                                     Box(Modifier.weight(1f)) {
                                         renderField(MetadataField.TRACK_NUMBER, false)
                                     }
@@ -583,7 +584,7 @@ internal fun MichiMetadataEditorPreviewContent(
                             }
                             item(key = "field_disc_pair") {
                                 Row(Modifier.padding(horizontal = MichiSpacing.xl),
-                                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.lg)) {
+                                    horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
                                     Box(Modifier.weight(1f)) {
                                         renderField(MetadataField.DISC_NUMBER, false)
                                     }
@@ -617,7 +618,7 @@ internal fun MichiMetadataEditorPreviewContent(
                                 row.joinToString("|") { it.name }
                             }) { row ->
                                 Row(Modifier.padding(horizontal = MichiSpacing.xl),
-                                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.lg)) {
+                                    horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
                                     row.forEach { field ->
                                         Box(Modifier.weight(1f)) { renderField(field, false) }
                                     }
@@ -635,7 +636,7 @@ internal fun MichiMetadataEditorPreviewContent(
                                 row.joinToString("|") { it.name }
                             }) { row ->
                                 Row(Modifier.padding(horizontal = MichiSpacing.xl),
-                                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.lg)) {
+                                    horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
                                     row.forEach { field ->
                                         Box(Modifier.weight(1f)) { renderField(field, false) }
                                     }
@@ -814,7 +815,7 @@ private fun MetadataTrackSummary(
         snapshot.known[MetadataField.ARTIST]?.firstOrNull() else null
     val album = if (MetadataField.ALBUM in snapshot.verifiedFields)
         snapshot.known[MetadataField.ALBUM]?.firstOrNull()?.takeIf(String::isNotBlank) else null
-    val coverSize by animateDpAsState(if (compact) 44.dp else 62.dp, label = "cover")
+    val coverSize by animateDpAsState(if (compact) 44.dp else MetadataFormTokens.summaryArt, label = "cover")
     val highFontScale = LocalDensity.current.fontScale > 1.3f
     Column(Modifier.fillMaxWidth().padding(horizontal = MichiSpacing.xl)
         .padding(top = if (compact) 2.dp else 4.dp, bottom = if (compact) 8.dp else 15.dp)) {
@@ -843,14 +844,26 @@ private fun MetadataTrackSummary(
                     Text("CANCION · BIBLIOTECA LOCAL", style = MichiTypography.microLabel,
                         color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(title ?: "Archivo seleccionado", style = MaterialTheme.typography.titleMedium,
+                Text(
+                    title ?: "Archivo seleccionado",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                    ),
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = PureWhite)
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = PureWhite,
+                )
                 if (!compact) {
-                    Text(listOfNotNull(artist, album).joinToString(" · ")
+                    Text(
+                        listOfNotNull(artist, album).joinToString(" · ")
                             .ifBlank { "Artista no verificado" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
+                        ),
+                        color = TextSecondary, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -905,7 +918,11 @@ private fun MetadataInlineField(
     var focusRequestKey by remember(field, token) { mutableIntStateOf(0) }
     var genreInput by remember(field, token) { mutableStateOf("") }
     val focused = focusedRows.isNotEmpty()
-    val rows = if (field.multiple) values else listOf(values.firstOrNull().orEmpty())
+    val rows = when {
+        field.multiple && field != MetadataField.GENRE && values.isEmpty() -> listOf("")
+        field.multiple -> values
+        else -> listOf(values.firstOrNull().orEmpty())
+    }
     val statusLabel = when {
         provisional -> "Propuesta provisional"
         cleared -> "Eliminación propuesta"
@@ -949,6 +966,7 @@ private fun MetadataInlineField(
         errorText = error?.let(::metadataDraftErrorLabel),
         modifier = shellModifier,
         hasActions = hasActions,
+        statusDetail = if (provisional && values.any(String::isNotBlank)) "Borrador" else null,
         actions = {
             if (hasActions) {
                 IconButton(
@@ -1039,6 +1057,7 @@ private fun MetadataInlineField(
                     )
                 }
                 rows.forEachIndexed { index, value ->
+                    if (index > 0) Spacer(Modifier.height(6.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
@@ -1055,9 +1074,7 @@ private fun MetadataInlineField(
                             modifier = Modifier.weight(1f),
                             enabled = editable || provisional,
                             focusRequestKey = focusRequestKey,
-                            placeholder = if (provisional) "Propuesta provisional"
-                            else if (field.multiple) "Añadir valor"
-                            else "Añadir valor",
+                            placeholder = metadataFieldPlaceholder(field),
                             onFocusChanged = { isFocused ->
                                 focusedRows = if (isFocused) focusedRows + index
                                 else focusedRows - index
@@ -1122,12 +1139,13 @@ private fun MetadataInlineField(
                         }
                     }
                 }
-                if (field.multiple && field != MetadataField.GENRE && rows.size < 32) {
+                if (field.multiple && field != MetadataField.GENRE &&
+                    values.any(String::isNotBlank) && rows.size < 32) {
                     TextButton(
                         onClick = { emitImmediate(rows + ""); focusBack() },
                         modifier = Modifier.sizeIn(minHeight = 48.dp)
                             .testTag("metadata_add_value_${field.name.lowercase()}"),
-                    ) { Text("+ Añadir", color = accent) }
+                    ) { Text("+ Otro valor", color = accent) }
                 }
                 if (field.multiple && editable && field in draft.editedFields) {
                     TextButton(
@@ -1150,7 +1168,7 @@ private fun MetadataInlineField(
                             modifier = Modifier.weight(1f),
                             enabled = editable || provisional,
                             autoFocus = focusGenre,
-                            placeholder = "Nuevo género",
+                            placeholder = "Añadir género",
                             onValueChange = { genreInput = it },
                         )
                         Button(

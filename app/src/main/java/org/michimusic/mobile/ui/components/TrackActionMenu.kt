@@ -222,6 +222,8 @@ fun TrackActionBottomSheet(
                             org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
                                 sourceId = track.sourceId,
                                 trackId = track.id,
+                                trackUri = track.filepath,
+                                expectedSize = track.size,
                                 origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.TRACK_MENU,
                             )
                         )

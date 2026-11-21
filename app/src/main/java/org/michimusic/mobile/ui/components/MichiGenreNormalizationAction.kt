@@ -71,6 +71,8 @@ internal fun MichiGenreNormalizationAction(
                 org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
                     sourceId = track.sourceId,
                     trackId = track.id,
+                    trackUri = track.filepath,
+                    expectedSize = track.size,
                     scopeGeneration = rootAuthority.revision.value,
                     origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.FILE_INFO,
                     focusGenre = true,
@@ -428,5 +430,9 @@ internal fun evidenceUnavailableLabel(reason: ExtendedTagUnavailableReason?): St
         "El proveedor de documentos no está disponible ahora mismo."
     ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ ->
         "El archivo cambió mientras se leían sus etiquetas. Vuelve a intentarlo."
+    ExtendedTagUnavailableReason.SOURCE_IDENTITY_MISMATCH ->
+        "La pista ya no corresponde al mismo archivo de la biblioteca."
+    ExtendedTagUnavailableReason.LIBRARY_SCOPE_CHANGED ->
+        "La biblioteca cambió de ámbito mientras se abría el editor."
     null -> "No se registró un motivo para esta lectura."
 }

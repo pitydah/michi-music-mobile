@@ -1221,6 +1221,7 @@ internal fun BatchSharedFieldRow(
         focused = focusedRows.isNotEmpty(),
         modified = edited != null,
         errorText = null,
+        showStatusText = true,
         modifier = Modifier.testTag("metadata_batch_shared_${field.name.lowercase()}"),
     ) {
         if (unverified) {

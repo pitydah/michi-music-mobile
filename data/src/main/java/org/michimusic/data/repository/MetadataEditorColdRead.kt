@@ -3,6 +3,19 @@ package org.michimusic.data.repository
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataSnapshot
 
+/** Milestones of one explicit cold read; shown only in the optional diagnostic. */
+enum class MetadataReadPhase {
+    RESOLVE_CANONICAL_TRACK,
+    CHECK_ROOT_OWNERSHIP,
+    URI_CLASSIFICATION,
+    QUERY_STAMP_BEFORE,
+    QUERY_ROOM_EVIDENCE,
+    COLD_TAG_READ,
+    QUERY_STAMP_AFTER,
+    COMPARE_SOURCE_IDENTITY,
+    BUILD_SNAPSHOT,
+}
+
 /**
  * ME-11S. Values read from the Room sidecar, shown only as an explicit INDEX
  * REFERENCE. They are not physical tag evidence, they never enable editing and
@@ -51,11 +64,13 @@ sealed interface MetadataEditorColdRead {
     data class IndexedOnly(
         override val indexed: IndexedMetadataReference?,
         val reason: ExtendedTagUnavailableReason,
+        val phase: MetadataReadPhase? = null,
     ) : MetadataEditorColdRead
 
     /** No physical proof; [indexed] may still describe what the library believes. */
     data class Unavailable(
         val reason: ExtendedTagUnavailableReason,
         override val indexed: IndexedMetadataReference? = null,
+        val phase: MetadataReadPhase? = null,
     ) : MetadataEditorColdRead
 }

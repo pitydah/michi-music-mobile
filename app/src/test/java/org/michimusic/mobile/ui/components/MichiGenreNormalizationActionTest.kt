@@ -68,6 +68,8 @@ class MichiGenreNormalizationActionTest {
         assertEquals(MetadataEditorOrigin.FILE_INFO, request.origin)
         assertEquals("saf-A", request.sourceId)
         assertEquals("track-1", request.trackId)
+        assertEquals(track.filepath, request.trackUri)
+        assertEquals(track.size, request.expectedSize)
         assertEquals(7L, request.scopeGeneration)
         assertTrue(request.focusGenre)
         assertFalse(request.isBatch)

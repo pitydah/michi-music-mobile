@@ -68,6 +68,7 @@ import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.data.repository.IndexedMetadataReference
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.MetadataEditorColdRead
+import org.michimusic.data.repository.MetadataReadPhase
 import org.michimusic.mobile.library.LibraryScopeStore
 import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.playback.HandoffState
@@ -170,6 +171,7 @@ internal fun MetadataEditorScreen(onClose: () -> Unit) {
                 reason = current.reason,
                 indexed = current.indexed,
                 detail = current.detail,
+                phase = current.phase,
                 onRetry = { attempt++ },
                 onClose = onClose,
             )
@@ -264,6 +266,7 @@ private sealed interface EditorState {
         val indexed: IndexedMetadataReference?,
         val reason: ExtendedTagUnavailableReason,
         val detail: String?,
+        val phase: MetadataReadPhase? = null,
     ) : EditorState
     data object MissingTrack : EditorState
 }
@@ -287,14 +290,19 @@ private suspend fun resolveTrack(
     localMedia: LocalMediaRepository,
     sourceId: String,
     trackId: String,
+    expectedUri: String = "",
+    expectedSize: Long = 0L,
 ): Track? {
     if (trackId.isBlank()) return null
-    trackDao.getTrackBySource(sourceId, trackId)?.let { return it.toTrack() }
+    fun matches(track: Track): Boolean =
+        (expectedUri.isBlank() || track.filepath == expectedUri) &&
+            (expectedSize <= 0L || track.size == expectedSize)
+    trackDao.getTrackBySource(sourceId, trackId)?.toTrack()?.takeIf(::matches)?.let { return it }
     trackDao.getTracksById(trackId)
         .firstOrNull { it.sourceId == MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID }
-        ?.let { return it.toTrack() }
+        ?.toTrack()?.takeIf(::matches)?.let { return it }
     val local = localMedia.loadTracks()
-    return local.firstOrNull { it.id == trackId }
+    return local.firstOrNull { it.id == trackId && matches(it) }
 }
 
 private suspend fun loadEditorState(
@@ -313,8 +321,9 @@ private suspend fun loadEditorState(
         EditorState.Failed(
             track = null,
             indexed = null,
-            reason = ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE,
+            reason = ExtendedTagUnavailableReason.LIBRARY_SCOPE_CHANGED,
             detail = "El ámbito de la biblioteca cambió mientras se abría el editor.",
+            phase = MetadataReadPhase.CHECK_ROOT_OWNERSHIP,
         )
     } else if (request.isBatch) {
         val tracks = request.selectionIds.mapNotNull { id ->
@@ -322,9 +331,20 @@ private suspend fun loadEditorState(
         }
         EditorState.Batch(tracks)
     } else {
-        val track = resolveTrack(trackDao, localMedia, request.sourceId, request.trackId)
+        val track = resolveTrack(
+            trackDao, localMedia, request.sourceId, request.trackId,
+            expectedUri = request.trackUri, expectedSize = request.expectedSize,
+        )
         if (track == null) {
             EditorState.MissingTrack
+        } else if (request.trackUri.isNotBlank() && track.filepath != request.trackUri) {
+            EditorState.Failed(
+                track = track,
+                indexed = null,
+                reason = ExtendedTagUnavailableReason.SOURCE_IDENTITY_MISMATCH,
+                detail = "La identidad solicitada no coincide con el documento resuelto.",
+                phase = MetadataReadPhase.RESOLVE_CANONICAL_TRACK,
+            )
         } else {
             when (val read = repository.loadEditorColdRead(
                 sourceId = track.sourceId,
@@ -349,12 +369,14 @@ private suspend fun loadEditorState(
                     indexed = read.indexed,
                     reason = read.reason,
                     detail = null,
+                    phase = read.phase,
                 )
                 is MetadataEditorColdRead.Unavailable -> EditorState.Failed(
                     track = track,
                     indexed = read.indexed,
                     reason = read.reason,
                     detail = null,
+                    phase = read.phase,
                 )
             }
         }
@@ -367,6 +389,7 @@ private suspend fun loadEditorState(
         indexed = null,
         reason = ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE,
         detail = error.message,
+        phase = MetadataReadPhase.COLD_TAG_READ,
     )
 }
 
@@ -385,6 +408,7 @@ private fun MetadataReadError(
     reason: ExtendedTagUnavailableReason,
     indexed: IndexedMetadataReference?,
     detail: String?,
+    phase: MetadataReadPhase?,
     onRetry: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -528,8 +552,14 @@ private fun MetadataReadError(
                 "Motivo técnico disponible bajo demanda", color = PrimaryPinkContainer,
                 style = MaterialTheme.typography.bodySmall)
             if (diagnosticExpanded) {
-                Text(reason.name, color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall)
+                Text(
+                    buildString {
+                        append(reason.name)
+                        phase?.let { append(" · fase ").append(it.name) }
+                    },
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 if (!detail.isNullOrBlank()) {
                     Text(detail, color = TextSecondary,
                         style = MaterialTheme.typography.bodySmall)
@@ -581,7 +611,9 @@ internal fun readRetryLabel(reason: ExtendedTagUnavailableReason): String? = whe
     ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED,
     ExtendedTagUnavailableReason.NOT_CONTENT_URI,
     ExtendedTagUnavailableReason.INVALID_TRACK_ID,
-    ExtendedTagUnavailableReason.INVALID_SIZE -> null
+    ExtendedTagUnavailableReason.INVALID_SIZE,
+    ExtendedTagUnavailableReason.SOURCE_IDENTITY_MISMATCH,
+    ExtendedTagUnavailableReason.LIBRARY_SCOPE_CHANGED -> null
     ExtendedTagUnavailableReason.PERMISSION_DENIED -> "Reintentar con permiso"
     else -> "Volver a intentar"
 }
@@ -595,6 +627,10 @@ private fun readErrorMessage(reason: ExtendedTagUnavailableReason): String = whe
         "El proveedor de documentos no respondió. Puede ser temporal."
     ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ ->
         "El archivo cambió mientras se leían sus etiquetas. Inténtalo de nuevo."
+    ExtendedTagUnavailableReason.SOURCE_IDENTITY_MISMATCH ->
+        "La canción solicitada ya no corresponde al mismo archivo. Vuelve a abrirla desde la biblioteca."
+    ExtendedTagUnavailableReason.LIBRARY_SCOPE_CHANGED ->
+        "La biblioteca cambió de ámbito mientras se abría el editor. Vuelve a abrir la canción."
     ExtendedTagUnavailableReason.SIZE_MISMATCH,
     ExtendedTagUnavailableReason.MISSING_STAMP,
     ExtendedTagUnavailableReason.MODIFIED_AT_ZERO ->

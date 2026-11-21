@@ -24,28 +24,34 @@ internal object MetadataEditorColdReadPolicy {
     ): MetadataEditorColdRead {
         if (before.size != expectedSize)
             return MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed)
+                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
         if (before.modifiedAt <= 0)
             return MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed)
+                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
         val fields = when (legacy) {
             is EmbeddedTagReadResult.Parsed -> legacy.fields
             is EmbeddedTagReadResult.NoGenreTag -> legacy.fields
             EmbeddedTagReadResult.PermissionDenied ->
                 return MetadataEditorColdRead.Unavailable(
-                    ExtendedTagUnavailableReason.PERMISSION_DENIED, indexed)
+                    ExtendedTagUnavailableReason.PERMISSION_DENIED, indexed,
+                    MetadataReadPhase.COLD_TAG_READ)
             EmbeddedTagReadResult.ReadFailed ->
                 return MetadataEditorColdRead.Unavailable(
-                    ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed)
+                    ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed,
+                    MetadataReadPhase.COLD_TAG_READ)
             EmbeddedTagReadResult.Unverifiable ->
                 return MetadataEditorColdRead.IndexedOnly(
-                    indexed, ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED)
+                    indexed, ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED,
+                    MetadataReadPhase.COLD_TAG_READ)
         }
         // A stamp that moves between the two probes means the bytes may belong to
         // a different document revision than the one the user opened. Refuse.
         if (after.size != before.size || after.modifiedAt != before.modifiedAt)
             return MetadataEditorColdRead.Unavailable(
-                ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ, indexed)
+                ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ, indexed,
+                MetadataReadPhase.QUERY_STAMP_AFTER)
         val snapshot = snapshotOf(fields, after, report)
         val missing = MetadataReadFieldCatalog.primary - snapshot.verifiedFields
         return if (missing.isEmpty()) {
