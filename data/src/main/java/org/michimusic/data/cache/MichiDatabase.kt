@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         CachedTrack::class,
         EmbeddedTagEvidence::class,
+        MetadataPersonEvidence::class,
         CachedAlbum::class,
         CachedArtist::class,
         CachedPlaylist::class,
@@ -29,11 +30,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApprovedSyncPlanEntity::class,
         LibraryExclusionEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+    abstract fun metadataPersonEvidenceDao(): MetadataPersonEvidenceDao
     abstract fun libraryExclusionDao(): LibraryExclusionDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun replayGainDao(): ReplayGainDao
@@ -51,6 +53,27 @@ abstract class MichiDatabase : RoomDatabase() {
 
     companion object {
         const val DEFAULT_DEVICE_LIBRARY_ID = "lib_device_local"
+
+        /** Additive metadata sidecar; never split historical scalar names. */
+        val MIGRATION_12_13 = Migration(12, 13) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `metadata_people_evidence` (
+                    `sourceId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `sizeBytes` INTEGER NOT NULL,
+                    `modifiedAt` INTEGER NOT NULL,
+                    `sourceSha256` TEXT NOT NULL,
+                    `artistCount` INTEGER NOT NULL,
+                    `artistValues` TEXT NOT NULL,
+                    `albumArtistCount` INTEGER NOT NULL,
+                    `albumArtistValues` TEXT NOT NULL,
+                    `receiptVersion` INTEGER NOT NULL,
+                    PRIMARY KEY(`sourceId`, `trackId`),
+                    FOREIGN KEY(`sourceId`, `trackId`) REFERENCES `cached_tracks`(`sourceId`, `id`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+        }
 
         val MIGRATION_11_12 = Migration(11, 12) { db ->
             // Metadata-only sidecar. Cached track and playlist identities are untouched.

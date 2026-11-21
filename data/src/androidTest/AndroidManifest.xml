@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ME-08: test APK ONLY. This provider must never ship in main/debug/release manifests.
+     DocumentsProvider requires exported=true + MANAGE_DOCUMENTS; external clients are
+     blocked by the system-level permission and cannot enumerate the private fixtures. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="org.michimusic.data.metadata.MetadataSyntheticDocumentsProvider"
+            android:authorities="org.michimusic.data.metadata.me08.testing"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:grantUriPermissions="true">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+    </application>
+</manifest>

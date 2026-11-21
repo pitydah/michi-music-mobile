@@ -28,9 +28,11 @@ val dataModule = module {
             MichiDatabase.MIGRATION_9_10,
             MichiDatabase.MIGRATION_10_11,
             MichiDatabase.MIGRATION_11_12,
+            MichiDatabase.MIGRATION_12_13,
         ).build()
     }
     single { get<MichiDatabase>().trackDao() }
+    single { get<MichiDatabase>().metadataPersonEvidenceDao() }
     single { get<MichiDatabase>().libraryExclusionDao() }
     single { get<MichiDatabase>().playlistDao() }
     single { get<MichiDatabase>().replayGainDao() }

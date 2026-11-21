@@ -293,4 +293,216 @@ interface TrackDao {
         verifiedAt: Long,
         algorithm: String,
     )
+
+    /**
+     * ME-11A: exact cached scalar CAS AFTER an independently certified physical
+     * postcheck. The producer must have a prior verified content hash/at and
+     * enforce all owner, grant and journal gates outside Room. Clearing the
+     * previous verified-copy hash is mandatory after any changed source bytes.
+     */
+    @Query(
+        "UPDATE cached_tracks SET title=:newTitle,artist=:newArtist,album=:newAlbum," +
+            "albumArtist=:newAlbumArtist,genre=:newGenre,trackNumber=:newTrackNumber," +
+            "year=:newYear,size=:newSize,verifiedSize=0,verifiedSha256=''," +
+            "verifiedAt=0,verifiedAlgorithm='' " +
+            "WHERE sourceId=:sourceId AND id=:trackId AND filepath=:filepath " +
+            "AND size=:previousSize AND verifiedSize=:previousSize " +
+            "AND verifiedAt=:previousVerifiedAt AND verifiedSha256=:previousSha256 " +
+            "AND title=:previousTitle AND artist=:previousArtist AND album=:previousAlbum " +
+            "AND albumArtist=:previousAlbumArtist AND genre=:previousGenre " +
+            "AND trackNumber=:previousTrackNumber AND year=:previousYear"
+    )
+    suspend fun casVerifiedMetadataScalars(
+        sourceId: String,trackId: String,filepath: String,
+        previousSize: Long,previousVerifiedAt: Long,previousSha256: String,
+        previousTitle: String,previousArtist: String,previousAlbum: String,
+        previousAlbumArtist: String,previousGenre: String,
+        previousTrackNumber: Int,previousYear: Int,
+        newSize: Long,newTitle: String,newArtist: String,newAlbum: String,
+        newAlbumArtist: String,newGenre: String,newTrackNumber: Int,newYear: Int,
+    ): Int
+
+    @Query("DELETE FROM embedded_tag_evidence WHERE sourceId=:sourceId AND trackId=:trackId")
+    suspend fun invalidateMetadataEvidenceForTrack(sourceId: String,trackId: String): Int
+
+    @Query("DELETE FROM metadata_people_evidence WHERE sourceId=:sourceId AND trackId=:trackId")
+    suspend fun invalidateMetadataPeopleEvidenceForTrack(sourceId: String,trackId: String): Int
+
+    /**
+     * The row CAS and invalidation of stale tag evidence are atomic. We do NOT
+     * invent a new parserVersion/modifiedAt or claim that unparsed tags vanished.
+     * Cold reindex is needed to repopulate extended fields after this action.
+     */
+    @Transaction
+    suspend fun commitMetadataAfterVerifiedWrite(
+        sourceId: String,trackId: String,filepath: String,
+        previousSize: Long,previousVerifiedAt: Long,previousSha256: String,
+        previousTitle: String,previousArtist: String,previousAlbum: String,
+        previousAlbumArtist: String,previousGenre: String,
+        previousTrackNumber: Int,previousYear: Int,
+        newSize: Long,newTitle: String,newArtist: String,newAlbum: String,
+        newAlbumArtist: String,newGenre: String,newTrackNumber: Int,newYear: Int,
+    ): Boolean {
+        if (newSize <= 0L || previousSize <= 0L || previousVerifiedAt <= 0L ||
+            !filepath.startsWith("content://") ||
+            !previousSha256.matches(Regex("[0-9a-f]{64}"))) return false
+        val changed=casVerifiedMetadataScalars(sourceId,trackId,filepath,
+            previousSize,previousVerifiedAt,previousSha256,previousTitle,previousArtist,
+            previousAlbum,previousAlbumArtist,previousGenre,previousTrackNumber,
+            previousYear,newSize,newTitle,newArtist,newAlbum,newAlbumArtist,
+            newGenre,newTrackNumber,newYear)
+        if (changed != 1) return false
+        invalidateMetadataEvidenceForTrack(sourceId,trackId)
+        invalidateMetadataPeopleEvidenceForTrack(sourceId,trackId)
+        return true
+    }
+
+    /**
+     * ME-11E: cache-only CAS for rows which historically have no trustworthy
+     * recorded SHA. This NEVER accepts a nonempty/partial prior proof and
+     * requires the caller to have separately certified the original/candidate
+     * source hashes using the protected journal. No changed scalar is guessed.
+     */
+    @Query(
+        "UPDATE cached_tracks SET title=:newTitle,artist=:newArtist,album=:newAlbum," +
+            "albumArtist=:newAlbumArtist,genre=:newGenre,trackNumber=:newTrackNumber," +
+            "year=:newYear,size=:newSize,verifiedSize=0,verifiedSha256=''," +
+            "verifiedAt=0,verifiedAlgorithm='' " +
+            "WHERE sourceId=:sourceId AND id=:trackId AND filepath=:filepath " +
+            "AND size=:previousSize AND verifiedSize=0 AND verifiedAt=0 " +
+            "AND verifiedSha256='' AND verifiedAlgorithm='' " +
+            "AND title=:previousTitle AND artist=:previousArtist AND album=:previousAlbum " +
+            "AND albumArtist=:previousAlbumArtist AND genre=:previousGenre " +
+            "AND trackNumber=:previousTrackNumber AND year=:previousYear"
+    )
+    suspend fun casUnverifiedMetadataScalars(
+        sourceId: String,trackId: String,filepath: String,
+        previousSize: Long,
+        previousTitle: String,previousArtist: String,previousAlbum: String,
+        previousAlbumArtist: String,previousGenre: String,
+        previousTrackNumber: Int,previousYear: Int,
+        newSize: Long,newTitle: String,newArtist: String,newAlbum: String,
+        newAlbumArtist: String,newGenre: String,newTrackNumber: Int,newYear: Int,
+    ): Int
+
+    @Transaction
+    suspend fun commitMetadataAfterVerifiedWriteUnhashed(
+        sourceId: String,trackId: String,filepath: String,
+        previousSize: Long,
+        previousTitle: String,previousArtist: String,previousAlbum: String,
+        previousAlbumArtist: String,previousGenre: String,
+        previousTrackNumber: Int,previousYear: Int,
+        newSize: Long,newTitle: String,newArtist: String,newAlbum: String,
+        newAlbumArtist: String,newGenre: String,newTrackNumber: Int,newYear: Int,
+    ): Boolean {
+        if (newSize <= 0L || previousSize <= 0L ||
+            !filepath.startsWith("content://")) return false
+        val changed=casUnverifiedMetadataScalars(sourceId,trackId,filepath,
+            previousSize,previousTitle,previousArtist,previousAlbum,
+            previousAlbumArtist,previousGenre,previousTrackNumber,previousYear,
+            newSize,newTitle,newArtist,newAlbum,newAlbumArtist,newGenre,
+            newTrackNumber,newYear)
+        if (changed != 1) return false
+        invalidateMetadataEvidenceForTrack(sourceId,trackId)
+        invalidateMetadataPeopleEvidenceForTrack(sourceId,trackId)
+        return true
+    }
+    /**
+     * ME-11I: one atomic Room transaction for the scalar first-value hint
+     * AND the complete, verified multi-genre sidecar. Reuses the original
+     * conditional CAS; NEVER replaces a cache row by ID alone.
+     * The source file has already been independently verified by the caller;
+     * this function cannot certify it or create a physical write permission.
+     */
+    @Transaction
+    suspend fun commitMetadataAfterVerifiedWriteWithGenreEvidence(
+        sourceId: String,trackId: String,filepath: String,
+        previousSize: Long,previousVerifiedAt: Long,previousSha256: String,
+        previousTitle: String,previousArtist: String,previousAlbum: String,
+        previousAlbumArtist: String,previousGenre: String,
+        previousTrackNumber: Int,previousYear: Int,
+        newSize: Long,newTitle: String,newArtist: String,newAlbum: String,
+        newAlbumArtist: String,newGenre: String,newTrackNumber: Int,newYear: Int,
+        genreEvidence: EmbeddedTagEvidence,
+    ): Boolean {
+        val orderedGenres=genreEvidence.genreValues.split('\u0000')
+        if (!org.michimusic.core.metadata.MetadataCommitCertification.mayMutateOriginal() ||
+            genreEvidence.sourceId != sourceId || genreEvidence.trackId != trackId ||
+            genreEvidence.sizeBytes != newSize || genreEvidence.modifiedAt <= 0L ||
+            genreEvidence.parserVersion != EmbeddedTagEvidence.CURRENT_PARSER_VERSION ||
+            genreEvidence.genre != newGenre || genreEvidence.genre.isBlank() ||
+            orderedGenres.size !in 2..32 || orderedGenres.firstOrNull() != newGenre ||
+            orderedGenres.any { it.isBlank() || it.length > 2048 } ||
+            genreEvidence.title != newTitle || genreEvidence.artist != newArtist ||
+            genreEvidence.album != newAlbum || genreEvidence.albumArtist != newAlbumArtist ||
+            genreEvidence.trackNumber != newTrackNumber ||
+            !filepath.startsWith("content://")) return false
+        val updated=if (previousVerifiedAt > 0L) commitMetadataAfterVerifiedWrite(
+            sourceId,trackId,filepath,previousSize,previousVerifiedAt,previousSha256,
+            previousTitle,previousArtist,previousAlbum,previousAlbumArtist,previousGenre,
+            previousTrackNumber,previousYear,newSize,newTitle,newArtist,newAlbum,
+            newAlbumArtist,newGenre,newTrackNumber,newYear)
+        else if (previousVerifiedAt == 0L && previousSha256.isEmpty())
+            commitMetadataAfterVerifiedWriteUnhashed(
+                sourceId,trackId,filepath,previousSize,previousTitle,previousArtist,
+                previousAlbum,previousAlbumArtist,previousGenre,previousTrackNumber,
+                previousYear,newSize,newTitle,newArtist,newAlbum,newAlbumArtist,
+                newGenre,newTrackNumber,newYear)
+        else false
+        if (!updated) return false
+        putTagEvidence(listOf(genreEvidence))
+        return true
+    }
+
+    /**
+     * ME-11Q: an exact owner/URI/version CAS for a provider-certified SAF rename.
+     * No change to track IDs, titles, artist, genre or audio. Every old proof is
+     * compared, and old embedded/people evidence is invalidated transactionally.
+     * A NEW documentId may require a different track ID on some SAF libraries;
+     * the caller MUST reject such providers unless stable IDs were certified.
+     */
+    @Query(
+        "UPDATE cached_tracks SET filepath=:newUri,verifiedSize=0," +
+            "verifiedSha256='',verifiedAt=0,verifiedAlgorithm='' " +
+            "WHERE sourceId=:sourceId AND id=:trackId AND filepath=:oldUri " +
+            "AND size=:previousSize AND verifiedSize=:oldVerifiedSize " +
+            "AND verifiedSha256=:oldVerifiedSha256 AND verifiedAt=:oldVerifiedAt " +
+            "AND verifiedAlgorithm=:oldVerifiedAlgorithm " +
+            "AND title=:previousTitle AND artist=:previousArtist " +
+            "AND album=:previousAlbum AND albumArtist=:previousAlbumArtist " +
+            "AND genre=:previousGenre AND trackNumber=:previousTrackNumber AND year=:previousYear",
+    )
+    suspend fun casSafRenameIndexedUri(
+        sourceId:String,trackId:String,oldUri:String,newUri:String,
+        previousSize:Long,oldVerifiedSize:Long,oldVerifiedSha256:String,
+        oldVerifiedAt:Long,oldVerifiedAlgorithm:String,
+        previousTitle:String,previousArtist:String,previousAlbum:String,
+        previousAlbumArtist:String,previousGenre:String,
+        previousTrackNumber:Int,previousYear:Int,
+    ): Int
+
+    @Transaction
+    suspend fun commitVerifiedSafRenameLocation(
+        sourceId:String,trackId:String,oldUri:String,newUri:String,
+        previousSize:Long,oldVerifiedSize:Long,oldVerifiedSha256:String,
+        oldVerifiedAt:Long,oldVerifiedAlgorithm:String,
+        previousTitle:String,previousArtist:String,previousAlbum:String,
+        previousAlbumArtist:String,previousGenre:String,
+        previousTrackNumber:Int,previousYear:Int,
+    ): Boolean {
+        // A stored verified rename journal is not sufficient to enable source
+        // or index mutation without REAL external provider certification.
+        if (!org.michimusic.data.metadata.MetadataSafRenameRoomPublicationCertification.URI_CAS_CERTIFIED ||
+            trackId.isBlank() || previousSize <= 0 ||
+            !oldUri.startsWith("content://") || !newUri.startsWith("content://")) return false
+        val changed=casSafRenameIndexedUri(
+            sourceId,trackId,oldUri,newUri,previousSize,oldVerifiedSize,
+            oldVerifiedSha256,oldVerifiedAt,oldVerifiedAlgorithm,
+            previousTitle,previousArtist,previousAlbum,previousAlbumArtist,
+            previousGenre,previousTrackNumber,previousYear)
+        if (changed != 1) return false
+        invalidateMetadataEvidenceForTrack(sourceId,trackId)
+        invalidateMetadataPeopleEvidenceForTrack(sourceId,trackId)
+        return true
+    }
 }

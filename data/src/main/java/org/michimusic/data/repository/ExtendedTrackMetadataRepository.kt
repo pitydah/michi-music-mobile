@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.TrackDao
 
@@ -45,8 +46,17 @@ enum class ExtendedTagUnavailableReason {
 }
 
 sealed interface ExtendedTagEvidenceResult {
-    data class Verified(val metadata: ExtendedTrackMetadata) : ExtendedTagEvidenceResult
+    data class Verified(
+        val metadata: ExtendedTrackMetadata,
+        /** Only from the SAME cold, owner-checked embedded read; never a write grant. */
+        val editorSnapshot: MetadataSnapshot? = null,
+    ) : ExtendedTagEvidenceResult
     data class Unavailable(val reason: ExtendedTagUnavailableReason) : ExtendedTagEvidenceResult
+}
+
+sealed interface MetadataEditorEvidenceResult {
+    data class Verified(val snapshot: MetadataSnapshot) : MetadataEditorEvidenceResult
+    data class Unavailable(val reason: ExtendedTagUnavailableReason) : MetadataEditorEvidenceResult
 }
 
 /**
@@ -69,6 +79,21 @@ class ExtendedTrackMetadataRepository(
     ): ExtendedTrackMetadata? =
         (loadVerifiedResult(sourceId, trackId, filepath, expectedSize)
             as? ExtendedTagEvidenceResult.Verified)?.metadata
+
+    /**
+     * ME-01B: editor entrypoint. Reuses EXACTLY the existing cold verified path;
+     * does not trigger a second parser pass or fabricate titles from MediaStore.
+     */
+    suspend fun loadVerifiedEditorSnapshotResult(
+        sourceId: String, trackId: String, filepath: String, expectedSize: Long,
+    ): MetadataEditorEvidenceResult =
+        when (val result = loadVerifiedResult(sourceId, trackId, filepath, expectedSize)) {
+            is ExtendedTagEvidenceResult.Unavailable ->
+                MetadataEditorEvidenceResult.Unavailable(result.reason)
+            is ExtendedTagEvidenceResult.Verified -> result.editorSnapshot?.let {
+                MetadataEditorEvidenceResult.Verified(it)
+            } ?: MetadataEditorEvidenceResult.Unavailable(ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED)
+        }
 
     /**
      * Same proof as [loadVerified] (kept for compatibility) but with a typed
@@ -127,8 +152,9 @@ class ExtendedTrackMetadataRepository(
         // A provider may recycle URI, size and mtime. Compare the actual tag fields
         // only on this explicit details tap, never in card/list recompositions.
         // A malformed/unsupported tag fails closed rather than trusting old Room data.
+        val coldRead = UriEmbeddedTags.readEditorDetailed(ctx, uri)
         val currentTags = EmbeddedTagReadPolicy.fieldsOrNull(
-            UriEmbeddedTags.readDetailed(ctx, uri))
+            coldRead.legacy)
             ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
                 ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED)
         val after = stamp()
@@ -148,7 +174,11 @@ class ExtendedTrackMetadataRepository(
         if (!ColdMetadataTagEquivalence.matches(evidence, currentTags))
             return@withContext ExtendedTagEvidenceResult.Unavailable(
                 ExtendedTagUnavailableReason.TAG_MISMATCH)
-        ExtendedTagEvidenceResult.Verified(evidence.toExtendedMetadata())
+        ExtendedTagEvidenceResult.Verified(
+            metadata = evidence.toExtendedMetadata(),
+            editorSnapshot = MetadataEditorEvidenceMapper.fromColdVerifiedRead(
+                sourceId, trackId, filepath, after, currentTags, coldRead.report),
+        )
     }
 
     suspend fun load(sourceId: String, trackId: String): ExtendedTrackMetadata? =
