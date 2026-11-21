@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -90,13 +91,17 @@ class UI8PlaylistGeometryParityTest {
     }
 
     private fun switchToCards() {
-        compose.onNodeWithTag("playlist_mode_cards").performClick()
-        compose.waitForIdle()
+        if (compose.onAllNodesWithTag("playlist_catalog_cards").fetchSemanticsNodes().isEmpty()) {
+            compose.onNodeWithTag("playlist_view_mode_toggle").performClick()
+            compose.waitForIdle()
+        }
     }
 
     private fun switchToLista() {
-        compose.onNodeWithTag("playlist_mode_classic").performClick()
-        compose.waitForIdle()
+        if (compose.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().isEmpty()) {
+            compose.onNodeWithTag("playlist_view_mode_toggle").performClick()
+            compose.waitForIdle()
+        }
     }
 
     @Test

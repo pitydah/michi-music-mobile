@@ -55,7 +55,6 @@ enum class AeroSegmentTreatment {
      * pill is deliberately shorter than 48 dp so it does not compete with the title,
      * while the selectable host still owns the full 48 dp target.
      */
-    Micro,
 }
 
 /** Designed for font scaling rather than fixed-height chips that cut labels. */
@@ -75,50 +74,6 @@ fun aeroSegmentStacking(availableWidthDp: Float, fontScale: Float): Boolean =
     availableWidthDp < 330f || fontScale >= 1.3f
 
 /** A bounded material rail; only the selected segment receives the luminous inset. */
-@Composable
-fun AeroSegmentRail(
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
-    /**
-     * Default keeps every existing caller full width. A header that needs a compact
-     * control passes `false` and lets the rail size to its own content.
-     */
-    fillWidth: Boolean = true,
-    content: @Composable RowScope.() -> Unit,
-) {
-    AeroSegmentRow(
-        modifier = modifier,
-        shape = RoundedCornerShape(if (compact) 14.dp else 17.dp),
-        padding = (if (compact) 3.dp else 4.dp),
-        spacing = (if (compact) 3.dp else 4.dp),
-        borderAlpha = 0.12f,
-        fillWidth = fillWidth,
-        content = content,
-    )
-}
-
-/**
- * UI8-KILLCRITIC: the header variant. Same material, border and semantics as the
- * rail, with a thinner shell so a two-word mode switch reads as a secondary action
- * instead of a section selector. Biblioteca, Search and Settings keep using
- * [AeroSegmentRail]; nothing about its geometry changed.
- */
-@Composable
-fun AeroMicroSegmentRail(
-    modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit,
-) {
-    AeroSegmentRow(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        padding = 0.dp,
-        spacing = 2.dp,
-        borderAlpha = 0.10f,
-        fillWidth = false,
-        content = content,
-    )
-}
-
 @Composable
 private fun AeroSegmentRow(
     modifier: Modifier,
@@ -155,7 +110,28 @@ private fun AeroSegmentRow(
     )
 }
 
-/** Vertical counterpart of the rail for narrow widths or large font scales. */
+@Composable
+fun AeroSegmentRail(
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    /**
+     * Default keeps every existing caller full width. A header that needs a compact
+     * control passes `false` and lets the rail size to its own content.
+     */
+    fillWidth: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    AeroSegmentRow(
+        modifier = modifier,
+        shape = RoundedCornerShape(if (compact) 14.dp else 17.dp),
+        padding = (if (compact) 3.dp else 4.dp),
+        spacing = (if (compact) 3.dp else 4.dp),
+        borderAlpha = 0.12f,
+        fillWidth = fillWidth,
+        content = content,
+    )
+}
+
 @Composable
 fun AeroSegmentStack(
     modifier: Modifier = Modifier,
@@ -185,7 +161,6 @@ fun AeroSegmentStack(
     )
 }
 
-/** Selected state is expressed in geometry, tint AND accessibility semantics. */
 @Composable
 fun AeroSegmentedChoice(
     label: String,
@@ -207,7 +182,6 @@ fun AeroSegmentedChoice(
     )
     val shape = RoundedCornerShape(
         when {
-            treatment == AeroSegmentTreatment.Micro -> 8.dp
             compact -> 11.dp
             treatment == AeroSegmentTreatment.Rail -> 13.dp
             else -> 14.dp
@@ -221,23 +195,12 @@ fun AeroSegmentedChoice(
         else if (contrast) Color.White.copy(alpha = 0.65f)
         else Color.White.copy(alpha = if (treatment == AeroSegmentTreatment.Filter) 0.13f else 0f)
     val visualMinHeight = when (treatment) {
-        // UI8-KILLCRITIC: measured on device, a 34 dp pill inside an overflowing 48 dp
-        // host cannot keep a 48 dp hit area: Compose clamps the child to the parent, the
-        // pill reported 38 dp of semantics, and a tap 3 dp above it landed on nothing.
-        // The host therefore draws at the target height and the size reduction comes from
-        // width, radius, padding and type instead.
-        AeroSegmentTreatment.Micro -> 48.dp
         AeroSegmentTreatment.Filter -> 36.dp
         AeroSegmentTreatment.Rail -> aeroSegmentMinHeightDp(LocalConfiguration.current.fontScale).dp
     }
-    // UI8-KILLCRITIC: a header control must not move when the mode changes. The
-    // selected weight used to widen "Tarjetas" and shift the "+" beside it, so the
-    // micro variant keeps one weight and lets tint, border and fill carry the state.
-    val labelWeight = if (treatment == AeroSegmentTreatment.Micro) {
-        FontWeight.Medium
-    } else {
-        if (selected) FontWeight.SemiBold else FontWeight.Medium
-    }
+    // The selected weight is bolder, so callers that must not shift when the state
+    // changes should measure their control instead of relying on this difference.
+    val labelWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
     Box(
         // The selectable host owns the 48dp touch target; the visible pill can be
         // lighter without shrinking the hit area or changing semantics.
@@ -264,12 +227,10 @@ fun AeroSegmentedChoice(
                     horizontal = when (treatment) {
                         // Measured on device: 7 dp gave a 125.33 dp rail, 1.3 dp over the
                         // 124 dp design ceiling. 6 dp lands it at ~121 dp.
-                        AeroSegmentTreatment.Micro -> 6.dp
-                        AeroSegmentTreatment.Filter -> 15.dp
+                                    AeroSegmentTreatment.Filter -> 15.dp
                         AeroSegmentTreatment.Rail -> 8.dp
                     },
                     vertical = when (treatment) {
-                        AeroSegmentTreatment.Micro -> 3.dp
                         AeroSegmentTreatment.Filter -> 8.dp
                         AeroSegmentTreatment.Rail -> if (compact) 4.dp else 8.dp
                     },
@@ -285,7 +246,7 @@ fun AeroSegmentedChoice(
             val softWrap = !singleWord
             val autoSize = TextAutoSize.StepBased(
                 minFontSize = 10.sp,
-                maxFontSize = if (compact || treatment == AeroSegmentTreatment.Micro) 12.sp else 13.sp,
+                maxFontSize = if (compact) 12.sp else 13.sp,
                 stepSize = 0.5.sp,
             )
             BasicText(
@@ -299,8 +260,8 @@ fun AeroSegmentedChoice(
                     color = ink,
                     fontFamily = InterFontFamily,
                     fontWeight = labelWeight,
-                    fontSize = if (treatment == AeroSegmentTreatment.Micro) 12.sp else if (compact) 12.sp else 13.sp,
-                    lineHeight = if (treatment == AeroSegmentTreatment.Micro) 15.sp else if (compact) 17.sp else 19.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    lineHeight = if (compact) 17.sp else 19.sp,
                 ),
             )
         }

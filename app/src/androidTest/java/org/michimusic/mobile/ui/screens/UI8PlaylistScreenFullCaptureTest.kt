@@ -145,12 +145,16 @@ class UI8PlaylistScreenFullCaptureTest {
 
         rule.waitForIdle()
         val rowsBefore = manifestRows()
-        assertEquals("the mode selector must be on screen", 1, selectorNodes().size)
-        rule.onNodeWithTag("playlist_mode_classic").performClick()
-        rule.waitForIdle()
+        assertEquals("the view mode toggle must be on screen", 1, selectorNodes().size)
+        // The toggle keeps its state in rememberSaveable, so the first capture is
+        // whatever mode the screen opened in; no extra click is needed to reach Lista.
+        // The imported banner is decoded asynchronously by Coil. Wait on the pixels
+        // themselves instead of a fixed sleep, so the capture can never claim a banner
+        // that had not been drawn yet.
+        rule.waitUntil(15_000) { bluePixels(screenshot()) > 500 }
         val listCapture = capture("lista", widthDp, fontScale)
 
-        rule.onNodeWithTag("playlist_mode_cards").performClick()
+        rule.onNodeWithTag("playlist_view_mode_toggle").performClick()
         rule.waitForIdle()
         val deckCapture = capture("tarjetas", widthDp, fontScale)
 
@@ -164,18 +168,30 @@ class UI8PlaylistScreenFullCaptureTest {
         assertEquals("manifest must describe both captures", rowsBefore + 2, rows)
         assertEquals("the Tarjetas capture must contain the deck", 1, deckCapture.cards)
 
-        // UI8-KILLCRITIC: the micro control draws at its target height, so the segment
-        // rectangle the user taps is the rectangle it reports.
-        val classicTarget = rule.onNodeWithTag("playlist_mode_classic")
-            .fetchSemanticsNode().boundsInRoot
-        val targetDp = classicTarget.height / context.resources.displayMetrics.density
-        rule.onNodeWithTag("playlist_mode_classic").performClick()
-        rule.waitForIdle()
-        val targetSwitched =
-            rule.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().isNotEmpty()
-        println("MICRO-TARGET targetDp=$targetDp switched=$targetSwitched width=$widthDp fs=$fontScale")
-        assertTrue("the segment target is ${targetDp}dp tall; 48 dp is required", targetDp >= 47.5f)
-        assertTrue("tapping the segment must switch back to Lista", targetSwitched)
+        // UI8-KILLCRITIC: Playlists now uses the same single-icon switch as Artists. The
+        // target is the transparent 48 dp box, so it is measured on the button itself.
+        val toggleNode = rule.onNodeWithTag("playlist_view_mode_toggle").fetchSemanticsNode().boundsInRoot
+        val createNode = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes().first().boundsInRoot
+        val density = context.resources.displayMetrics.density
+        val targetDp = toggleNode.height / density
+        val gapDp = (createNode.left - toggleNode.right) / density
+        println("PLAYLIST-TOGGLE target=${targetDp}dp gap=${gapDp}dp width=${toggleNode.width / density}dp fs=$fontScale")
+        assertTrue("the toggle target is ${targetDp}dp tall; 48 dp is required", targetDp >= 47.5f)
+        assertTrue("the toggle must sit left of create, got ${gapDp}dp", gapDp > 0f)
+        assertTrue("the gap to create is ${gapDp}dp; 8-10 dp expected", gapDp in 7.5f..10.5f)
+
+        val baseline = listOf(toggleNode.left, toggleNode.top, toggleNode.width, toggleNode.height, createNode.left)
+        repeat(10) {
+            rule.onNodeWithTag("playlist_view_mode_toggle").performClick()
+            rule.waitForIdle()
+            val moved = rule.onNodeWithTag("playlist_view_mode_toggle").fetchSemanticsNode().boundsInRoot
+            val plus = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes().first().boundsInRoot
+            assertEquals(
+                "the header must not move when the mode changes",
+                baseline,
+                listOf(moved.left, moved.top, moved.width, moved.height, plus.left),
+            )
+        }
     }
 
     private fun manifestRows(): Int = manifest.readLines().count { it.isNotBlank() }
@@ -228,28 +244,17 @@ class UI8PlaylistScreenFullCaptureTest {
             selectorWidth + gap + createWidth <= widthDp * 0.98f,
         )
         assertTrue("the selector must sit left of the create button, gap=${gap}dp", gap > 0f)
-        // UI8-KILLCRITIC: the design targets that need real text metrics. Robolectric
-        // collapses intrinsic widths, so this is the only place they can be certified.
+        // UI8-KILLCRITIC: Playlists has no capsule any more, so there is no rail width or
+        // height to certify here. The icon toggle's own target and gap are asserted in
+        // PLAYLIST-TOGGLE below, which is the contract that replaced the segmented rail.
         assertTrue(
-            "the selector is ${selectorWidth}dp wide at fs$fontScale; 1.0x targets 110-124 dp",
-            fontScale != 1.0f || (selectorWidth in 110f..124f),
-        )
-        // UI8-KILLCRITIC: the visible height is the target height. A 34-38 dp pill was
-        // measured first, but Compose clamps an overflowing host to its parent, so the hit
-        // area shrank with the pill. The control now draws at 48 dp and shrinks by width,
-        // radius, padding and type instead.
-        assertTrue(
-            "the selector is ${selectorHeight}dp tall at fs$fontScale; the target is at least 47 dp",
-            selectorHeight >= 47f,
-        )
-        assertTrue(
-            "the gap to the create button is ${gap}dp at ${widthDp}dp; the target is 8-10 dp",
-            gap in 8f..10f,
+            "the toggle must be a square-ish icon control, got ${selectorWidth}x${selectorHeight}dp",
+            selectorWidth <= 64f && selectorHeight >= 47f,
         )
         return Capture(bitmap, frontCards, selectorWidth, selectorHeight, gap)
     }
 
-    private fun selectorNodes() = rule.onAllNodesWithTag("playlist_catalog_mode_picker").fetchSemanticsNodes()
+    private fun selectorNodes() = rule.onAllNodesWithTag("playlist_view_mode_toggle").fetchSemanticsNodes()
 
     /**
      * A whole-window screenshot needs a live display. Compose can draw an offscreen capture
