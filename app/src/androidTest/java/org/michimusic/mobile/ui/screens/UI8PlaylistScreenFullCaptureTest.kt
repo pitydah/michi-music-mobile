@@ -10,11 +10,14 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -63,7 +66,7 @@ class UI8PlaylistScreenFullCaptureTest {
     fun theWholePlaylistScreenIsCapturedInBothModes() {
         outRoot.mkdirs()
         if (!manifest.exists()) {
-            manifest.writeText("mode widthDp fontScale density pxW pxH cards selectorWidthDp gapDp\n")
+            manifest.writeText("mode widthDp fontScale density pxW pxH cards selectorWidthDp selectorHeightDp gapDp\n")
         }
 
         val koin = GlobalContext.get()
@@ -142,12 +145,16 @@ class UI8PlaylistScreenFullCaptureTest {
 
         rule.waitForIdle()
         val rowsBefore = manifestRows()
-        assertEquals("the mode selector must be on screen", 1, selectorNodes().size)
-        rule.onNodeWithTag("playlist_mode_classic").performClick()
-        rule.waitForIdle()
+        assertEquals("the view mode toggle must be on screen", 1, selectorNodes().size)
+        // The toggle keeps its state in rememberSaveable, so the first capture is
+        // whatever mode the screen opened in; no extra click is needed to reach Lista.
+        // The imported banner is decoded asynchronously by Coil. Wait on the pixels
+        // themselves instead of a fixed sleep, so the capture can never claim a banner
+        // that had not been drawn yet.
+        rule.waitUntil(15_000) { bluePixels(screenshot()) > 500 }
         val listCapture = capture("lista", widthDp, fontScale)
 
-        rule.onNodeWithTag("playlist_mode_cards").performClick()
+        rule.onNodeWithTag("playlist_view_mode_toggle").performClick()
         rule.waitForIdle()
         val deckCapture = capture("tarjetas", widthDp, fontScale)
 
@@ -160,11 +167,42 @@ class UI8PlaylistScreenFullCaptureTest {
         val rows = manifestRows()
         assertEquals("manifest must describe both captures", rowsBefore + 2, rows)
         assertEquals("the Tarjetas capture must contain the deck", 1, deckCapture.cards)
+
+        // UI8-KILLCRITIC: Playlists now uses the same single-icon switch as Artists. The
+        // target is the transparent 48 dp box, so it is measured on the button itself.
+        val toggleNode = rule.onNodeWithTag("playlist_view_mode_toggle").fetchSemanticsNode().boundsInRoot
+        val createNode = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes().first().boundsInRoot
+        val density = context.resources.displayMetrics.density
+        val targetDp = toggleNode.height / density
+        val gapDp = (createNode.left - toggleNode.right) / density
+        println("PLAYLIST-TOGGLE target=${targetDp}dp gap=${gapDp}dp width=${toggleNode.width / density}dp fs=$fontScale")
+        assertTrue("the toggle target is ${targetDp}dp tall; 48 dp is required", targetDp >= 47.5f)
+        assertTrue("the toggle must sit left of create, got ${gapDp}dp", gapDp > 0f)
+        assertTrue("the gap to create is ${gapDp}dp; 8-10 dp expected", gapDp in 7.5f..10.5f)
+
+        val baseline = listOf(toggleNode.left, toggleNode.top, toggleNode.width, toggleNode.height, createNode.left)
+        repeat(10) {
+            rule.onNodeWithTag("playlist_view_mode_toggle").performClick()
+            rule.waitForIdle()
+            val moved = rule.onNodeWithTag("playlist_view_mode_toggle").fetchSemanticsNode().boundsInRoot
+            val plus = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes().first().boundsInRoot
+            assertEquals(
+                "the header must not move when the mode changes",
+                baseline,
+                listOf(moved.left, moved.top, moved.width, moved.height, plus.left),
+            )
+        }
     }
 
     private fun manifestRows(): Int = manifest.readLines().count { it.isNotBlank() }
 
-    private data class Capture(val bitmap: Bitmap, val cards: Int, val selectorWidthDp: Float, val gapDp: Float)
+    private data class Capture(
+        val bitmap: Bitmap,
+        val cards: Int,
+        val selectorWidthDp: Float,
+        val selectorHeightDp: Float,
+        val gapDp: Float,
+    )
 
     private fun capture(mode: String, widthDp: Int, fontScale: Float): Capture {
         val bitmap = screenshot()
@@ -181,16 +219,17 @@ class UI8PlaylistScreenFullCaptureTest {
         assertTrue("the selector must exist in $mode", selectorNodes.isNotEmpty())
         val selector = selectorNodes.first()
         val selectorWidth = selector.size.width / density
+        val selectorHeight = selector.size.height / density
         val createButton = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes()
         assertTrue("the create button must exist in $mode", createButton.isNotEmpty())
         val gap = (createButton.first().boundsInRoot.left - selector.boundsInRoot.right) / density
         manifest.appendText(
             "$mode\t$widthDp\t$fontScale\t$density\t${bitmap.width}\t${bitmap.height}\t" +
-                "$frontCards\t$selectorWidth\t$gap\n",
+                "$frontCards\t$selectorWidth\t$selectorHeight\t$gap\n",
         )
         println(
             "FULL-SCREEN mode=$mode width=${widthDp}dp fs=$fontScale px=${bitmap.width}x${bitmap.height} " +
-                "selector=${selectorWidth}dp gap=${gap}dp cards=$frontCards",
+                "selector=${selectorWidth}x${selectorHeight}dp gap=${gap}dp cards=$frontCards",
         )
         assertTrue("$mode at ${widthDp}dp must draw pixels", bitmap.width > 0 && bitmap.height > 0)
         assertEquals(
@@ -205,10 +244,17 @@ class UI8PlaylistScreenFullCaptureTest {
             selectorWidth + gap + createWidth <= widthDp * 0.98f,
         )
         assertTrue("the selector must sit left of the create button, gap=${gap}dp", gap > 0f)
-        return Capture(bitmap, frontCards, selectorWidth, gap)
+        // UI8-KILLCRITIC: Playlists has no capsule any more, so there is no rail width or
+        // height to certify here. The icon toggle's own target and gap are asserted in
+        // PLAYLIST-TOGGLE below, which is the contract that replaced the segmented rail.
+        assertTrue(
+            "the toggle must be a square-ish icon control, got ${selectorWidth}x${selectorHeight}dp",
+            selectorWidth <= 64f && selectorHeight >= 47f,
+        )
+        return Capture(bitmap, frontCards, selectorWidth, selectorHeight, gap)
     }
 
-    private fun selectorNodes() = rule.onAllNodesWithTag("playlist_catalog_mode_picker").fetchSemanticsNodes()
+    private fun selectorNodes() = rule.onAllNodesWithTag("playlist_view_mode_toggle").fetchSemanticsNodes()
 
     /**
      * A whole-window screenshot needs a live display. Compose can draw an offscreen capture

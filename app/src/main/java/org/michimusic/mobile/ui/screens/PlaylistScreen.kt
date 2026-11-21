@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -28,10 +27,12 @@ import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -58,8 +59,6 @@ import androidx.compose.ui.platform.LocalContext
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroFilterChip
-import org.michimusic.mobile.ui.components.AeroSegmentRail
-import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -254,7 +253,7 @@ fun PlaylistScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (playlists.isNotEmpty() && !isLoading) {
-                        PlaylistModeSelector(
+                        PlaylistViewModeToggle(
                             cardsMode = cardsMode,
                             onModeChange = { cards ->
                                 cardsMode = cards
@@ -481,41 +480,38 @@ fun PlaylistScreen(
 }
 
 /**
- * UI8-KILLCRITIC: the Lista / Tarjetas choice as a compact control for the header.
+ * UI8-KILLCRITIC: one icon for the two-mode switch, matching `ArtistViewModeToggle`.
  *
- * It is the same Aero rail and the same `AeroSegmentedChoice` items — only the outer
- * fill is dropped, so the rail measures its own two labels instead of taking the whole
- * width. The two tags and the mutually exclusive semantics are unchanged, so nothing
- * that already drives this screen has to learn a new contract.
+ * The segmented capsule was rejected after two rounds of measurement: even at 118 dp it
+ * read as a second control competing with the title. A single icon carries the same
+ * two modes with no surface of its own.
  */
 @Composable
-private fun PlaylistModeSelector(
+private fun PlaylistViewModeToggle(
     cardsMode: Boolean,
     onModeChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AeroSegmentRail(
-        // IntrinsicSize.Max is what actually bounds the rail: the labels decide the width,
-        // both segments then split it equally, and no segment can be squeezed by a sibling.
-        modifier = modifier.width(IntrinsicSize.Max).testTag("playlist_catalog_mode_picker"),
-        compact = true,
-        fillWidth = false,
-    ) {
-        AeroSegmentedChoice(
-            label = "Lista",
-            selected = !cardsMode,
-            onClick = { onModeChange(false) },
-            modifier = Modifier.weight(1f),
-            compact = true,
-            testTag = "playlist_mode_classic",
-        )
-        AeroSegmentedChoice(
-            label = "Tarjetas",
-            selected = cardsMode,
-            onClick = { onModeChange(true) },
-            modifier = Modifier.weight(1f),
-            compact = true,
-            testTag = "playlist_mode_cards",
-        )
-    }
+    // UI8-KILLCRITIC: Playlists has two modes, so it gets the same single-icon switch
+    // Artists already uses instead of a segmented capsule. The icon announces the mode
+    // the button will switch to, and the transparent 48 dp target keeps the header light.
+    MichiIconAction(
+        icon = if (cardsMode) {
+            Icons.AutoMirrored.Filled.ViewList
+        } else {
+            Icons.Default.Style
+        },
+        contentDescription = if (cardsMode) {
+            "Vista tarjetas de playlists. Cambiar a lista"
+        } else {
+            "Vista lista de playlists. Cambiar a tarjetas"
+        },
+        onClick = { onModeChange(!cardsMode) },
+        modifier = modifier,
+        tint = if (cardsMode) PrimaryPinkContainer else PureWhite,
+        iconSize = 22.dp,
+        minTargetSize = MichiSpacing.minTouchTarget,
+        testTag = "playlist_view_mode_toggle",
+    )
 }
+

@@ -5,9 +5,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -27,6 +30,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.data.cache.AppDao
 import org.michimusic.mobile.screens.PlaylistItem
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.theme.MichiTheme
@@ -45,13 +49,24 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class UI8PlaylistModeSelectorTest {
-
     @get:Rule
     val compose = createComposeRule()
 
-    private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+    private val historyDao = mockk<AppDao>(relaxed = true)
 
-    private fun render(widthDp: Int = 393, fontScale: Float = 1.0f) {
+    // One composition per test: the configuration is state-driven because the rule
+    // allows a single setContent call.
+    private val widthState = mutableStateOf(393)
+    private val scaleState = mutableStateOf(1.0f)
+
+    /**
+     * UI8-KILLCRITIC: one icon, like Artists.
+     *
+     * The segmented capsule was rejected twice: at 133 dp and again at 118 dp it still
+     * looked like a second control fighting the title. These tests pin the replacement
+     * contract — a single toggle that announces the mode it will switch to.
+     */
+    private fun render() {
         val viewModel = mockk<PlaylistsViewModel>(relaxed = true)
         every { viewModel.playlists } returns MutableStateFlow(
             listOf(
@@ -62,18 +77,15 @@ class UI8PlaylistModeSelectorTest {
         every { viewModel.isLoading } returns MutableStateFlow(false)
         every { viewModel.isCreatingPlaylist } returns MutableStateFlow(false)
         every { viewModel.createPlaylistError } returns MutableStateFlow(null)
-        val audio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        val base = Density(1f, scaleState.value)
         compose.setContent {
-            val base = LocalDensity.current
-            CompositionLocalProvider(
-                LocalDensity provides Density(base.density, fontScale),
-            ) {
+            CompositionLocalProvider(LocalDensity provides base) {
                 MichiTheme {
-                    Box(Modifier.width(widthDp.dp).height(900.dp)) {
+                    Box(Modifier.width(widthState.value.dp).height(900.dp)) {
                         PlaylistScreen(
                             onNavigateToPlaylist = {},
                             viewModel = viewModel,
-                            audioController = audio,
+                            audioController = mockk(relaxed = true),
                             historyDao = historyDao,
                         )
                     }
@@ -82,151 +94,124 @@ class UI8PlaylistModeSelectorTest {
         }
     }
 
-    private fun classic() = compose.onNodeWithTag("playlist_mode_classic")
+    private fun toggle() = compose.onNodeWithTag("playlist_view_mode_toggle")
 
-    private fun cards() = compose.onNodeWithTag("playlist_mode_cards")
+    private fun classicDescription() = "Vista lista de playlists. Cambiar a tarjetas"
+
+    private fun cardsDescription() = "Vista tarjetas de playlists. Cambiar a lista"
 
     @Test
-    fun theModeIsASingleMutuallyExclusiveChoice() {
+    fun thereIsExactlyOneViewModeButtonAndItAnnouncesTheNextMode() {
         render()
 
-        classic().assertIsSelected()
-        cards().assertIsNotSelected()
+        compose.onAllNodesWithTag("playlist_view_mode_toggle").assertCountEquals(1)
+        toggle().assertContentDescriptionEquals(classicDescription())
 
-        cards().performClick()
+        toggle().performClick()
         compose.waitForIdle()
 
-        classic().assertIsNotSelected()
-        cards().assertIsSelected()
-
-        classic().performClick()
-        compose.waitForIdle()
-
-        classic().assertIsSelected()
-        cards().assertIsNotSelected()
+        toggle().assertContentDescriptionEquals(cardsDescription())
     }
 
     @Test
-    fun pickingAModeShowsThatLayoutAndHidesTheOther() {
+    fun eachClickSwitchesExactlyOnce() {
         render()
 
-        compose.onNodeWithTag("playlist_catalog_list").assertIsDisplayed()
-
-        cards().performClick()
-        compose.waitForIdle()
-
-        compose.onNodeWithTag("playlist_catalog_cards").assertIsDisplayed()
-        assertEquals(0, compose.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().size)
-
-        classic().performClick()
-        compose.waitForIdle()
-
-        compose.onNodeWithTag("playlist_catalog_list").assertIsDisplayed()
-        assertEquals(0, compose.onAllNodesWithTag("playlist_catalog_cards").fetchSemanticsNodes().size)
+        repeat(4) { round ->
+            val expectedCards = round % 2 == 0
+            toggle().performClick()
+            compose.waitForIdle()
+            assertEquals(
+                "round $round must land on cards=$expectedCards",
+                expectedCards,
+                compose.onAllNodesWithTag("playlist_catalog_cards").fetchSemanticsNodes().isNotEmpty(),
+            )
+            assertEquals(
+                "round $round must hide the other layout",
+                !expectedCards,
+                compose.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().isNotEmpty(),
+            )
+        }
     }
 
     @Test
-    fun theOptionsAreNamedForWhatTheyShow() {
+    fun tenSwitchesKeepTheStateAndTheLayoutInStep() {
         render()
 
-        compose.onNodeWithText("Lista").assertIsDisplayed()
-        compose.onNodeWithText("Tarjetas").assertIsDisplayed()
+        repeat(10) { index ->
+            toggle().performClick()
+            compose.waitForIdle()
+            // The screen opens in Lista, so an odd number of presses lands on Tarjetas.
+            val cards = (index + 1) % 2 == 1
+            assertEquals(
+                "switch ${index + 1} must show cards=$cards",
+                cards,
+                compose.onAllNodesWithTag("playlist_catalog_cards").fetchSemanticsNodes().isNotEmpty(),
+            )
+        }
     }
 
     @Test
-    fun theSelectorSitsInTheHeaderLeftOfTheCreateButton() {
+    fun theToggleIsA48dpTargetLeftOfCreateAndNeverMoves() {
         render()
 
-        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
-            .fetchSemanticsNode().boundsInRoot
+        val toggle = toggle().fetchSemanticsNode().boundsInRoot
         val create = compose.onNodeWithContentDescription("Nueva Playlist")
             .fetchSemanticsNode().boundsInRoot
-        val summary = compose.onNodeWithTag("playlist_catalog_summary")
-            .fetchSemanticsNode().boundsInRoot
-        val root = compose.onRoot().fetchSemanticsNode().size.width
-        val selectorWidthDp = with(compose.density) { selector.width.toDp().value }
-        val rootWidthDp = with(compose.density) { root.toDp().value }
+        val targetDp = with(compose.density) { toggle.height.toDp().value }
+        val gapDp = with(compose.density) { (create.left - toggle.right).toDp().value }
+        println("PLAYLIST-TOGGLE target=${targetDp}dp gap=${gapDp}dp width=${with(compose.density) { toggle.width.toDp().value }}dp")
 
-        // Selector and "+" are one group: same band, no overlap, selector first.
-        assertTrue(
-            "the selector is not left of the create button " +
-                "(selector.right=${selector.right} create.left=${create.left})",
-            selector.right <= create.left + 0.5f,
-        )
-        assertTrue(
-            "the selector and the create button overlap vertically or horizontally",
-            selector.left < create.right && selector.top < create.bottom && create.top < selector.bottom,
-        )
-        assertTrue(
-            "the create button leaves the viewport (right=${create.right} viewport=$root)",
-            create.right <= root + 0.5f,
-        )
-        assertTrue(
-            "the selector is not compact: ${selectorWidthDp}dp of ${rootWidthDp}dp",
-            selectorWidthDp < rootWidthDp * 0.55f,
-        )
-        // It belongs to the header: above the summary/sort row, not to its own band under it.
-        assertTrue(
-            "the selector is not in the header band (selector.top=${selector.top} summary.top=${summary.top})",
-            selector.top < summary.top,
-        )
-        println(
-            "SELECTOR-GEOMETRY width=393dp fs=1.0 selector=${selectorWidthDp}dp " +
-                "gap=${with(compose.density) { (create.left - selector.right).toDp().value }}dp",
-        )
+        assertTrue("the toggle target is $targetDp dp tall; 48 dp is required", targetDp >= 48f - 0.5f)
+        assertTrue("the toggle must sit left of create, gone $gapDp dp", toggle.right <= create.left + 0.5f)
+        assertTrue("the gap to create is $gapDp dp; 8-10 dp expected", gapDp in 7.5f..10.5f)
+
+        val baseline = listOf(toggle.left, toggle.top, toggle.width, toggle.height, create.left)
+        repeat(10) {
+            toggle().performClick()
+            compose.waitForIdle()
+            val moved = toggle().fetchSemanticsNode().boundsInRoot
+            val plus = compose.onNodeWithContentDescription("Nueva Playlist")
+                .fetchSemanticsNode().boundsInRoot
+            assertEquals(
+                "the header must not move when the mode changes",
+                baseline,
+                listOf(moved.left, moved.top, moved.width, moved.height, plus.left),
+            )
+        }
     }
 
     @Test
-    fun theSelectorStaysWithTheCreateButtonAtTheSmallestWidthAndLargestScale() {
-        render(widthDp = 320, fontScale = 2.0f)
+    fun theTitlesSurviveEveryFontScale() {
+        render()
 
-        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
-            .fetchSemanticsNode().boundsInRoot
-        val create = compose.onNodeWithContentDescription("Nueva Playlist")
-            .fetchSemanticsNode().boundsInRoot
-        val summary = compose.onNodeWithTag("playlist_catalog_summary")
-            .fetchSemanticsNode().boundsInRoot
-        val root = compose.onRoot().fetchSemanticsNode().size.width
-
-        assertTrue(
-            "the selector left the viewport at 320 dp (left=${selector.left})",
-            selector.left >= -0.5f,
-        )
-        assertTrue(
-            "the create button left the viewport at 320 dp (right=${create.right} viewport=$root)",
-            create.right <= root + 0.5f,
-        )
-        assertTrue(
-            "the pair no longer fits its group: selector.right=${selector.right} create.left=${create.left}",
-            selector.right <= create.left + 0.5f,
-        )
-        assertTrue(
-            "the selector left the header band at 320 dp/2.0 " +
-                "(selector.top=${selector.top} summary.top=${summary.top})",
-            selector.top < summary.top,
-        )
-        compose.onNodeWithText("Lista").assertIsDisplayed()
-        compose.onNodeWithText("Tarjetas").assertIsDisplayed()
-
-        // The choice stays mutually exclusive at this size too.
-        classic().assertIsSelected()
-        cards().performClick()
-        compose.waitForIdle()
-        cards().assertIsSelected()
-        classic().assertIsNotSelected()
+        for (fontScale in listOf(1.0f, 1.5f, 2.0f)) {
+            scaleState.value = fontScale
+            compose.waitForIdle()
+            compose.onNodeWithText("Tus Playlists").assertIsDisplayed()
+            toggle().assertIsDisplayed()
+            compose.onNodeWithContentDescription("Nueva Playlist").assertIsDisplayed()
+        }
     }
 
     @Test
-    fun theSelectorDoesNotOwnAFullWidthRow() {
-        render(widthDp = 393, fontScale = 1.0f)
+    fun theToggleWorksAcrossTheSupportedWidths() {
+        render()
 
-        val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
-            .fetchSemanticsNode().size.width
-        val root = compose.onRoot().fetchSemanticsNode().size.width
-        assertTrue(
-            "the selector still takes ${with(compose.density) { selector.toDp().value }}dp " +
-                "of ${with(compose.density) { root.toDp().value }}dp",
-            selector < root * 0.5f,
-        )
+        for (widthDp in listOf(320, 360, 393, 430, 600)) {
+            widthState.value = widthDp
+            compose.waitForIdle()
+            toggle().assertIsDisplayed()
+            if (compose.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().isEmpty()) {
+                toggle().performClick()
+                compose.waitForIdle()
+            }
+            toggle().performClick()
+            compose.waitForIdle()
+            assertTrue(
+                "at ${widthDp}dp the cards layout must appear",
+                compose.onAllNodesWithTag("playlist_catalog_cards").fetchSemanticsNodes().isNotEmpty(),
+            )
+        }
     }
 }
