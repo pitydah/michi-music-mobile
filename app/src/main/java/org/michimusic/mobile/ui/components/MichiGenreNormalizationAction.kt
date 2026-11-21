@@ -50,9 +50,10 @@ internal object MichiGenreWriteCertification {
 }
 
 /**
- * Trigger used by the Now Playing metadata block. The editor itself is the same
- * implementation the Genres route uses through [MichiGenreNormalizationHost];
- * nothing here searches on composition or while scrolling.
+ * ME-11S: genre normalization is not a second editor. This action opens the ONE
+ * fullscreen metadata editor directly at its integrated Géneros tool, so the
+ * same draft, undo/redo history and review are shared with the rest of the file.
+ * Nothing here searches on composition or while scrolling.
  */
 @Composable
 internal fun MichiGenreNormalizationAction(
@@ -62,23 +63,24 @@ internal fun MichiGenreNormalizationAction(
     origin: MichiGenreEditorOrigin = MichiGenreEditorOrigin.NOW_PLAYING,
 ) {
     if (track.source != TrackSource.LOCAL) return
-    var open by remember(track.sourceId, track.id, track.filepath, track.size, embeddedGenres) {
-        mutableStateOf(false)
-    }
+    val editorLauncher = org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher.current
+    val rootAuthority: MusicRootAuthority = koinInject()
     TextButton(
-        onClick = { open = true },
+        onClick = {
+            editorLauncher(
+                org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
+                    sourceId = track.sourceId,
+                    trackId = track.id,
+                    scopeGeneration = rootAuthority.revision.value,
+                    origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.FILE_INFO,
+                    focusGenre = true,
+                )
+            )
+        },
         modifier = Modifier.testTag("mi23_open_genre_normalization"),
     ) {
-        Text("Revisar géneros")
+        Text("Normalizar géneros ›")
     }
-    if (!open) return
-    MichiGenreNormalizationEditor(
-        track = track,
-        embeddedGenres = embeddedGenres,
-        tagsVerified = tagsVerified,
-        origin = origin,
-        onClose = { open = false },
-    )
 }
 
 /**
@@ -424,5 +426,7 @@ internal fun evidenceUnavailableLabel(reason: ExtendedTagUnavailableReason?): St
         "Android denegó el permiso de lectura del documento."
     ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE ->
         "El proveedor de documentos no está disponible ahora mismo."
+    ExtendedTagUnavailableReason.DOCUMENT_CHANGED_DURING_READ ->
+        "El archivo cambió mientras se leían sus etiquetas. Vuelve a intentarlo."
     null -> "No se registró un motivo para esta lectura."
 }

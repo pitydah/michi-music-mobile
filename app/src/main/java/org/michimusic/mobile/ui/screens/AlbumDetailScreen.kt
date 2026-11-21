@@ -148,6 +148,7 @@ fun AlbumDetailScreen(
     val playing = resolvePlaybackPresentation(session, engine)
     val favorites: FavoritesRepository = koinInject()
     val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
+    val editorLauncher = org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher.current
     var showAlbumHideConfirm by remember(albumId, activeScope) { mutableStateOf(false) }
     var albumHideBusy by remember(albumId, activeScope) { mutableStateOf(false) }
     var albumHideError by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
@@ -160,7 +161,6 @@ fun AlbumDetailScreen(
     val allFavorite = tracks.isNotEmpty() && tracks.all { it.id in favoriteIds }
     var feedback by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var activeModal by remember(albumId, activeScope) { mutableStateOf<AlbumDetailModal?>(null) }
-    var editingAlbumMetadata by remember(albumId, activeScope) { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
     val heroLayout = albumHeroLayout(configuration.screenWidthDp, configuration.fontScale)
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
@@ -509,19 +509,21 @@ fun AlbumDetailScreen(
                 activeModal = null
                 showAlbumHideConfirm = true
             }) else null,
-            onEditAlbumMetadata = metadataEditableTracks.takeIf { it.isNotEmpty() }?.let {
+            onEditAlbumMetadata = metadataEditableTracks.takeIf { it.isNotEmpty() }?.let { editable ->
                 {
                     activeModal = null
-                    editingAlbumMetadata = true
+                    editorLauncher(
+                        org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
+                            sourceId = editable.first().sourceId,
+                            trackId = editable.first().id,
+                            scopeGeneration = rootAuthority.revision.value,
+                            origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.ALBUM,
+                            selectionIds = editable.map { it.id },
+                        )
+                    )
                 }
             },
         )
-        if (editingAlbumMetadata && metadataEditableTracks.isNotEmpty()) {
-            org.michimusic.mobile.ui.components.MichiMetadataAlbumBatchEditor(
-                tracks = metadataEditableTracks,
-                onDismiss = { editingAlbumMetadata = false },
-            )
-        }
         if (showAlbumHideConfirm) {
             org.michimusic.mobile.ui.components.LibraryHideConfirmationSheet(
                 collectionLabel = "álbum",

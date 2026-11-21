@@ -59,6 +59,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
 import org.michimusic.mobile.ui.motion.aeroTrackArtworkFallbackUri
+import org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
@@ -94,7 +95,7 @@ fun TrackActionBottomSheet(
     var hideBusy by remember(track.id) { mutableStateOf(false) }
     var hideError by remember(track.id) { mutableStateOf<String?>(null) }
     var showExtendedMetadata by remember(track.sourceId, track.id, track.filepath) { mutableStateOf(false) }
-    var editingMetadata by remember(track.sourceId, track.id, track.filepath) { mutableStateOf(false) }
+    val editorLauncher = LocalMetadataEditorLauncher.current
     val hideScope = rememberCoroutineScope()
     org.michimusic.mobile.ui.components.premium.MichiBottomSheet(
         onDismissRequest = onDismiss,
@@ -207,22 +208,40 @@ fun TrackActionBottomSheet(
             // A user gesture is the ONLY trigger for the cold Room lookup.
             // Do not attempt metadata reads on peer/remote tracks or by scrolling.
             if (track.filepath.startsWith("content://") && track.id.isNotBlank()) {
+                // One editor for every origin. The menu is dismissed before the
+                // immersive destination is pushed, so two modal surfaces never coexist.
+                TrackActionMenuItem(
+                    icon = Icons.Default.Edit,
+                    title = "Editar metadatos",
+                    tint = PrimaryPink,
+                    highlight = true,
+                    testTag = "track_menu_edit_metadata",
+                    onClick = {
+                        onDismiss()
+                        editorLauncher(
+                            org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
+                                sourceId = track.sourceId,
+                                trackId = track.id,
+                                origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.TRACK_MENU,
+                            )
+                        )
+                    },
+                )
+                Text(
+                    text = "La normalización de géneros está dentro del editor. " +
+                        "Una sola pantalla, sin hojas superpuestas.",
+                    color = PrimaryPink.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 6.dp),
+                )
                 TrackActionMenuItem(
                     icon = Icons.Default.Info,
-                    title = if (showExtendedMetadata) "Ocultar metadatos del archivo"
-                        else "Metadatos del archivo",
+                    title = if (showExtendedMetadata) "Ocultar información del archivo"
+                        else "Ver información del archivo",
                     tint = TertiaryCyan,
                     onClick = { showExtendedMetadata = !showExtendedMetadata },
                 )
                 if (showExtendedMetadata) TrackExtendedMetadataDetails(track)
-                // The workbench previews and validates a draft; it never writes the
-                // source file. The editor renders in its own sheet above this menu.
-                TrackActionMenuItem(
-                    icon = Icons.Default.Edit,
-                    title = "Editar metadatos",
-                    tint = TertiaryCyan,
-                    onClick = { editingMetadata = true },
-                )
             }
 
             if (onHideFromLibrary != null) {
@@ -274,9 +293,6 @@ fun TrackActionBottomSheet(
             Spacer(Modifier.height(32.dp))
         }
     }
-    if (editingMetadata) {
-        MichiMetadataEditorPreviewSheet(track = track, onDismiss = { editingMetadata = false })
-    }
 }
 
 @Composable
@@ -284,6 +300,8 @@ private fun TrackActionMenuItem(
     icon: ImageVector,
     title: String,
     tint: androidx.compose.ui.graphics.Color = PureWhite,
+    highlight: Boolean = false,
+    testTag: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -291,6 +309,8 @@ private fun TrackActionMenuItem(
             .fillMaxWidth()
             .height(52.dp)
             .clip(RoundedCornerShape(8.dp))
+            .then(if (highlight) Modifier.background(PrimaryPink.copy(alpha = 0.14f)) else Modifier)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -299,15 +319,24 @@ private fun TrackActionMenuItem(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = tint,
+            tint = if (highlight) PrimaryPink else tint,
             modifier = Modifier.size(22.dp),
         )
         Text(
             text = title,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = PureWhite,
+            color = if (highlight) PrimaryPink else PureWhite,
+            modifier = Modifier.weight(1f),
         )
+        if (highlight) {
+            Text(
+                text = "›",
+                style = MaterialTheme.typography.titleLarge,
+                color = PrimaryPink,
+                modifier = Modifier.padding(end = 4.dp),
+            )
+        }
     }
 }
 

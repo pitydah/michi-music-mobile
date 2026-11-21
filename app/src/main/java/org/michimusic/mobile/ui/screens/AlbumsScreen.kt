@@ -425,6 +425,7 @@ fun AlbumsScreen(
                                     onClick = { selectedTab = tab },
                                     modifier = Modifier.weight(1f),
                                     compact = true,
+                                    librarySection = true,
                                     testTag = "library_tab_${tab.name.lowercase()}",
                                 )
                             }
@@ -443,6 +444,7 @@ fun AlbumsScreen(
                             onClick = { selectedTab = tab },
                             modifier = Modifier.weight(1f),
                             compact = true,
+                            librarySection = true,
                             testTag = "library_tab_${tab.name.lowercase()}",
                         )
                     }

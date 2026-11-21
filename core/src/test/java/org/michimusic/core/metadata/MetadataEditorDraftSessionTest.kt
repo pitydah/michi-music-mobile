@@ -89,4 +89,22 @@ class MetadataEditorDraftSessionTest {
         assertTrue(a.isDirty)
         assertFalse(b.isDirty)
     }
+
+    @Test fun oneLogicalFieldEditIsOneUndoStep() {
+        var d = MetadataEditorDraftSession.start(original())
+        listOf("N", "Ne", "New", "New title").forEach { text ->
+            d = d.type(MetadataField.TITLE, listOf(text), coalesceKey = "title-session")
+        }
+        assertEquals(listOf("New title"), d.values(MetadataField.TITLE))
+        assertEquals(2, d.historyDepth)
+        assertEquals(listOf("Before"), d.undo().values(MetadataField.TITLE))
+    }
+
+    @Test fun movingToAnotherFieldStartsANewUndoStep() {
+        val d = MetadataEditorDraftSession.start(original())
+            .type(MetadataField.TITLE, listOf("New title"), coalesceKey = "title-session")
+            .type(MetadataField.ALBUM, listOf("New album"), coalesceKey = "album-session")
+            .type(MetadataField.TITLE, listOf("Newer title"), coalesceKey = "title-session")
+        assertEquals(4, d.historyDepth)
+    }
 }

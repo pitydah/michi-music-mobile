@@ -47,6 +47,7 @@ import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 
@@ -128,7 +129,7 @@ internal fun MichiMetadataArtworkLyricsSection(
         }
     }
     Column(modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(MichiSpacing.md)) {
-        Text("Inspección de arte y entradas de texto",style=MaterialTheme.typography.titleMedium)
+        Text("Inspección de arte y entradas de texto",style=MaterialTheme.typography.titleMedium,color=PureWhite)
         Text("Se leen únicamente los metadatos del documento local cuando lo solicitas. " +
             "Las imágenes y letras no se guardan ni se suben a ningún servicio.",
             style=MaterialTheme.typography.bodySmall,color=TextSecondary)
@@ -167,7 +168,7 @@ internal fun MichiMetadataArtworkLyricsSection(
                     Column(Modifier.fillMaxWidth().background(AeroGraphite,MichiShapes.md)
                         .border(1.dp,AeroHairline,MichiShapes.md).padding(MichiSpacing.md),
                         verticalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
-                        Text("Imagen ${item.ordinal+1} · ${pictureTypeName(item.info.type)}",style=MaterialTheme.typography.titleSmall)
+                        Text("Imagen ${item.ordinal+1} · ${pictureTypeName(item.info.type)}",style=MaterialTheme.typography.titleSmall,color=PureWhite)
                         MetadataEmbeddedPicture(item.image,item.info.sha256)
                         Text("${item.info.mime} · ${item.info.bytes / 1024} KiB · SHA-256 ${item.info.sha256.take(12)}…",
                             style=MaterialTheme.typography.bodySmall,color=TextSecondary)
@@ -188,7 +189,7 @@ internal fun MichiMetadataArtworkLyricsSection(
                 if(snapshot.artworks.isEmpty()) Text("Sin imágenes incrustadas comprobadas en esta lectura.",
                     color=TextSecondary,style=MaterialTheme.typography.bodySmall)
                 if(snapshot.format!=MetadataArtworkLyricsProbe.Format.FLAC) {
-                    Text("Comentarios y letras por idioma y descriptor",style=MaterialTheme.typography.titleMedium)
+                    Text("Comentarios y letras por idioma y descriptor",style=MaterialTheme.typography.titleMedium,color=PureWhite)
                     Text("Las entradas se editan por identidad exacta; no se fusionan idiomas ni se crean descriptores invisibles.",
                         style=MaterialTheme.typography.bodySmall,color=TextSecondary)
                     snapshot.texts.take(visibleTextEntries).forEach { item ->
@@ -237,7 +238,7 @@ private fun MetadataTypedTextCard(
         .border(1.dp,AeroHairline,MichiShapes.md).padding(MichiSpacing.md),
         verticalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
         Text("${if(item.identity.kind==MetadataId3DescribedTagCodec.Kind.COMMENT) "Comentario" else "Letra"} · ${item.identity.language}",
-            style=MaterialTheme.typography.titleSmall)
+            style=MaterialTheme.typography.titleSmall,color=PureWhite)
         Text("Descriptor: ${item.identity.description.ifBlank { "(sin descriptor)" }}",
             color=TextSecondary,style=MaterialTheme.typography.bodySmall)
         if(deleting) Text("Eliminar solo esta entrada — propuesta no guardada",

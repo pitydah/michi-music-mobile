@@ -68,7 +68,6 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GenreTrackActionsSheet
 import org.michimusic.mobile.ui.components.MichiGenreEditorOrigin
-import org.michimusic.mobile.ui.components.MichiGenreNormalizationHost
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
@@ -119,7 +118,7 @@ fun GenreLibraryPanel(
     // NORM-M1: per-track actions and the single editor host live at panel level so a
     // row recomposition cannot lose the selection or the exact owner receipt.
     var actionsTrack by remember { mutableStateOf<Track?>(null) }
-    var normalizationTrack by remember { mutableStateOf<Track?>(null) }
+    val editorLauncher = org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher.current
     val context = LocalContext.current
     // Both approved catalogs are read once, when the panel enters composition. They
     // are independent one-shot reads of a bounded manifest (never a media scan and
@@ -397,20 +396,23 @@ fun GenreLibraryPanel(
     // The actions sheet is closed BEFORE the editor opens: never two modal
     // containers stacked over each other.
     actionsTrack?.let { track ->
+        fun openEditor() {
+            actionsTrack = null
+            editorLauncher(
+                org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
+                    sourceId = track.sourceId,
+                    trackId = track.id,
+                    scopeGeneration = scopeGeneration,
+                    origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.GENRE_LIBRARY,
+                    focusGenre = true,
+                )
+            )
+        }
         GenreTrackActionsSheet(
             track = track,
             onDismiss = { actionsTrack = null },
-            onNormalize = {
-                actionsTrack = null
-                normalizationTrack = track
-            },
-        )
-    }
-    normalizationTrack?.let { track ->
-        MichiGenreNormalizationHost(
-            track = track,
-            origin = MichiGenreEditorOrigin.GENRES,
-            onDismiss = { normalizationTrack = null },
+            onNormalize = { openEditor() },
+            onEditMetadata = { openEditor() },
         )
     }
 }
