@@ -58,7 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroFilterChip
-import org.michimusic.mobile.ui.components.AeroSegmentRail
+import org.michimusic.mobile.ui.components.AeroMicroSegmentRail
+import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -494,19 +495,19 @@ private fun PlaylistModeSelector(
     onModeChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AeroSegmentRail(
+    AeroMicroSegmentRail(
         // IntrinsicSize.Max is what actually bounds the rail: the labels decide the width,
         // both segments then split it equally, and no segment can be squeezed by a sibling.
         modifier = modifier.width(IntrinsicSize.Max).testTag("playlist_catalog_mode_picker"),
-        compact = true,
-        fillWidth = false,
     ) {
+        // The micro treatment keeps the visible pill at 34 dp while the selectable host
+        // still reserves 48 dp, so the header control shrinks without losing the target.
         AeroSegmentedChoice(
             label = "Lista",
             selected = !cardsMode,
             onClick = { onModeChange(false) },
             modifier = Modifier.weight(1f),
-            compact = true,
+            treatment = AeroSegmentTreatment.Micro,
             testTag = "playlist_mode_classic",
         )
         AeroSegmentedChoice(
@@ -514,7 +515,7 @@ private fun PlaylistModeSelector(
             selected = cardsMode,
             onClick = { onModeChange(true) },
             modifier = Modifier.weight(1f),
-            compact = true,
+            treatment = AeroSegmentTreatment.Micro,
             testTag = "playlist_mode_cards",
         )
     }

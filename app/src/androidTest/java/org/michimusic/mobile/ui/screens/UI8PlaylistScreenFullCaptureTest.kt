@@ -10,11 +10,14 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -63,7 +66,7 @@ class UI8PlaylistScreenFullCaptureTest {
     fun theWholePlaylistScreenIsCapturedInBothModes() {
         outRoot.mkdirs()
         if (!manifest.exists()) {
-            manifest.writeText("mode widthDp fontScale density pxW pxH cards selectorWidthDp gapDp\n")
+            manifest.writeText("mode widthDp fontScale density pxW pxH cards selectorWidthDp selectorHeightDp gapDp\n")
         }
 
         val koin = GlobalContext.get()
@@ -160,11 +163,30 @@ class UI8PlaylistScreenFullCaptureTest {
         val rows = manifestRows()
         assertEquals("manifest must describe both captures", rowsBefore + 2, rows)
         assertEquals("the Tarjetas capture must contain the deck", 1, deckCapture.cards)
+
+        // UI8-KILLCRITIC: the micro control draws at its target height, so the segment
+        // rectangle the user taps is the rectangle it reports.
+        val classicTarget = rule.onNodeWithTag("playlist_mode_classic")
+            .fetchSemanticsNode().boundsInRoot
+        val targetDp = classicTarget.height / context.resources.displayMetrics.density
+        rule.onNodeWithTag("playlist_mode_classic").performClick()
+        rule.waitForIdle()
+        val targetSwitched =
+            rule.onAllNodesWithTag("playlist_catalog_list").fetchSemanticsNodes().isNotEmpty()
+        println("MICRO-TARGET targetDp=$targetDp switched=$targetSwitched width=$widthDp fs=$fontScale")
+        assertTrue("the segment target is ${targetDp}dp tall; 48 dp is required", targetDp >= 47.5f)
+        assertTrue("tapping the segment must switch back to Lista", targetSwitched)
     }
 
     private fun manifestRows(): Int = manifest.readLines().count { it.isNotBlank() }
 
-    private data class Capture(val bitmap: Bitmap, val cards: Int, val selectorWidthDp: Float, val gapDp: Float)
+    private data class Capture(
+        val bitmap: Bitmap,
+        val cards: Int,
+        val selectorWidthDp: Float,
+        val selectorHeightDp: Float,
+        val gapDp: Float,
+    )
 
     private fun capture(mode: String, widthDp: Int, fontScale: Float): Capture {
         val bitmap = screenshot()
@@ -181,16 +203,17 @@ class UI8PlaylistScreenFullCaptureTest {
         assertTrue("the selector must exist in $mode", selectorNodes.isNotEmpty())
         val selector = selectorNodes.first()
         val selectorWidth = selector.size.width / density
+        val selectorHeight = selector.size.height / density
         val createButton = rule.onAllNodesWithContentDescription("Nueva Playlist").fetchSemanticsNodes()
         assertTrue("the create button must exist in $mode", createButton.isNotEmpty())
         val gap = (createButton.first().boundsInRoot.left - selector.boundsInRoot.right) / density
         manifest.appendText(
             "$mode\t$widthDp\t$fontScale\t$density\t${bitmap.width}\t${bitmap.height}\t" +
-                "$frontCards\t$selectorWidth\t$gap\n",
+                "$frontCards\t$selectorWidth\t$selectorHeight\t$gap\n",
         )
         println(
             "FULL-SCREEN mode=$mode width=${widthDp}dp fs=$fontScale px=${bitmap.width}x${bitmap.height} " +
-                "selector=${selectorWidth}dp gap=${gap}dp cards=$frontCards",
+                "selector=${selectorWidth}x${selectorHeight}dp gap=${gap}dp cards=$frontCards",
         )
         assertTrue("$mode at ${widthDp}dp must draw pixels", bitmap.width > 0 && bitmap.height > 0)
         assertEquals(
@@ -205,7 +228,25 @@ class UI8PlaylistScreenFullCaptureTest {
             selectorWidth + gap + createWidth <= widthDp * 0.98f,
         )
         assertTrue("the selector must sit left of the create button, gap=${gap}dp", gap > 0f)
-        return Capture(bitmap, frontCards, selectorWidth, gap)
+        // UI8-KILLCRITIC: the design targets that need real text metrics. Robolectric
+        // collapses intrinsic widths, so this is the only place they can be certified.
+        assertTrue(
+            "the selector is ${selectorWidth}dp wide at fs$fontScale; 1.0x targets 110-124 dp",
+            fontScale != 1.0f || (selectorWidth in 110f..124f),
+        )
+        // UI8-KILLCRITIC: the visible height is the target height. A 34-38 dp pill was
+        // measured first, but Compose clamps an overflowing host to its parent, so the hit
+        // area shrank with the pill. The control now draws at 48 dp and shrinks by width,
+        // radius, padding and type instead.
+        assertTrue(
+            "the selector is ${selectorHeight}dp tall at fs$fontScale; the target is at least 47 dp",
+            selectorHeight >= 47f,
+        )
+        assertTrue(
+            "the gap to the create button is ${gap}dp at ${widthDp}dp; the target is 8-10 dp",
+            gap in 8f..10f,
+        )
+        return Capture(bitmap, frontCards, selectorWidth, selectorHeight, gap)
     }
 
     private fun selectorNodes() = rule.onAllNodesWithTag("playlist_catalog_mode_picker").fetchSemanticsNodes()

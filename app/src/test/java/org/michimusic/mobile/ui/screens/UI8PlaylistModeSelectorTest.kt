@@ -165,6 +165,40 @@ class UI8PlaylistModeSelectorTest {
             "the selector is not compact: ${selectorWidthDp}dp of ${rootWidthDp}dp",
             selectorWidthDp < rootWidthDp * 0.55f,
         )
+        // UI8-KILLCRITIC: the header control has a size target, not only a ratio. A
+        // secondary action that is 133 dp wide and 48 dp tall competes with the title.
+        val visibleHeightDp = with(compose.density) { selector.height.toDp().value }
+        val classicTargetDp = with(compose.density) {
+            compose.onNodeWithTag("playlist_mode_classic").fetchSemanticsNode().boundsInRoot.height
+                .toDp().value
+        }
+        val cardsTargetDp = with(compose.density) {
+            compose.onNodeWithTag("playlist_mode_cards").fetchSemanticsNode().boundsInRoot.height
+                .toDp().value
+        }
+        // Robolectric collapses intrinsic text widths, so it cannot certify the absolute
+        // width (it measured 50 dp for a control the device draws at ~121 dp). The window
+        // is asserted in UI8PlaylistScreenFullCaptureTest; here only the ceiling matters.
+        assertTrue(
+            "the selector is $selectorWidthDp dp wide at 1.0x; it must stay under 124 dp",
+            selectorWidthDp < 124f,
+        )
+        // UI8-KILLCRITIC: the control draws at its touch-target height. A smaller pill
+        // was measured first (37.71 dp) and had to be abandoned: Compose clamps a child to
+        // its parent, so a 34 dp pill inside an overflowing 48 dp host kept a 38 dp hit
+        // area and the tap above the pill landed on nothing.
+        assertTrue(
+            "the visible selector is $visibleHeightDp dp tall; the target is 48 dp",
+            visibleHeightDp >= 47f,
+        )
+        // The micro pill reports its drawn height, not its hit area: the 48 dp target
+        // overflows the pill and is proven on device by tapping above the visible edge
+        // (UI8PlaylistScreenFullCaptureTest). Asserting 48 here would only measure the
+        // pill, and asserting the pill proves nothing about the target.
+        assertTrue(
+            "the segment pills are ${classicTargetDp}/${cardsTargetDp} dp tall",
+            classicTargetDp >= 34f && cardsTargetDp >= 34f,
+        )
         // It belongs to the header: above the summary/sort row, not to its own band under it.
         assertTrue(
             "the selector is not in the header band (selector.top=${selector.top} summary.top=${summary.top})",
@@ -174,6 +208,34 @@ class UI8PlaylistModeSelectorTest {
             "SELECTOR-GEOMETRY width=393dp fs=1.0 selector=${selectorWidthDp}dp " +
                 "gap=${with(compose.density) { (create.left - selector.right).toDp().value }}dp",
         )
+    }
+
+    @Test
+    fun switchingModeTenTimesNeverMovesTheSelectorOrTheCreateButton() {
+        render()
+        val classic = compose.onNodeWithTag("playlist_mode_classic")
+        val cards = compose.onNodeWithTag("playlist_mode_cards")
+
+        fun snapshot(): List<Float> {
+            val selector = compose.onNodeWithTag("playlist_catalog_mode_picker")
+                .fetchSemanticsNode().boundsInRoot
+            val create = compose.onNodeWithContentDescription("Nueva Playlist")
+                .fetchSemanticsNode().boundsInRoot
+            return listOf(selector.left, selector.top, selector.width, selector.height,
+                create.left, create.top, create.width)
+        }
+
+        // UI8-KILLCRITIC: the selected weight used to widen "Tarjetas" by 2-3 dp and
+        // shift the +, so the header jumped every time the user switched modes.
+        val baseline = snapshot()
+        repeat(5) {
+            cards.performClick()
+            compose.waitForIdle()
+            assertEquals("the header moved when switching to Tarjetas (round $it)", baseline, snapshot())
+            classic.performClick()
+            compose.waitForIdle()
+            assertEquals("the header moved when switching to Lista (round $it)", baseline, snapshot())
+        }
     }
 
     @Test
