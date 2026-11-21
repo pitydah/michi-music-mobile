@@ -81,6 +81,7 @@ import org.michimusic.mobile.ui.components.shouldScrollNowPlaying
 import org.michimusic.mobile.ui.components.scrollArtworkHeightDp
 import org.michimusic.mobile.ui.components.decodedPcmLabel
 import org.michimusic.mobile.ui.components.QueueDialog
+import org.michimusic.mobile.ui.components.rememberIndexedNowPlayingPeople
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeSeconds
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -148,6 +149,7 @@ fun NowPlayingScreen(
 
     val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, playerState)
     val currentTrack = presentation.currentTrack
+    val indexedNowPlayingPeople = rememberIndexedNowPlayingPeople(currentTrack, presentation.isRemoteActive)
     val activeEndpoint = presentation.endpoint
     val isPlaying = presentation.isPlaying
     val positionSeconds = (presentation.position / 1000f).coerceAtLeast(0f)
@@ -425,7 +427,7 @@ fun NowPlayingScreen(
                     )
                 }
                 Text(
-                    text = currentTrack?.artist ?: "Selecciona una canción",
+                    text = indexedNowPlayingPeople?.artistsText ?: currentTrack?.artist ?: "Selecciona una canción",
                     style = MichiTypography.sectionTitle.copy(
                         fontSize = if (compactLayout) 16.sp else 18.sp,
                         lineHeight = if (compactLayout) 22.sp else 24.sp,
@@ -436,6 +438,13 @@ fun NowPlayingScreen(
                     overflow = TextOverflow.Ellipsis,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(0.86f),
+                )
+                if (indexedNowPlayingPeople != null) Text(
+                    text = "Índice local · archivo no revalidado",
+                    style = MichiTypography.microLabel,
+                    color = Color(0x99FFFFFF),
+                    maxLines = 1,
+                    modifier = Modifier.testTag("now_playing_indexed_people_notice"),
                 )
             }
 

@@ -33,6 +33,7 @@ internal fun AlbumDetailMenuSheets(
     orderedTracks: List<Track>,
     onModalChange: (AlbumDetailModal?) -> Unit,
     onHideAlbum: (() -> Unit)? = null,
+    onEditAlbumMetadata: (() -> Unit)? = null,
 ) {
     if (activeModal == AlbumDetailModal.MENU || activeModal == AlbumDetailModal.QUALITY) {
         MichiBottomSheet(onDismissRequest = { onModalChange(null) }) {
@@ -42,6 +43,7 @@ internal fun AlbumDetailMenuSheets(
                 orderedTracks = orderedTracks,
                 onModalChange = onModalChange,
                 onHideAlbum = onHideAlbum,
+                onEditAlbumMetadata = onEditAlbumMetadata,
             )
         }
     }
@@ -54,6 +56,7 @@ internal fun AlbumDetailMenuSheetContent(
     orderedTracks: List<Track>,
     onModalChange: (AlbumDetailModal?) -> Unit,
     onHideAlbum: (() -> Unit)? = null,
+    onEditAlbumMetadata: (() -> Unit)? = null,
 ) {
     when (activeModal) {
         AlbumDetailModal.QUALITY -> LazyColumn(
@@ -117,6 +120,12 @@ internal fun AlbumDetailMenuSheetContent(
             }
             TextButton(onClick = { onModalChange(albumModalForMenuAction(AlbumMenuAction.HISTORY)) }) {
                 Text("Cronología externa · MusicBrainz", color = PureWhite)
+            }
+            if (onEditAlbumMetadata != null) {
+                TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("album_metadata_editor_action"),
+                    onClick = onEditAlbumMetadata,
+                ) { Text("Editar metadatos del álbum", color = PureWhite) }
             }
             if (onHideAlbum != null) {
                 TextButton(

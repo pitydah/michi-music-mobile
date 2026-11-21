@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -93,6 +94,7 @@ fun TrackActionBottomSheet(
     var hideBusy by remember(track.id) { mutableStateOf(false) }
     var hideError by remember(track.id) { mutableStateOf<String?>(null) }
     var showExtendedMetadata by remember(track.sourceId, track.id, track.filepath) { mutableStateOf(false) }
+    var editingMetadata by remember(track.sourceId, track.id, track.filepath) { mutableStateOf(false) }
     val hideScope = rememberCoroutineScope()
     org.michimusic.mobile.ui.components.premium.MichiBottomSheet(
         onDismissRequest = onDismiss,
@@ -213,6 +215,14 @@ fun TrackActionBottomSheet(
                     onClick = { showExtendedMetadata = !showExtendedMetadata },
                 )
                 if (showExtendedMetadata) TrackExtendedMetadataDetails(track)
+                // The workbench previews and validates a draft; it never writes the
+                // source file. The editor renders in its own sheet above this menu.
+                TrackActionMenuItem(
+                    icon = Icons.Default.Edit,
+                    title = "Editar metadatos",
+                    tint = TertiaryCyan,
+                    onClick = { editingMetadata = true },
+                )
             }
 
             if (onHideFromLibrary != null) {
@@ -263,6 +273,9 @@ fun TrackActionBottomSheet(
             }
             Spacer(Modifier.height(32.dp))
         }
+    }
+    if (editingMetadata) {
+        MichiMetadataEditorPreviewSheet(track = track, onDismiss = { editingMetadata = false })
     }
 }
 

@@ -130,6 +130,11 @@ fun AlbumDetailScreen(
     val tracks = remember(album) { album?.tracks.orEmpty().distinctBy { it.id } }
     val trackPresentation = remember(tracks) { albumTrackPresentation(tracks) }
     val orderedTracks = remember(tracks) { canonicalAlbumTracks(tracks) }
+    // The batch workbench only stages private candidates for local provider-backed
+    // tracks; peer or remote rows stay out of the selection instead of failing later.
+    val metadataEditableTracks = remember(tracks) {
+        tracks.filter { it.source == TrackSource.LOCAL && it.filepath.startsWith("content://") && it.id.isNotBlank() }
+    }
     // Availability belongs to the current library snapshot. Never substitute another track.
     val eligibleTracks = remember(tracks, scoped.playableTrackIds) {
         canonicalPlayableAlbumTracks(tracks, scoped.playableTrackIds)
@@ -155,6 +160,7 @@ fun AlbumDetailScreen(
     val allFavorite = tracks.isNotEmpty() && tracks.all { it.id in favoriteIds }
     var feedback by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var activeModal by remember(albumId, activeScope) { mutableStateOf<AlbumDetailModal?>(null) }
+    var editingAlbumMetadata by remember(albumId, activeScope) { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
     val heroLayout = albumHeroLayout(configuration.screenWidthDp, configuration.fontScale)
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
@@ -503,7 +509,19 @@ fun AlbumDetailScreen(
                 activeModal = null
                 showAlbumHideConfirm = true
             }) else null,
+            onEditAlbumMetadata = metadataEditableTracks.takeIf { it.isNotEmpty() }?.let {
+                {
+                    activeModal = null
+                    editingAlbumMetadata = true
+                }
+            },
         )
+        if (editingAlbumMetadata && metadataEditableTracks.isNotEmpty()) {
+            org.michimusic.mobile.ui.components.MichiMetadataAlbumBatchEditor(
+                tracks = metadataEditableTracks,
+                onDismiss = { editingAlbumMetadata = false },
+            )
+        }
         if (showAlbumHideConfirm) {
             org.michimusic.mobile.ui.components.LibraryHideConfirmationSheet(
                 collectionLabel = "álbum",

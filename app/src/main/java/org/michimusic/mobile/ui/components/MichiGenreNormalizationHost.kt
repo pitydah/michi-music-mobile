@@ -55,6 +55,7 @@ internal fun GenreTrackActionsSheet(
     track: Track,
     onDismiss: () -> Unit,
     onNormalize: () -> Unit,
+    onEditMetadata: (() -> Unit)? = null,
 ) {
     MichiBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -92,6 +93,19 @@ internal fun GenreTrackActionsSheet(
             ) {
                 Icon(Icons.Default.EditNote, contentDescription = null, tint = PureWhite)
                 Text("Revisar géneros", color = PureWhite)
+            }
+            if (onEditMetadata != null && track.source == TrackSource.LOCAL) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget)
+                        .clickable(role = Role.Button, onClick = onEditMetadata)
+                        .testTag("genre_track_action_metadata")
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Default.EditNote, contentDescription = null, tint = PureWhite)
+                    Text("Editar metadatos · previsualización", color = PureWhite)
+                }
             }
             Text(
                 if (track.source == TrackSource.LOCAL) {
