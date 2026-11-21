@@ -1,6 +1,7 @@
 # UI8-KILLCRITIC — Playlists: Lista con tarjetas completas y selector compacto
 
 Fecha: 2026-11-20. Repositorio: `pitydah/michi-music-mobile`.
+Estado: las dos correcciones están **fusionadas en `master`** mediante el PR #28 (merge commit `d4cfd045a60cd854b2235f3b14a83d85dbf3edd8`), con CI verde en el PR y en el merge commit.
 Rama de corrección: `fix/ui8-playlists-list-and-selector` (base `master` `13469381fbd05756bcc7071b17c98d7cf25e8ac0`, que ya contiene el PR #26).
 
 Este documento cubre **solo las dos correcciones pendientes** del brief posterior al merge del PR #26. No reimplementa nada de UI8 ni del PR #26: la geometría compartida, el scrim radial, el piso de 198 dp, el mazo con `matchParentSize()`, los gestos, el movimiento reducido y los haptics se conservan tal como quedaron fusionados.
@@ -14,7 +15,7 @@ Este documento cubre **solo las dos correcciones pendientes** del brief posterio
 | HEAD de `master` al iniciar | `13469381fbd05756bcc7071b17c98d7cf25e8ac0` (merge del PR #26) |
 | Rama de corrección | `fix/ui8-playlists-list-and-selector` (única rama, ambos defectos) |
 | Rama anterior | `fix/ui8-playlists-card-parity` **no** se reutilizó (ya fusionada) |
-| PR | Uno solo, contra `master`. Sin merge automático. |
+| PR | **#28**, uno solo contra `master`; mergeado solo después de la autorización explícita del usuario. |
 | PR #27 | Documental (`docs/killcritic-merge-closure`); no se le mezcló código ni se editó su informe |
 
 ### Archivos de producción modificados
@@ -135,7 +136,7 @@ Contraste del caption re-medido tras la restauración del scrim del PR #26: 18/1
 | Accesibilidad | **80 %** | semántica, exclusividad, ≥48 dp y orden verificados por test; **falta** recorrido manual con TalkBack |
 | Compilación y tests (local) | **100 %** | suite JVM completa + 7/7 + 15/15 instrumentados |
 | Validación visual | **90 %** | 15/15 configuraciones capturadas e inspeccionadas; falta aceptación del usuario sobre el aspecto del scrim |
-| Integración en `master` | **0 %** | PR pendiente de CI y de autorización |
+| Integración en `master` | **100 %** | PR #28 mergeado en `d4cfd045`; CI 9/9 en el PR (`44786287406`) y en el merge commit (`44815894278`) |
 
 ---
 
@@ -146,3 +147,50 @@ Contraste del caption re-medido tras la restauración del scrim del PR #26: 18/1
 3. **El ancho del selector varía ~2–3 dp** según qué etiqueta esté seleccionada (ancho intrínseco del texto). Cosmético, declarado.
 4. **Arte de prueba**: los banners y covers de la matriz son PNG generados (gradientes azul y ámbar) entregados por `content://` a través del importador de producción. Prueban el camino real de importación, decodificación y dibujo, pero no sustituyen arte fotográfico.
 5. **Navegación manual en teléfono físico**: `adb shell input` está bloqueado por MIUI en el teléfono `26dfb91d` (`INJECT_EVENTS`), y el manifest no declara deep links. La pantalla real se ejerció con tests instrumentados, no con una inspección manual del dispositivo.
+
+---
+
+## §F — Cierre: PR #28 y verificación post-merge
+
+### Archivos del diff (`13469381..29bf44bd`)
+
+| Archivo | Líneas |
+|---|---|
+| `UI8_KILLCRITIC_PLAYLISTS_LIST_SELECTOR_REPORT.md` | +148 |
+| `app/src/androidTest/AndroidManifest.xml` | +9 |
+| `app/src/androidTest/.../ui/screens/ArtworkProbeProvider.java` | +128 |
+| `app/src/androidTest/.../ui/screens/UI8PlaylistScreenFullCaptureTest.kt` | +254 |
+| `app/src/main/.../ui/components/AeroSegmentedChoice.kt` | +6 / −4 |
+| `app/src/main/.../ui/screens/PlaylistCatalogComponents.kt` | +10 / −72 |
+| `app/src/main/.../ui/screens/PlaylistScreen.kt` | +118 / −68 |
+| `app/src/test/.../ui/screens/UI8PlaylistGeometryParityTest.kt` | +85 |
+| `app/src/test/.../ui/screens/UI8PlaylistListCardsTest.kt` | +328 |
+| `app/src/test/.../ui/screens/UI8PlaylistModeSelectorTest.kt` | +86 / −7 |
+
+Total: **10 archivos, +1149 / −174**.
+
+### CI
+
+| Hito | Run | Resultado |
+|---|---|---|
+| PR #28 sobre `29bf44bd` | `44786287406` | **9/9 success**, intento 1 |
+| Merge commit `d4cfd045` sobre `master` | `44815894278` | **9/9 success**, intento 1 |
+
+Los nueve jobs verdes en ambos: Lint, Unit Tests (Normal), Unit Tests (F-Droid), Room Migrations & Schemas, Build Normal, Build F-Droid, Instrumented Tests (Normal, API 36), UI7 Release Gate y Quality Gate.
+
+### Verificación en el dispositivo
+
+- Emulador `emulator-5554` (API 36, densidad 2.625, SwiftShader): `UI8PlaylistScreenFullCaptureTest` **15/15 configuraciones**, 30 capturas en `/tmp/opencode/ui8-playlist-matrix-final/`, `MATRIX_FAIL=0`.
+- `UI8VisualMatrixCaptureTest` (componentes): **7/7**.
+- Teléfono físico `26dfb91d`: **no se instaló este build**. Al cerrar este tramo el dispositivo no figuraba en `adb devices` (solo el emulador), y además `adb shell input` está bloqueado por MIUI (`INJECT_EVENTS`). Se informa como pendiente, no como verificado.
+
+### Lo que sigue sin certificar
+
+1. Contraste del caption sobre **arte fotográfico real** (la matriz usa degradados generados que pasan por el importador de producción).
+2. Fluidez del catálogo Lista con banners reales en **hardware físico**: solo hay evidencia de emulador con SwiftShader, que no mide jank.
+3. Recorrido manual con TalkBack del selector y de las tarjetas.
+4. Aceptación del usuario sobre el aspecto del scrim (ver Limitaciones, punto 1).
+
+### Estado del PR #27
+
+El PR #27 (`docs/killcritic-merge-closure`) sigue abierto y sin mergear: su CI falló por el flake conocido de los tests de Géneros UI7, no por su contenido, que es solo documental.
