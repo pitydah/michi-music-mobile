@@ -239,7 +239,8 @@ internal fun MichiMetadataEditorPreviewContent(
     val pilotArtworkBlocked = artLyrics.artwork != null || artLyrics.artworkEdit != null
     val canSave = pilotEligible && !saving && saveableReview != null &&
         fieldSummary.effectiveFields > 0 && !pilotArtworkBlocked &&
-        textEffectiveCount == 0 && provisionalCount == 0
+        textEffectiveCount == 0 && provisionalCount == 0 &&
+        stillOwnsPrivateSource() && playbackDescriptorClosed()
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     fun requestExit() {
         if (certifiedDirty || provisionalCount > 0) confirmExit = true else onDismiss()
@@ -273,6 +274,10 @@ internal fun MichiMetadataEditorPreviewContent(
     fun performPilotSave(review: MetadataReview.Ready) {
         val writer = pilotWriter ?: return
         if (saving) return
+        if (!stillOwnsPrivateSource() || !playbackDescriptorClosed()) {
+            saveMessage = "El archivo está en reproducción o cambió de propietario."
+            return
+        }
         saving = true
         saveMessage = null
         scope.launch {
