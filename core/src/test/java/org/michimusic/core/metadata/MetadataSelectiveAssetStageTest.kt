@@ -19,7 +19,8 @@ class MetadataSelectiveAssetStageTest {
         (i ushr 7 and 127).toByte(),(i and 127).toByte())
     private fun png(width:Int=16,height:Int=24, marker:Int=0):ByteArray =
         byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+
-        be(width)+be(height)+byteArrayOf(8,2,0,0,0)+ByteArray(30){marker.toByte()}
+        be(width)+be(height)+byteArrayOf(8,2,0,0,0)+ByteArray(4){marker.toByte()}+
+        be(0)+"IEND".toByteArray()+ByteArray(4){marker.toByte()}
     private fun jpeg(width:Int=12,height:Int=9):ByteArray =
         byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xc0.toByte(),0,17,8,
             (height ushr 8).toByte(),height.toByte(),(width ushr 8).toByte(),width.toByte(),3,

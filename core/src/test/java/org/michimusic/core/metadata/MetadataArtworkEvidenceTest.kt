@@ -7,8 +7,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MetadataArtworkEvidenceTest {
-    private val png = byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10) + ByteArray(36)
-    private val jpg = byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xe0.toByte(),4,3,2,0xd9.toByte())
+    private val png = byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10) +
+        word(13) + "IHDR".toByteArray() + word(1) + word(1) +
+        byteArrayOf(8,2,0,0,0) + ByteArray(4) + word(0) + "IEND".toByteArray() + ByteArray(4)
+    private val jpg = byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xc0.toByte(),
+        0,17,8,0,9,0,12,3,1,0x11,0,2,0x11,0,3,0x11,0,
+        0xff.toByte(),0xd9.toByte())
     private fun word(n:Int)=byteArrayOf((n ushr 24).toByte(),(n ushr 16).toByte(),(n ushr 8).toByte(),n.toByte())
     private fun flac(image:ByteArray=png, mime:String="image/png", w:Int=512, h:Int=512) = ByteArrayOutputStream().apply {
         write(word(3));write(word(mime.length));write(mime.toByteArray());write(word(0))
@@ -30,7 +34,8 @@ class MetadataArtworkEvidenceTest {
         assertEquals(MetadataArtworkEvidence.Format.ID3_APIC,x.format)
         assertEquals(3,x.type)
         assertEquals(jpg.size,x.bytes)
-        assertTrue(x.width==null && x.height==null)
+        assertEquals(12,x.width)
+        assertEquals(9,x.height)
     }
     @Test fun malformedFlacLengthIsRejected() {
         val bad=flac().copyOfRange(0,flac().size-1)

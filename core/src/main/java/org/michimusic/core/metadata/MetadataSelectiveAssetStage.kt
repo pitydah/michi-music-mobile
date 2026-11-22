@@ -213,7 +213,7 @@ object MetadataSelectiveAssetStage {
             val replace=when(edit) {
                 is Edit.Picture -> if(id=="APIC" && ordinal++==edit.proposal.index) {
                     found++
-                    val previous=MetadataArtworkEvidence.id3Apic(payload)
+                    val previous=MetadataArtworkEvidence.id3ApicFrame(payload, version)?.picture
                         ?:throw Rejected(Code.UNSUPPORTED_IMAGE)
                     if(previous.sha256!=edit.proposal.sourceSha256)throw Rejected(Code.OBSERVATION_CONFLICT)
                     id3Frame(id,id3ArtworkPayload(payload,edit.proposal),version)

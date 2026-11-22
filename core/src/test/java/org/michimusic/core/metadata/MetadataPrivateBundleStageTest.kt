@@ -12,7 +12,7 @@ class MetadataPrivateBundleStageTest {
     private val audio=ByteArray(700){(it*17).toByte()}
     private fun be(n:Int)=byteArrayOf((n ushr 24).toByte(),(n ushr 16).toByte(),(n ushr 8).toByte(),n.toByte())
     private fun sync(n:Int)=byteArrayOf((n ushr 21 and 127).toByte(),(n ushr 14 and 127).toByte(),(n ushr 7 and 127).toByte(),(n and 127).toByte())
-    private fun png(mark:Int=0)=byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+be(16)+be(20)+byteArrayOf(8,2,0,0,0)+ByteArray(22){mark.toByte()}
+    private fun png(mark:Int=0)=byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+be(16)+be(20)+byteArrayOf(8,2,0,0,0)+ByteArray(4){mark.toByte()}+be(0)+"IEND".toByteArray()+ByteArray(4){mark.toByte()}
     private fun frame(id:String,body:ByteArray) = id.toByteArray()+sync(body.size)+byteArrayOf(0,0)+body
     private fun tag(vararg frames:ByteArray):ByteArray {
         val body=ByteArrayOutputStream().apply { frames.forEach{write(it)};write(ByteArray(3)) }.toByteArray()

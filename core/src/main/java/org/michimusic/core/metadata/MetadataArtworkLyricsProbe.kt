@@ -89,17 +89,12 @@ object MetadataArtworkLyricsProbe {
             val payload = bytes.copyOfRange(pos+10,pos+10+size)
             if (id == "APIC") {
                 if (images.size >= MAX_ART) return Result.Blocked(Reason.TOO_MANY_IMAGES)
-                val info = MetadataArtworkEvidence.id3Apic(payload)
+                val parsed = MetadataArtworkEvidence.id3ApicFrame(payload, version)
                     ?: return Result.Blocked(Reason.ARTWORK_UNSUPPORTED)
+                val info = parsed.picture
                 // Our reader only displays a bounded image, not a decoder guarantee.
                 if (info.bytes > MAX_PICTURE_BYTES) return Result.Blocked(Reason.RESOURCE_LIMIT)
-                // The image start follows encoding, mime-NUL, picture type and description-NUL.
-                val mimeEnd = findZero(payload,1)
-                if (mimeEnd < 0 || mimeEnd + 2 >= payload.size) return Result.Blocked(Reason.INVALID_STRUCTURE)
-                val descEnd = findZero(payload,mimeEnd+2)
-                if (descEnd < 0 || descEnd+1+info.bytes != payload.size)
-                    return Result.Blocked(Reason.INVALID_STRUCTURE)
-                images += Artwork(images.size,info,payload.copyOfRange(descEnd+1,payload.size))
+                images += Artwork(images.size, info, parsed.image)
             }
             val kind = MetadataId3DescribedTagCodec.Kind.entries.firstOrNull { it.frameId == id }
             if (kind != null) {
