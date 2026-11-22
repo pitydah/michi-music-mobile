@@ -213,7 +213,14 @@ class MetadataSaveService(
             } finally { readback.delete() }
 
             val indexed = publish(sourceId, trackId, uriString, entry, review)
-            Outcome.Saved(review.proposed, indexed)
+            if (indexed) journal.completeVerified(entry.id)
+            else writeIndexReceipt(entry, review)
+            val coldSnapshot = review.proposed.copy(
+                target = review.proposed.target.copy(
+                    evidenceToken = "me13:sha256:${entry.stageSha256}",
+                ),
+            )
+            Outcome.Saved(coldSnapshot, indexed)
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -223,6 +230,24 @@ class MetadataSaveService(
             else Outcome.Failed("La escritura quedó en recuperación pendiente", true)
         } finally {
             sourceCopy.delete()
+        }
+    }
+
+    private fun writeIndexReceipt(
+        entry: MetadataRecoveryJournalV1.Entry,
+        review: MetadataReview.Ready,
+    ) {
+        val root = File(context.noBackupFilesDir, "michi-metadata-editor-v1")
+        if (!root.exists()) root.mkdirs()
+        val receipt = File(root, "index-pending-${entry.id}.txt")
+        FileOutputStream(receipt).use { out ->
+            out.write(("transactionId=${entry.id}\n" +
+                "sourceId=${entry.sourceId}\ntrackId=${entry.trackId}\n" +
+                "uri=${entry.uri}\noriginalSha256=${entry.originalSha256}\n" +
+                "candidateSha256=${entry.stageSha256}\n" +
+                "candidateBytes=${entry.stageBytes}\nformat=${entry.format}\n" +
+                "reason=NO_ROW_OR_CAS_CONFLICT\n").toByteArray())
+            out.fd.sync()
         }
     }
 

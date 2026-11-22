@@ -374,6 +374,25 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
             Files.exists(scratch.toPath(), LinkOption.NOFOLLOW_LINKS)
     }
 
+    /**
+     * Terminal cleanup after a verified physical write and coherent index CAS.
+     * Never call after an uncertain postcheck or an index-pending outcome.
+     */
+    fun completeVerified(id: String): Boolean {
+        val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
+        if (entry.id != id) return false
+        if (entry.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED) return false
+        val cleanup = entry.copy(phase = MetadataRecoveryPhase.CLEANUP_SAFE)
+        return try {
+            advance(entry, cleanup)
+            for (file in listOf(intent(entry), stage(entry), backup(entry))) {
+                if (Files.isSymbolicLink(file.toPath())) return false
+                if (file.exists() && !file.delete()) return false
+            }
+            !record.exists() || record.delete()
+        } catch (_: Exception) { false }
+    }
+
     /** No mutation is ever attempted here. Keep journal if a private delete fails. */
     fun discardPrepared(id: String): Boolean {
         val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
