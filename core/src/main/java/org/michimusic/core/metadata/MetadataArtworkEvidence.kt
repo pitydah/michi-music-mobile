@@ -113,6 +113,8 @@ object MetadataArtworkEvidence {
             if (image[at] != 0xff.toByte()) return null
             val marker = image[at + 1].toInt() and 255
             at += 2
+            // Entropy-coded data follows SOS; a marker walk cannot continue there.
+            if (marker == 0xda) return result
             if (marker == 0xd8 || marker == 0xd9 || marker == 0x01 ||
                 marker in 0xd0..0xd7) continue
             if (at + 2 > image.size) return null

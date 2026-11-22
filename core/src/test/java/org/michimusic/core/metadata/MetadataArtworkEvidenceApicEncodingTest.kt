@@ -13,8 +13,9 @@ class MetadataArtworkEvidenceApicEncodingTest {
         be(width)+be(height)+byteArrayOf(8,2,0,0,0)+ByteArray(4)+
         be(0)+"IEND".toByteArray()+ByteArray(4)
 
-    private fun apic(encoding:Int, description:ByteArray, image:ByteArray=png()):ByteArray =
-        byteArrayOf(encoding.toByte())+"image/png".toByteArray()+byteArrayOf(0,3)+
+    private fun apic(encoding:Int, description:ByteArray, image:ByteArray=png(),
+        mime:String="image/png"):ByteArray =
+        byteArrayOf(encoding.toByte())+mime.toByteArray()+byteArrayOf(0,3)+
         description+(if (encoding==0 || encoding==3) byteArrayOf(0) else byteArrayOf(0,0))+image
 
     @Test fun v23AcceptsLatin1AndUtf16Only() {
@@ -71,4 +72,12 @@ class MetadataArtworkEvidenceApicEncodingTest {
         assertEquals(1,frame.picture.width)
         assertEquals(1,frame.picture.height)
     }
+    @Test fun realJpegWithSosIsAccepted() {
+        val jpeg=java.util.Base64.getDecoder().decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAADAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxGiiitjI//9k=")
+        val frame=MetadataArtworkEvidence.id3ApicFrame(apic(3,ByteArray(0),jpeg,"image/jpeg"),4)
+        assertNotNull(frame)
+        assertEquals(2,frame!!.picture.width)
+        assertEquals(3,frame.picture.height)
+    }
+
 }
