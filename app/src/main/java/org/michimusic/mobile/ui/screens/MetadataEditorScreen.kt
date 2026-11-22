@@ -63,7 +63,6 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.cache.toTrack
-import org.michimusic.data.metadata.FileMetadataLocalDraftStore
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
 import org.michimusic.data.repository.ExtendedTagUnavailableReason
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
@@ -219,11 +218,6 @@ private fun MetadataEditorReadyContent(
     val bundle = remember(context, repository) {
         MetadataPrivateBundleCoordinator(context.applicationContext, repository)
     }
-    val draftStore = remember(context) {
-        FileMetadataLocalDraftStore(
-            File(context.applicationContext.noBackupFilesDir, "michi-metadata-drafts-v1"),
-        )
-    }
     fun authority() = MichiGenreAccessPolicy.Context(
         trackLocal = track.source == TrackSource.LOCAL,
         receiptMatches = open.get() && track.id.isNotBlank(),
@@ -255,7 +249,6 @@ private fun MetadataEditorReadyContent(
                 open.get() && MichiGenreAccessPolicy.canMutateAudioFile(authority())
             },
             currentSessionAllowsPreparation = currentSessionAllowsPreparation,
-            draftStore = draftStore,
         )
     }
 }

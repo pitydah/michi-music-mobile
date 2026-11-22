@@ -240,13 +240,6 @@ internal fun MetadataFieldShell(
                 .testTag("metadata_field_label_${field.name.lowercase()}"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(6.dp)
-                    .background(statusColor, RoundedCornerShape(50))
-                    .semantics { contentDescription = statusLabel }
-                    .testTag("metadata_field_status_${field.name.lowercase()}"),
-            )
-            Spacer(Modifier.width(7.dp))
             Text(
                 metadataFieldLabel(field),
                 style = MaterialTheme.typography.labelMedium.copy(
@@ -278,36 +271,32 @@ internal fun MetadataFieldShell(
             }
         }
         Spacer(Modifier.height(MetadataFormTokens.labelGap))
-        Column(
+        Box(
             Modifier.fillMaxWidth()
                 .heightIn(min = MetadataFormTokens.inputMinHeight)
                 .background(fill, shape)
                 .border(borderWidth, borderColor, shape)
                 .testTag("metadata_capsule_${field.name.lowercase()}")
-                .padding(
-                    horizontal = MetadataFormTokens.inputHPad,
-                    vertical = 4.dp,
-                ),
-            verticalArrangement = Arrangement.spacedBy(0.dp),
+                .padding(horizontal = MetadataFormTokens.inputHPad),
+            contentAlignment = Alignment.CenterStart,
         ) {
-            Column(Modifier.fillMaxWidth()
-                .padding(end = if (hasActions) 40.dp else 0.dp)) {
+            Column(Modifier.fillMaxWidth()) {
                 content()
-            }
-            if (statusDetail != null) {
-                Text(
-                    statusDetail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                )
-            }
-            if (errorText != null) {
-                Text(
-                    errorText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("metadata_error_${field.name.lowercase()}"),
-                )
+                if (statusDetail != null) {
+                    Text(
+                        statusDetail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                    )
+                }
+                if (errorText != null) {
+                    Text(
+                        errorText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("metadata_error_${field.name.lowercase()}"),
+                    )
+                }
             }
         }
     }

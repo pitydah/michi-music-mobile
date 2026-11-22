@@ -213,8 +213,8 @@ fun TrackActionBottomSheet(
                 TrackActionMenuItem(
                     icon = Icons.Default.Edit,
                     title = "Editar metadatos",
-                    tint = PrimaryPink,
-                    highlight = true,
+                    tint = TextSecondary,
+                    highlight = false,
                     testTag = "track_menu_edit_metadata",
                     onClick = {
                         onDismiss()
@@ -228,13 +228,6 @@ fun TrackActionBottomSheet(
                             )
                         )
                     },
-                )
-                Text(
-                    text = "La normalización de géneros está dentro del editor. " +
-                        "Una sola pantalla, sin hojas superpuestas.",
-                    color = PrimaryPink.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 6.dp),
                 )
                 TrackActionMenuItem(
                     icon = Icons.Default.Info,

@@ -66,7 +66,7 @@ internal fun MetadataEditorTopBar(
                 title,
                 style = MichiTypography.sectionTitle,
                 color = PureWhite,
-                maxLines = 2,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
             if (!subtitle.isNullOrBlank()) {

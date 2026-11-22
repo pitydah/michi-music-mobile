@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -91,6 +92,7 @@ internal fun MichiMetadataArtworkLyricsSection(
     state:MetadataArtLyricsUiState,
     onChange:(MetadataArtLyricsUiState)->Unit,
     canInspect:Boolean,
+    onInspect:()->Unit={},
     modifier:Modifier=Modifier,
 ) {
     val context=LocalContext.current
@@ -98,6 +100,7 @@ internal fun MichiMetadataArtworkLyricsSection(
     var message by remember(sourceUri) { mutableStateOf<String?>(null) }
     var pickedOrdinal by remember(sourceUri) { mutableStateOf<Int?>(null) }
     var visibleTextEntries by remember(sourceUri) { mutableStateOf(8) }
+    var showTypedEntries by remember(sourceUri) { mutableStateOf(false) }
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target=pickedOrdinal
         pickedOrdinal=null
@@ -124,103 +127,96 @@ internal fun MichiMetadataArtworkLyricsSection(
             }
             when(val candidate=MetadataArtworkReplacementPreview.review(state.inspected,target,bytes,mime)) {
                 is MetadataArtworkReplacementPreview.Result.Ready -> { message=null;onChange(state.copy(artwork=candidate.proposal)) }
-                is MetadataArtworkReplacementPreview.Result.Blocked -> message="Propuesta rechazada: ${candidate.reason.name}"
+                is MetadataArtworkReplacementPreview.Result.Blocked -> message="No se pudo usar esa imagen (${candidate.reason.name.lowercase()})."
             }
         }
     }
     Column(modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(MichiSpacing.md)) {
-        Text("Inspección de arte y entradas de texto",style=MaterialTheme.typography.titleMedium,color=PureWhite)
-        Text("Se leen únicamente los metadatos del documento local cuando lo solicitas. " +
-            "Las imágenes y letras no se guardan ni se suben a ningún servicio.",
-            style=MaterialTheme.typography.bodySmall,color=TextSecondary)
         when(val loaded=state.load) {
-            MetadataArtLyricsUiState.Load.NotRequested -> Button(
-                enabled=canInspect,
-                onClick={
-                    onChange(state.copy(load=MetadataArtLyricsUiState.Load.Loading))
-                    scope.launch {
-                        val result=MetadataArtLyricsOnDemandReader.inspect(context.contentResolver,sourceUri)
-                        onChange(when(result) {
-                            is MetadataArtLyricsOnDemandReader.Outcome.Ready -> state.copy(load=MetadataArtLyricsUiState.Load.Ready(result.snapshot),operations=emptyMap(),artwork=null)
-                            is MetadataArtLyricsOnDemandReader.Outcome.Blocked -> state.copy(load=MetadataArtLyricsUiState.Load.Blocked(result.label))
-                        })
-                    }
-                }, modifier=Modifier.fillMaxWidth().sizeIn(minHeight=48.dp)
-                    .testTag("metadata_inspect_embedded_content")) {
-                Text("Inspeccionar carátulas y letras incrustadas")
-            }
+            MetadataArtLyricsUiState.Load.NotRequested,
             MetadataArtLyricsUiState.Load.Loading -> Row(verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
                 CircularProgressIndicator(modifier=Modifier.height(20.dp))
-                Text("Leyendo cabeceras y etiquetas…")
+                Text("Leyendo carátulas y letras…",color=TextSecondary)
             }
             is MetadataArtLyricsUiState.Load.Blocked -> {
-                Text("No se pudo comprobar todo el contenido: ${loaded.message}",color=MaterialTheme.colorScheme.error)
-                TextButton(onClick={onChange(state.copy(load=MetadataArtLyricsUiState.Load.NotRequested))}) {Text("Volver a intentar")}
+                Text("No se pudo leer el contenido incrustado: ${loaded.message}",
+                    color=MaterialTheme.colorScheme.error)
+                TextButton(onClick=onInspect,modifier=Modifier.sizeIn(minHeight=48.dp)) {
+                    Text("Volver a intentar")
+                }
             }
             is MetadataArtLyricsUiState.Load.Ready -> {
                 val snapshot=loaded.snapshot
-                Text("Observación local · ${snapshot.format} · ${snapshot.artworks.size} imagen(es) · ${snapshot.texts.size} entrada(s) de texto",
-                    color=TertiaryCyan,style=MaterialTheme.typography.labelMedium)
-                Text("La observación no equivale a permiso de guardado. Imagen y texto original se conservarán hasta certificar el escritor.",
-                    color=TextSecondary,style=MaterialTheme.typography.bodySmall)
-                snapshot.artworks.forEach { item ->
-                    Column(Modifier.fillMaxWidth().background(AeroGraphite,MichiShapes.md)
-                        .border(1.dp,AeroHairline,MichiShapes.md).padding(MichiSpacing.md),
-                        verticalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
-                        Text("Imagen ${item.ordinal+1} · ${pictureTypeName(item.info.type)}",style=MaterialTheme.typography.titleSmall,color=PureWhite)
-                        MetadataEmbeddedPicture(item.image,item.info.sha256)
-                        Text("${item.info.mime} · ${item.info.bytes / 1024} KiB · SHA-256 ${item.info.sha256.take(12)}…",
-                            style=MaterialTheme.typography.bodySmall,color=TextSecondary)
-                        TextButton(onClick={pickedOrdinal=item.ordinal; picker.launch("image/*")},
-                            modifier=Modifier.sizeIn(minHeight=48.dp).testTag("metadata_replace_picture_${item.ordinal}")) {
-                            Text("Elegir sustitución…")
-                        }
-                        if(state.artwork?.index==item.ordinal) {
-                            Text("PROPUESTA · ${state.artwork.proposedMime} · ${state.artwork.proposedSize/1024} KiB",
-                                color=TertiaryCyan,style=MaterialTheme.typography.labelMedium)
-                            MetadataEmbeddedPicture(state.artwork.proposedBytes,state.artwork.proposedSha256)
-                            Text("La sustitución existe solo en memoria; no se ha preparado un archivo de salida.",
-                                style=MaterialTheme.typography.bodySmall,color=TextSecondary)
-                            TextButton(onClick={onChange(state.copy(artwork=null))}) {Text("Descartar propuesta de imagen")}
-                        }
+                val front=snapshot.artworks.firstOrNull{it.info.type==3} ?: snapshot.artworks.firstOrNull()
+                if(front!=null) {
+                    MetadataEmbeddedPicture(front.image,front.info.sha256,height=200.dp)
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                        Text("Carátula incrustada",style=MaterialTheme.typography.bodySmall,
+                            color=TextSecondary,modifier=Modifier.weight(1f))
+                        TextButton(
+                            onClick={pickedOrdinal=front.ordinal;picker.launch("image/*")},
+                            modifier=Modifier.sizeIn(minHeight=48.dp)
+                                .testTag("metadata_change_artwork"),
+                        ) { Text("Cambiar carátula") }
+                    }
+                    if(snapshot.artworks.size>1) Text(
+                        "${snapshot.artworks.size} imágenes incrustadas; se muestra la principal.",
+                        style=MaterialTheme.typography.bodySmall,color=TextSecondary)
+                    if(state.artwork?.index==front.ordinal) {
+                        Text("Nueva carátula seleccionada",color=TertiaryCyan,
+                            style=MaterialTheme.typography.labelMedium)
+                        MetadataEmbeddedPicture(state.artwork.proposedBytes,
+                            state.artwork.proposedSha256,height=140.dp)
+                        TextButton(onClick={onChange(state.copy(artwork=null))},
+                            modifier=Modifier.sizeIn(minHeight=48.dp)) {Text("Descartar propuesta")}
+                    }
+                } else {
+                    Box(Modifier.fillMaxWidth().height(160.dp).background(AeroGraphite,MichiShapes.md)
+                        .border(1.dp,AeroHairline,MichiShapes.md),
+                        contentAlignment=Alignment.Center) {
+                        Text("Sin carátula incrustada verificada",color=TextSecondary)
                     }
                 }
-                if(snapshot.artworks.isEmpty()) Text("Sin imágenes incrustadas comprobadas en esta lectura.",
-                    color=TextSecondary,style=MaterialTheme.typography.bodySmall)
-                if(snapshot.format!=MetadataArtworkLyricsProbe.Format.FLAC) {
-                    Text("Comentarios y letras por idioma y descriptor",style=MaterialTheme.typography.titleMedium,color=PureWhite)
-                    Text("Las entradas se editan por identidad exacta; no se fusionan idiomas ni se crean descriptores invisibles.",
-                        style=MaterialTheme.typography.bodySmall,color=TextSecondary)
-                    snapshot.texts.take(visibleTextEntries).forEach { item ->
-                        MetadataTypedTextCard(item,state.operations[item.identity],
-                            onText={onChange(state.replace(item.identity,it))},
-                            onClear={onChange(state.clear(item.identity))},
-                            onKeep={onChange(state.keep(item.identity))})
+                if(snapshot.texts.isNotEmpty()) {
+                    TextButton(
+                        onClick={showTypedEntries=!showTypedEntries},
+                        modifier=Modifier.sizeIn(minHeight=48.dp)
+                            .testTag("metadata_typed_text_toggle"),
+                    ) {
+                        Text(if(showTypedEntries) "Ocultar otras entradas de texto"
+                            else "Otras entradas de texto (${snapshot.texts.size})")
                     }
-                    if(snapshot.texts.size > visibleTextEntries) {
-                        TextButton(onClick={visibleTextEntries=(visibleTextEntries+8).coerceAtMost(64)},
-                            modifier=Modifier.sizeIn(minHeight=48.dp)) {
-                            Text("Mostrar más entradas (${snapshot.texts.size-visibleTextEntries} restantes)")
-                        }
+                    if(showTypedEntries) {
+                        if(snapshot.format!=MetadataArtworkLyricsProbe.Format.FLAC) {
+                            snapshot.texts.take(visibleTextEntries).forEach { item ->
+                                MetadataTypedTextCard(item,state.operations[item.identity],
+                                    onText={onChange(state.replace(item.identity,it))},
+                                    onClear={onChange(state.clear(item.identity))},
+                                    onKeep={onChange(state.keep(item.identity))})
+                            }
+                            if(snapshot.texts.size > visibleTextEntries) {
+                                TextButton(onClick={visibleTextEntries=(visibleTextEntries+8).coerceAtMost(64)},
+                                    modifier=Modifier.sizeIn(minHeight=48.dp)) {
+                                    Text("Mostrar más entradas (${snapshot.texts.size-visibleTextEntries} restantes)")
+                                }
+                            }
+                        } else Text("Las letras FLAC permanecen en el formulario de etiquetas.",
+                            color=TextSecondary,style=MaterialTheme.typography.bodySmall)
                     }
-                    if(snapshot.texts.isEmpty()) Text("No hay entradas COMM/USLT comprobadas.",
-                        color=TextSecondary,style=MaterialTheme.typography.bodySmall)
-                } else Text("Las letras FLAC permanecen en el formulario de etiquetas Vorbis.",
-                    color=TextSecondary,style=MaterialTheme.typography.bodySmall)
+                }
                 if(state.operations.isNotEmpty()) {
                     val review=state.textResult
                     Text(if(review is MetadataDescribedTextWorkbench.Result.Blocked)
-                        "Revisión bloqueada: ${review.reason.name}" else "${state.operations.size} propuesta(s) de texto para revisar",
+                        "Hay entradas de texto que necesitan corrección."
+                        else "${state.operations.size} propuesta(s) de texto",
                         color=if(review is MetadataDescribedTextWorkbench.Result.Blocked)
                             MaterialTheme.colorScheme.error else TertiaryCyan)
-                    TextButton(onClick={onChange(state.copy(operations=emptyMap()))}) {Text("Restablecer comentarios y letras")}
+                    TextButton(onClick={onChange(state.copy(operations=emptyMap()))},
+                        modifier=Modifier.sizeIn(minHeight=48.dp)) {Text("Restablecer comentarios y letras")}
                 }
             }
         }
-        if (!canInspect && state.load==MetadataArtLyricsUiState.Load.NotRequested)
-            Text("Restablece los cambios de COMENTARIO/LETRAS antes de inspeccionar entradas tipadas.",
-                color=TextSecondary,style=MaterialTheme.typography.bodySmall)
         message?.let {Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
     }
 }
@@ -265,7 +261,7 @@ private fun MetadataTypedTextCard(
 }
 
 @Composable
-private fun MetadataEmbeddedPicture(bytes:ByteArray,digest:String) {
+private fun MetadataEmbeddedPicture(bytes:ByteArray,digest:String,height:androidx.compose.ui.unit.Dp=162.dp) {
     val bitmap by produceState<ImageBitmap?>(initialValue=null,digest) {
         value=withContext(Dispatchers.Default) {
             try {
@@ -281,7 +277,7 @@ private fun MetadataEmbeddedPicture(bytes:ByteArray,digest:String) {
         }
     }
     if(bitmap!=null) Image(bitmap=bitmap!!,contentDescription="Carátula incrustada observada en el documento",
-        modifier=Modifier.fillMaxWidth().height(162.dp),contentScale=ContentScale.Fit)
+        modifier=Modifier.fillMaxWidth().height(height),contentScale=ContentScale.Fit)
     else Text("Vista previa no decodificable; los bytes originales no se han modificado.",
         color=TextSecondary,style=MaterialTheme.typography.bodySmall)
 }

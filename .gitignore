@@ -35,3 +35,5 @@ __pycache__/
 SOURCE_*.kt
 *_APPLY_LOCAL.py
 REVIEW_ONLY_*.kt
+
+/aircat-transfer/build
