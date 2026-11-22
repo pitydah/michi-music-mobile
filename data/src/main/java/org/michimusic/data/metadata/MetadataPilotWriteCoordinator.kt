@@ -19,6 +19,8 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.michimusic.core.metadata.CertifiedMetadataWriteProfile
+import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataField
@@ -40,11 +42,7 @@ class MetadataPilotWriteCoordinator(
     private val trackDao: TrackDao,
 ) {
     companion object {
-        const val FILE_PREFIX = "michi-me122-"
-        val allowedFields: Set<MetadataField> = setOf(
-            MetadataField.TITLE, MetadataField.ARTIST,
-            MetadataField.ALBUM, MetadataField.GENRE,
-        )
+        val allowedFields: Set<MetadataField> = MediaStoreMp3TextProfile.profile.supportedFields
         private const val ROOT = "michi-pilot-writes-v1"
     }
 
@@ -67,9 +65,8 @@ class MetadataPilotWriteCoordinator(
             return Eligibility.Ineligible("El archivo no pertenece a MediaStore")
         val display = query(uri, OpenableColumns.DISPLAY_NAME)
             ?: return Eligibility.Ineligible("No se puede leer el nombre del archivo")
-        if (!display.startsWith(FILE_PREFIX, ignoreCase = true) ||
-            !display.endsWith(".mp3", ignoreCase = true))
-            return Eligibility.Ineligible("Perfil piloto no admitido")
+        if (!display.endsWith(".mp3", ignoreCase = true))
+            return Eligibility.Ineligible("Solo se admiten archivos MP3 en este perfil")
         val mime = context.contentResolver.getType(uri)
         if (mime != null && mime != "audio/mpeg" && mime != "audio/mp3")
             return Eligibility.Ineligible("Contenedor no admitido")
@@ -110,6 +107,17 @@ class MetadataPilotWriteCoordinator(
             if (observed.format != MetadataArtworkLyricsProbe.Format.ID3_V23 &&
                 observed.format != MetadataArtworkLyricsProbe.Format.ID3_V24)
                 return@withContext abort(session, "Solo se admite ID3v2.3/2.4 en el piloto")
+            val container = if (observed.format == MetadataArtworkLyricsProbe.Format.ID3_V23)
+                org.michimusic.core.metadata.MetadataAudioContainer.ID3_V23
+            else org.michimusic.core.metadata.MetadataAudioContainer.ID3_V24
+            val revision = if (container ==
+                org.michimusic.core.metadata.MetadataAudioContainer.ID3_V23) 3 else 4
+            if (!MediaStoreMp3TextProfile.profile.supports(
+                    container, revision,
+                    review.diffs.mapTo(hashSetOf()) { it.field },
+                    review.diffs.filter { it.after.size > 1 }.mapTo(hashSetOf()) { it.field },
+                    artworkChanged = false,
+                )) return@withContext abort(session, "Perfil de escritura no certificado")
             val receipt = try {
                 MetadataPrivateBundleStage.stage(
                     original, candidate,

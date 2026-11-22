@@ -408,8 +408,8 @@ internal fun MichiMetadataEditorPreviewContent(
                             color = TextSecondary,
                         )
                         Text(
-                            "El perfil piloto solo admite archivos MediaStore MP3 cuyo nombre " +
-                                "empiece por michi-me122-. No se ha modificado ningún archivo.",
+                            "El perfil certificado solo admite archivos MP3 de MediaStore con " +
+                                "etiquetas ID3v2.3/2.4. No se ha modificado ningún archivo.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
