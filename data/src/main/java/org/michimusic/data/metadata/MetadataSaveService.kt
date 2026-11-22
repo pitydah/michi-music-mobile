@@ -237,18 +237,16 @@ class MetadataSaveService(
         entry: MetadataRecoveryJournalV1.Entry,
         review: MetadataReview.Ready,
     ) {
-        val root = File(context.noBackupFilesDir, "michi-metadata-editor-v1")
-        if (!root.exists()) root.mkdirs()
-        val receipt = File(root, "index-pending-${entry.id}.txt")
-        FileOutputStream(receipt).use { out ->
-            out.write(("transactionId=${entry.id}\n" +
-                "sourceId=${entry.sourceId}\ntrackId=${entry.trackId}\n" +
-                "uri=${entry.uri}\noriginalSha256=${entry.originalSha256}\n" +
-                "candidateSha256=${entry.stageSha256}\n" +
-                "candidateBytes=${entry.stageBytes}\nformat=${entry.format}\n" +
-                "reason=NO_ROW_OR_CAS_CONFLICT\n").toByteArray())
-            out.fd.sync()
-        }
+        MetadataIndexReconciliationReceipt.write(
+            File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            MetadataIndexReconciliationReceipt(
+                transactionId = entry.id, sourceId = entry.sourceId,
+                trackId = entry.trackId, uri = entry.uri,
+                originalSha256 = entry.originalSha256,
+                candidateSha256 = entry.stageSha256,
+                candidateBytes = entry.stageBytes, format = entry.format,
+            ),
+        )
     }
 
     private fun abort(entry: MetadataRecoveryJournalV1.Entry, reason: String): Outcome {
