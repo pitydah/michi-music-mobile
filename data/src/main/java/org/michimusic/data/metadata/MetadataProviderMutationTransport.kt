@@ -48,7 +48,15 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         profile: MetadataProviderRecoveryProfile.Evidence,
         checkCancellation: () -> Unit = {},
     ): Result = writeExact(entry, candidate, profile, entry.stageBytes,
-        entry.stageSha256, MetadataRecoveryPhase.MUTATING, checkCancellation)
+        entry.stageSha256, MetadataRecoveryPhase.MUTATING, checkCancellation, null)
+
+    fun overwriteWithPermit(
+        entry: MetadataRecoveryJournalV1.Entry,
+        candidate: File,
+        permit: MetadataWritePermit,
+        checkCancellation: () -> Unit = {},
+    ): Result = writeExact(entry, candidate, null, entry.stageBytes,
+        entry.stageSha256, MetadataRecoveryPhase.MUTATING, checkCancellation, permit)
 
     /**
      * ME-10R: rollback bytes can ONLY come from the journal-bound verified backup,
@@ -62,20 +70,25 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         profile: MetadataProviderRecoveryProfile.Evidence,
         checkCancellation: () -> Unit = {},
     ): Result = writeExact(entry, originalBackup, profile, entry.expectedBytes,
-        entry.originalSha256, MetadataRecoveryPhase.ROLLBACK_PENDING, checkCancellation)
+        entry.originalSha256, MetadataRecoveryPhase.ROLLBACK_PENDING, checkCancellation, null)
 
     private fun writeExact(
         entry: MetadataRecoveryJournalV1.Entry,
         candidate: File,
-        profile: MetadataProviderRecoveryProfile.Evidence,
+        profile: MetadataProviderRecoveryProfile.Evidence?,
         expectedBytes: Long,
         expectedSha256: String,
         requiredPhase: MetadataRecoveryPhase,
         checkCancellation: () -> Unit,
+        permit: MetadataWritePermit?,
     ): Result {
+        val permitted = permit != null && requiredPhase == MetadataRecoveryPhase.MUTATING &&
+            permit.matches(entry) && permit.stageBytes == expectedBytes &&
+            permit.candidateSha256 == expectedSha256
         // No caller can promote a V2 preview receipt or bypass these static gates.
-        if (!MetadataCommitCertification.mayMutateOriginal() ||
-            !MetadataProviderRecoveryProfile.permitsSourceMutation(profile))
+        if (!permitted && (!MetadataCommitCertification.mayMutateOriginal() ||
+                profile == null ||
+                !MetadataProviderRecoveryProfile.permitsSourceMutation(profile)))
             return Result.Refused(Refusal.UNCERTIFIED)
         if (entry.phase != requiredPhase)
             return Result.Refused(Refusal.NOT_MUTATING)
@@ -91,11 +104,13 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         // guessed content:// authority or a mismatched recovery profile fails.
         val sourceKind = MetadataReadAccessPolicy.classify(entry.sourceId,
             uri.scheme, uri.authority)
-        val scopeMatches = when (sourceKind) {
+        val scopeMatches = if (permitted) {
+            uri.authority == "media"
+        } else when (sourceKind) {
             MetadataReadAccessPolicy.Kind.MEDIASTORE ->
-                profile.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                profile?.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
             MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
-                profile.provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                profile?.provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
             MetadataReadAccessPolicy.Kind.REJECT -> false
         }
         if (!scopeMatches) return Result.Refused(Refusal.INVALID_SOURCE_URI)

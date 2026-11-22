@@ -86,7 +86,7 @@ import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.fieldReviewSummary
-import org.michimusic.data.metadata.MetadataPilotWriteCoordinator
+import org.michimusic.data.metadata.MetadataSaveService
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
@@ -124,7 +124,7 @@ internal fun MichiMetadataEditorPreviewContent(
     focusGenre: Boolean = false,
     partial: Boolean = false,
     artworkModel: Any? = null,
-    pilotWriter: MetadataPilotWriteCoordinator? = null,
+    pilotWriter: MetadataSaveService? = null,
     indexSourceId: String = "",
 ) {
     val target = snapshot.target
@@ -256,7 +256,7 @@ internal fun MichiMetadataEditorPreviewContent(
     }
     LaunchedEffect(pilotWriter, target.sourceId, target.trackId, target.uri, expectedFileBytes) {
         val eligibility = pilotWriter?.eligibility(target.uri)
-        pilotEligible = eligibility is MetadataPilotWriteCoordinator.Eligibility.Eligible
+        pilotEligible = eligibility is MetadataSaveService.Eligibility.Eligible
     }
     var retryPilotSave: (MetadataReview.Ready) -> Unit = {}
     val consentLauncher = rememberLauncherForActivityResult(
@@ -288,7 +288,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 expectedBytes = expectedFileBytes,
                 review = review,
             )) {
-                is MetadataPilotWriteCoordinator.Outcome.Saved -> {
+                is MetadataSaveService.Outcome.Saved -> {
                     saving = false
                     pendingReview = null
                     draft = MetadataEditorDraftSession.start(outcome.snapshot)
@@ -298,18 +298,18 @@ internal fun MichiMetadataEditorPreviewContent(
                     else "Archivo guardado y releído; biblioteca pendiente de actualizar"
                     onDirtyChanged(false)
                 }
-                is MetadataPilotWriteCoordinator.Outcome.ConsentRequired -> {
+                is MetadataSaveService.Outcome.ConsentRequired -> {
                     saving = false
                     pendingReview = review
                     consentLauncher.launch(
                         IntentSenderRequest.Builder(outcome.intent.intentSender).build(),
                     )
                 }
-                is MetadataPilotWriteCoordinator.Outcome.Blocked -> {
+                is MetadataSaveService.Outcome.Blocked -> {
                     saving = false
                     saveMessage = "No se puede guardar ahora: ${outcome.reason}."
                 }
-                is MetadataPilotWriteCoordinator.Outcome.Failed -> {
+                is MetadataSaveService.Outcome.Failed -> {
                     saving = false
                     saveMessage = if (outcome.needsRecovery)
                         "El archivo necesita recuperación. No se declara guardado."

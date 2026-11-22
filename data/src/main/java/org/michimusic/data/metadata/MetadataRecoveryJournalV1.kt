@@ -328,7 +328,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         persist(entry, initial = true)
     }
 
-    fun advance(before: Entry, next: Entry) {
+    fun advance(before: Entry, next: Entry, permit: MetadataWritePermit? = null) {
         require(before.id == next.id && before.sourceId == next.sourceId &&
             before.trackId == next.trackId && before.uri == next.uri &&
             before.expectedBytes == next.expectedBytes &&
@@ -351,7 +351,10 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         // The prepared stage exists, but no physical commit profile is certified
         // in ME-06. Explicit consent and a journal are not enough.
         if (next.phase == MetadataRecoveryPhase.MUTATING) {
-            check(MetadataCommitCertification.mayMutateOriginal()) { "SOURCE_COMMIT_NOT_CERTIFIED" }
+            val permitted = permit?.matches(before) == true
+            check(permitted || MetadataCommitCertification.mayMutateOriginal()) {
+                "SOURCE_COMMIT_NOT_CERTIFIED"
+            }
             check(privateArtifactsIntact(before)) { "PRIVATE_BACKUP_NOT_VERIFIED" }
         }
         val live = inspect() as? Inspection.Pending ?: error("JOURNAL_NOT_READABLE")

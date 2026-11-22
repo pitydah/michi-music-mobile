@@ -63,7 +63,7 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.cache.toTrack
-import org.michimusic.data.metadata.MetadataPilotWriteCoordinator
+import org.michimusic.data.metadata.MetadataSaveService
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
 import org.michimusic.data.repository.ExtendedTagUnavailableReason
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
@@ -222,7 +222,7 @@ private fun MetadataEditorReadyContent(
         MetadataPrivateBundleCoordinator(context.applicationContext, repository)
     }
     val pilotWriter = remember(context, trackDao) {
-        MetadataPilotWriteCoordinator(context.applicationContext, trackDao)
+        MetadataSaveService(context.applicationContext, trackDao)
     }
     fun authority() = MichiGenreAccessPolicy.Context(
         trackLocal = track.source == TrackSource.LOCAL,
