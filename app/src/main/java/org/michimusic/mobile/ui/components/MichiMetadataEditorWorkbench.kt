@@ -311,7 +311,8 @@ internal fun MichiMetadataEditorPreviewContent(
                 }
                 is MetadataSaveService.Outcome.RecoveryRequired -> {
                     saving = false
-                    saveMessage = "El archivo se guardó, pero falta asegurar la actualización de la biblioteca."
+                    android.util.Log.d("MichiSave", "recovery=${outcome.reason}")
+                    saveMessage = "El archivo necesita recuperación. No se declara guardado."
                 }
                 is MetadataSaveService.Outcome.Failed -> {
                     saving = false

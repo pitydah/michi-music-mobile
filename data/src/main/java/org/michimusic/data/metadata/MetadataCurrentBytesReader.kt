@@ -20,6 +20,17 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
         data class Read(val fingerprint: MetadataPhysicalOutcomePolicy.Observed) : Result
         data class Failed(val reason: Failure) : Result
     }
+
+    sealed interface PostCommitRead {
+        data class Exact(
+            val actualSize: Long,
+            val actualSha256: String,
+            val mediaStoreAdvertisedSize: Long?,
+            val mediaStoreAdvertisedModifiedAt: Long?,
+            val metadataLagObserved: Boolean,
+        ) : PostCommitRead
+        data class Rejected(val reason: String) : PostCommitRead
+    }
     private data class Stamp(val size: Long, val modified: Long)
 
     private fun stamp(uri: Uri, media: Boolean): Stamp? {
@@ -71,4 +82,59 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
           catch (_: SecurityException) { return Result.Failed(Failure.PERMISSION_DENIED) }
           catch (_: Exception) { return Result.Failed(Failure.UNREADABLE) }
     }
+    /**
+     * ME-13 P0: MediaStore may lag after rwt. Exact physical bytes win; an
+     * advertised-size mismatch is reported, never treated as a successful hash.
+     */
+    fun readCommittedCandidate(
+        sourceId: String,
+        rawUri: String,
+        expectedCandidateBytes: Long,
+        expectedCandidateSha256: String,
+        checkCancellation: () -> Unit = {},
+    ): PostCommitRead {
+        val uri = try { Uri.parse(rawUri) } catch (_: Exception) {
+            return PostCommitRead.Rejected("INVALID_URI")
+        }
+        if (uri.scheme != "content" || uri.authority != "media" ||
+            sourceId != "lib_device_local" || expectedCandidateBytes !in 1..(1024L*1024*1024))
+            return PostCommitRead.Rejected("INVALID_SOURCE")
+        val before = stamp(uri, true) ?: return PostCommitRead.Rejected("MISSING_STAMP")
+        val hash = MessageDigest.getInstance("SHA-256")
+        var actual = 0L
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val chunk = ByteArray(64 * 1024)
+                var empty = 0
+                while (true) {
+                    checkCancellation()
+                    val n = stream.read(chunk)
+                    if (n < 0) break
+                    if (n == 0) {
+                        if (++empty > 8) return PostCommitRead.Rejected("UNREADABLE")
+                        continue
+                    }
+                    empty = 0
+                    actual += n
+                    if (actual > expectedCandidateBytes)
+                        return PostCommitRead.Rejected("ACTUAL_SIZE_MISMATCH")
+                    hash.update(chunk, 0, n)
+                }
+            } ?: return PostCommitRead.Rejected("UNREADABLE")
+        } catch (cancel: CancellationException) { throw cancel }
+          catch (_: SecurityException) { return PostCommitRead.Rejected("PERMISSION_DENIED") }
+          catch (_: Exception) { return PostCommitRead.Rejected("UNREADABLE") }
+        val after = stamp(uri, true) ?: return PostCommitRead.Rejected("MISSING_STAMP")
+        if (before != after) return PostCommitRead.Rejected("STAMP_CHANGED_DURING_READ")
+        val sha = hash.digest().joinToString("") {
+            (it.toInt() and 255).toString(16).padStart(2, '0')
+        }
+        if (actual != expectedCandidateBytes)
+            return PostCommitRead.Rejected("ACTUAL_SIZE_MISMATCH")
+        if (sha != expectedCandidateSha256)
+            return PostCommitRead.Rejected("SHA_MISMATCH")
+        return PostCommitRead.Exact(actual, sha, after.size, after.modified,
+            metadataLagObserved = after.size != actual)
+    }
+
 }

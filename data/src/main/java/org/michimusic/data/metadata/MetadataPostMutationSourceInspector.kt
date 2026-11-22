@@ -41,12 +41,10 @@ internal class MetadataPostMutationSourceInspector(private val context: Context)
             MetadataPrivateSessionIdentity.digest(target) != manifest.ownerSha256)
             return@withContext Result.Blocked(Reason.OWNER_CHANGED)
         val size=manifest.candidateBytes
-        val first=bytes.read(sourceId,uri,size,checkCancellation)
-        if (first !is MetadataCurrentBytesReader.Result.Read ||
-            MetadataPhysicalOutcomePolicy.classify(
-                MetadataPhysicalOutcomePolicy.Expected(manifest.originalBytes,
-                    manifest.originalSha256,manifest.candidateBytes,manifest.candidateSha256),
-                first.fingerprint) != MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
+        val first=bytes.readCommittedCandidate(
+            sourceId,uri,manifest.candidateBytes,manifest.candidateSha256,checkCancellation,
+        )
+        if (first !is MetadataCurrentBytesReader.PostCommitRead.Exact)
             return@withContext Result.Blocked(Reason.BYTES_UNKNOWN)
         val parsed=try {
             val descriptor=context.contentResolver.openFileDescriptor(Uri.parse(uri),"r")
@@ -60,9 +58,12 @@ internal class MetadataPostMutationSourceInspector(private val context: Context)
         if (fields !is MetadataPostSourceFieldPolicy.Verdict.Compared)
             return@withContext Result.Blocked(Reason.FIELD_READBACK_FAILED)
         if (!ownerCurrent()) return@withContext Result.Blocked(Reason.OWNER_CHANGED)
-        val second=bytes.read(sourceId,uri,size,checkCancellation)
-        if (second !is MetadataCurrentBytesReader.Result.Read ||
-            second.fingerprint != first.fingerprint)
+        val second=bytes.readCommittedCandidate(
+            sourceId,uri,manifest.candidateBytes,manifest.candidateSha256,checkCancellation,
+        )
+        if (second !is MetadataCurrentBytesReader.PostCommitRead.Exact ||
+            second.actualSha256 != first.actualSha256 ||
+            second.actualSize != first.actualSize)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED_DURING_READ)
         Result.Inspected(fields.verifiedChanges)
     }

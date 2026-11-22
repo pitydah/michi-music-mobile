@@ -127,7 +127,9 @@ class MetadataSaveService(
                 if (existing.uri != uriString || existing.sourceId != sourceId ||
                     existing.trackId != trackId || existing.expectedBytes != expectedBytes ||
                     existing.phase !in setOf(MetadataRecoveryPhase.STAGE_READY,
-                        MetadataRecoveryPhase.SNAPSHOTTING, MetadataRecoveryPhase.BACKUP_DURABLE)) {
+                        MetadataRecoveryPhase.SNAPSHOTTING, MetadataRecoveryPhase.BACKUP_DURABLE,
+                        MetadataRecoveryPhase.MUTATING, MetadataRecoveryPhase.MUTATION_UNKNOWN,
+                        MetadataRecoveryPhase.POSTCHECK_VERIFIED)) {
                     return@withContext Outcome.Failed("Hay una recuperación pendiente", true)
                 }
                 entry = existing
@@ -208,6 +210,53 @@ class MetadataSaveService(
                 if (!written) {
                     journal.discardPrepared(entry.id)
                     return@withContext Outcome.Blocked("No se pudo persistir la intención")
+                }
+            }
+            if (entry.phase in setOf(MetadataRecoveryPhase.MUTATING,
+                    MetadataRecoveryPhase.MUTATION_UNKNOWN,
+                    MetadataRecoveryPhase.POSTCHECK_VERIFIED)) {
+                val revision = when (entry.format) {
+                    "ID3_V23" -> 3
+                    "ID3_V24" -> 4
+                    else -> return@withContext Outcome.RecoveryRequired("UNSUPPORTED_FORMAT")
+                }
+                val fields = review.diffs.mapTo(linkedSetOf()) { it.field }
+                val permit = MetadataWritePermit(
+                    transactionId = entry.id, sourceId = entry.sourceId,
+                    trackId = entry.trackId, uri = entry.uri,
+                    originalSha256 = entry.originalSha256,
+                    candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
+                    profileId = profile.id, evidenceId = profile.capabilityEvidenceId,
+                    container = entry.format, revision = revision, fields = fields,
+                    explicitUserAction = true,
+                )
+                val confirmed = finalization.confirm(
+                    transactionId = entry.id, target = review.proposed.target,
+                    explicitUserAction = true, ownerCurrent = { true },
+                    playbackClosed = { true }, permit = permit,
+                )
+                return@withContext when (confirmed) {
+                    is MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas -> {
+                        val postEntry = entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED)
+                        val indexed = publish(sourceId, trackId, uriString, postEntry, review)
+                        if (indexed) {
+                            journal.completeVerified(postEntry.id)
+                            Outcome.Saved(review.proposed.copy(
+                                target = review.proposed.target.copy(
+                                    evidenceToken = "me13:sha256:${postEntry.stageSha256}"),
+                            ), true)
+                        } else {
+                            val durable = writeIndexReceipt(postEntry, review)
+                            if (!durable) Outcome.RecoveryRequired("INDEX_OBLIGATION_NOT_DURABLE")
+                            else Outcome.Saved(review.proposed.copy(
+                                target = review.proposed.target.copy(
+                                    evidenceToken = "me13:sha256:${postEntry.stageSha256}"),
+                            ), false)
+                        }
+                    }
+                    is MetadataPostMutationFinalizationCoordinator.Result.Blocked ->
+                        Outcome.RecoveryRequired("${confirmed.step.name}:${confirmed.code}")
+                    else -> Outcome.RecoveryRequired("RECEIPT_GATE_NOT_CERTIFIED")
                 }
             }
             if (entry.phase != MetadataRecoveryPhase.STAGE_READY)
