@@ -65,7 +65,9 @@ class MichiMetadataEditorWorkbenchTest {
         compose.onNodeWithTag("metadata_open_private_preparation").assertDoesNotExist()
         compose.onNodeWithTag("metadata_revert_changes").assertIsNotEnabled()
         compose.onNodeWithTag("metadata_save_file").assertIsNotEnabled()
-        compose.onNodeWithText("Guardado no disponible para este perfil todavía").assertExists()
+        compose.onNodeWithText("No se puede guardar este tipo de archivo todavía").assertExists()
+        compose.onNodeWithTag("metadata_save_detail").performClick()
+        compose.onNodeWithTag("metadata_save_detail_dialog").assertExists()
     }
 
     @Test
@@ -144,7 +146,8 @@ class MichiMetadataEditorWorkbenchTest {
         setEditor(focusGenre = true)
         compose.onNodeWithTag("metadata_input_genre_0").performClick()
         compose.onNodeWithTag("metadata_add_value_genre").performClick()
-        compose.onNodeWithTag("metadata_input_genre_1").performTextInput("Coldwave")
+        compose.onNodeWithTag("metadata_pending_genre_0").performTextInput("Coldwave")
+        compose.onNodeWithTag("metadata_input_genre_1").assertExists()
         compose.onNodeWithText("Jazz; Fusion").assertExists()
         compose.onNodeWithText("Coldwave").assertExists()
         compose.onNodeWithText("1 modificado").assertExists()
@@ -271,15 +274,60 @@ class MichiMetadataEditorWorkbenchTest {
     }
 
     @Test
-    fun addFieldShowsOnlyTheRequestedRareCredit() {
+    fun addFieldSearchSelectsATypedIndependentRow() {
         setEditor()
         compose.onNodeWithTag("metadata_section_credits").performClick()
         scrollTo("+ Añadir campo")
         compose.onNodeWithTag("metadata_add_field").performClick()
+        compose.onNodeWithTag("metadata_field_search").performTextInput("arreg")
+        compose.onNodeWithTag("metadata_add_field_arranger").assertExists()
+        compose.onNodeWithTag("metadata_add_field_remixer").assertDoesNotExist()
         compose.onNodeWithTag("metadata_add_field_arranger").performClick()
         scrollTo("Arreglistas")
-        compose.onNodeWithText("Arreglistas").assertExists()
+        compose.onNodeWithTag("metadata_provisional_arranger_0").assertExists()
         compose.onNodeWithText("Remezcla").assertDoesNotExist()
+    }
+
+    @Test
+    fun addingSecondValueCreatesAnIndependentCapsuleWithoutGrowingTheFirst() {
+        val genres = MetadataSnapshot(
+            MetadataTarget("", "test", "content://fixture/test", "test-evidence"), true,
+            mapOf(
+                MetadataField.TITLE to listOf("Antes"),
+                MetadataField.GENRE to listOf("Post-Punk", "New Wave"),
+            ),
+            verifiedFields = setOf(MetadataField.TITLE, MetadataField.GENRE),
+        )
+        setEditor(genres, focusGenre = true)
+        compose.onNodeWithTag("metadata_input_genre_0").performClick()
+        val before = compose.onNodeWithTag("metadata_capsule_genre_0")
+            .fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("metadata_add_value_genre").performClick()
+        compose.onNodeWithTag("metadata_pending_genre_0").assertExists()
+        compose.onNodeWithTag("metadata_pending_genre_0").performTextInput("Coldwave")
+        compose.onNodeWithTag("metadata_capsule_genre_1").assertExists()
+        val after = compose.onNodeWithTag("metadata_capsule_genre_0")
+            .fetchSemanticsNode().boundsInRoot
+        check(kotlin.math.abs(after.height - before.height) <= 1f) {
+            "The existing capsule must not grow: before=${before.height} after=${after.height}"
+        }
+        compose.onNodeWithText("Post-Punk").assertExists()
+        compose.onNodeWithText("New Wave").assertExists()
+        compose.onNodeWithText("Coldwave").assertExists()
+    }
+
+    @Test
+    fun emptyPendingValueCanBeDiscardedWithoutAnyEffectiveChange() {
+        setEditor(focusGenre = true)
+        compose.onNodeWithTag("metadata_input_genre_0").performClick()
+        compose.onNodeWithTag("metadata_add_value_genre").performClick()
+        compose.onNodeWithTag("metadata_pending_genre_0").assertExists()
+        compose.onNodeWithText("modificado", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("metadata_save_file").assertIsNotEnabled()
+        compose.onNodeWithTag("metadata_value_menu_genre_1").performClick()
+        compose.onNodeWithTag("metadata_discard_pending_genre").performClick()
+        compose.onNodeWithTag("metadata_pending_genre_0").assertDoesNotExist()
+        compose.onNodeWithText("modificado", substring = true).assertDoesNotExist()
     }
 
     @Test

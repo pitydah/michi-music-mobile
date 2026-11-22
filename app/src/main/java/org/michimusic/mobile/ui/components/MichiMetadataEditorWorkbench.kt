@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -59,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import coil3.compose.SubcomposeAsyncImage
@@ -145,6 +147,9 @@ internal fun MichiMetadataEditorPreviewContent(
     var showStatusInfo by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(false)
     }
+    var showSaveDetail by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf(false)
+    }
     var genreFirst by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(focusGenre)
     }
@@ -161,6 +166,9 @@ internal fun MichiMetadataEditorPreviewContent(
     }
     var fieldPickerVisible by remember(section, target.evidenceToken) {
         mutableStateOf(false)
+    }
+    var fieldPickerQuery by remember(section, target.evidenceToken) {
+        mutableStateOf("")
     }
     var focusedExtraField by remember(section, target.evidenceToken) {
         mutableStateOf<MetadataField?>(null)
@@ -204,7 +212,7 @@ internal fun MichiMetadataEditorPreviewContent(
     val textEffectiveCount = (artLyrics.textResult
         as? MetadataDescribedTextWorkbench.Result.Ready)?.differences?.size ?: 0
     val effectiveEditCount = fieldSummary.effectiveFields + textEffectiveCount +
-        if (artLyrics.artwork != null) 1 else 0
+        if (artLyrics.artwork != null || artLyrics.artworkEdit != null) 1 else 0
     val canRevert = certifiedDirty || effectiveEditCount > 0 ||
         provisionalCount > 0 || artLyrics.isDirty
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -280,6 +288,34 @@ internal fun MichiMetadataEditorPreviewContent(
             lines = lines,
             tag = "metadata_status_dialog",
             onDismiss = { showStatusInfo = false },
+        )
+    }
+
+    if (showSaveDetail) {
+        AlertDialog(
+            onDismissRequest = { showSaveDetail = false },
+            title = { Text("Guardar en el archivo") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Este tipo de archivo todavía no tiene una ruta de escritura certificada.",
+                        color = TextSecondary,
+                    )
+                    Text(
+                        "No se ha modificado el archivo. Para habilitar Guardar se necesita " +
+                            "permiso exacto del proveedor, copia recuperable, journal, relectura " +
+                            "independiente y confirmación de la biblioteca.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showSaveDetail = false },
+                    modifier = Modifier.testTag("metadata_save_detail_dialog"),
+                ) { Text("Entendido") }
+            },
         )
     }
 
@@ -676,7 +712,10 @@ internal fun MichiMetadataEditorPreviewContent(
                     item(key = "add_field_${section.name}") {
                         Box(Modifier.padding(horizontal = MichiSpacing.xl)) {
                             TextButton(
-                                onClick = { fieldPickerVisible = true },
+                                onClick = {
+                                    fieldPickerQuery = ""
+                                    fieldPickerVisible = true
+                                },
                                 modifier = Modifier.sizeIn(minHeight = 48.dp)
                                     .testTag("metadata_add_field"),
                             ) { Text("+ Añadir campo", color = accent) }
@@ -684,7 +723,29 @@ internal fun MichiMetadataEditorPreviewContent(
                                 expanded = fieldPickerVisible,
                                 onDismissRequest = { fieldPickerVisible = false },
                             ) {
-                                pickerFields.forEach { field ->
+                                BasicTextField(
+                                    value = fieldPickerQuery,
+                                    onValueChange = { fieldPickerQuery = it },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = PureWhite),
+                                    cursorBrush = SolidColor(accent),
+                                    modifier = Modifier.width(280.dp).heightIn(min = 48.dp)
+                                        .padding(horizontal = 14.dp)
+                                        .testTag("metadata_field_search"),
+                                    decorationBox = { inner ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (fieldPickerQuery.isEmpty()) {
+                                                Text("Buscar etiqueta", color = TextMuted)
+                                            }
+                                            inner()
+                                        }
+                                    },
+                                )
+                                val query = fieldPickerQuery.trim()
+                                pickerFields.filter { field ->
+                                    query.isEmpty() || metadataFieldLabel(field)
+                                        .contains(query, ignoreCase = true)
+                                }.forEach { field ->
                                     DropdownMenuItem(
                                         text = { Text(metadataFieldLabel(field)) },
                                         modifier = Modifier.testTag(
@@ -736,13 +797,23 @@ internal fun MichiMetadataEditorPreviewContent(
                             .testTag("metadata_save_file"),
                     ) { Text("Guardar") }
                 }
-                Text(
-                    "Guardado no disponible para este perfil todavía",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    modifier = Modifier.fillMaxWidth()
-                        .testTag("metadata_save_unavailable"),
-                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "No se puede guardar este tipo de archivo todavía",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        modifier = Modifier.weight(1f)
+                            .testTag("metadata_save_unavailable"),
+                    )
+                    TextButton(
+                        onClick = { showSaveDetail = true },
+                        modifier = Modifier.sizeIn(minHeight = 48.dp)
+                            .testTag("metadata_save_detail"),
+                    ) { Text("Detalle") }
+                }
             }
         }
     }
@@ -1000,12 +1071,17 @@ private fun MetadataInlineField(
     var confirmDelete by remember(field, token) { mutableStateOf(false) }
     var infoVisible by remember(field, token) { mutableStateOf(false) }
     var focusRequestKey by remember(field, token) { mutableIntStateOf(0) }
+    // A new multivalue row is UI-only until it has a non-blank value. Cancelling it
+    // never creates a draft operation, an empty MetadataChange or an effective diff.
+    var pendingRow by remember(field, token) { mutableStateOf<String?>(null) }
     val focused = focusedRows.isNotEmpty()
-    val rows = when {
+    val realRows = when {
         field.multiple && values.isEmpty() -> listOf("")
         field.multiple -> values
         else -> listOf(values.firstOrNull().orEmpty())
     }
+    val pendingIndex = if (field.multiple && pendingRow != null) realRows.size else -1
+    val rows = if (pendingIndex >= 0) realRows + pendingRow.orEmpty() else realRows
     val statusLabel = when {
         provisional -> "Propuesta provisional"
         cleared -> "Eliminación pendiente"
@@ -1013,15 +1089,6 @@ private fun MetadataInlineField(
         observation == MetadataFieldObservation.VerifiedAbsent -> "Ausente comprobado"
         !editable -> "Sin verificar"
         else -> "Verificado"
-    }
-    val statusColor = when {
-        provisional -> Color(0xFFFFB3B5)
-        cleared -> MaterialTheme.colorScheme.error
-        observation is MetadataFieldObservation.Conflicted -> MaterialTheme.colorScheme.error
-        !editable -> TextMuted
-        field in draft.editedFields -> accent
-        observation == MetadataFieldObservation.VerifiedAbsent -> TextMuted
-        else -> TertiaryCyan
     }
     fun emitCoalesced(next: List<String>) {
         if (provisional) onProvisionalChange(next)
@@ -1031,24 +1098,42 @@ private fun MetadataInlineField(
         if (provisional) onProvisionalChange(next) else onDraftChange(draft.type(field, next))
     }
     fun focusBack() { focusRequestKey++ }
+    fun changeRow(index: Int, changed: String) {
+        if (index == pendingIndex) {
+            if (changed.isBlank()) {
+                pendingRow = changed
+            } else {
+                pendingRow = null
+                emitCoalesced(realRows + changed)
+            }
+        } else {
+            emitCoalesced(realRows.toMutableList().also { it[index] = changed })
+        }
+    }
     val hasActions = focused || menuOpen || cleared ||
         field in draft.editedFields ||
         (provisional && values.any(String::isNotBlank))
-    val canAddValue = field.multiple && (editable || provisional) && rows.size < 32 &&
-        values.any(String::isNotBlank)
+    val canAddValue = field.multiple && (editable || provisional) && pendingRow == null &&
+        realRows.size < 32 && values.any(String::isNotBlank)
 
-    MetadataFieldShell(
-        field = field,
-        statusLabel = statusLabel,
-        statusColor = statusColor,
-        focused = focused,
-        modified = field in draft.editedFields,
-        errorText = error?.let(::metadataDraftErrorLabel),
-        modifier = modifier,
-        hasActions = hasActions,
-        statusDetail = null,
-        showStatusText = false,
-        actions = {
+    Column(modifier.testTag("metadata_field_${field.name.lowercase()}")) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp).heightIn(min = 24.dp)
+                .testTag("metadata_field_label_${field.name.lowercase()}"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                metadataFieldLabel(field),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                ),
+                fontWeight = FontWeight.Medium,
+                color = if (focused) PureWhite else TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             if (hasActions) {
                 IconButton(
                     onClick = { menuOpen = true },
@@ -1102,82 +1187,92 @@ private fun MetadataInlineField(
                     }
                 }
             }
-        },
-    ) {
-        when {
-            !editable && !canPropose -> {
-                Text(
-                    "Sin verificar · no disponible para edición",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                )
+        }
+        Spacer(Modifier.height(MetadataFormTokens.labelGap))
+        if (!editable && !canPropose) {
+            Text(
+                "Sin verificar · no disponible para edición",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        } else if (cleared) {
+            Text(
+                "Se eliminará esta etiqueta cuando guardes.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs)) {
+                TextButton(onClick = {
+                    onDraftChange(draft.keep(field))
+                    focusBack()
+                }, modifier = Modifier.sizeIn(minHeight = 48.dp)) { Text("Conservar original") }
+                TextButton(onClick = {
+                    onDraftChange(draft.type(field, listOf("")))
+                    focusBack()
+                }, modifier = Modifier.sizeIn(minHeight = 48.dp)) { Text("Escribir otro valor") }
             }
-            cleared -> {
-                Text(
-                    "Se eliminará esta etiqueta cuando guardes.",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs)) {
-                    TextButton(onClick = {
-                        onDraftChange(draft.keep(field))
-                        focusBack()
-                    }, modifier = Modifier.sizeIn(minHeight = 48.dp)) { Text("Conservar original") }
-                    TextButton(onClick = {
-                        onDraftChange(draft.type(field, listOf("")))
-                        focusBack()
-                    }, modifier = Modifier.sizeIn(minHeight = 48.dp)) { Text("Escribir otro valor") }
-                }
-            }
-            else -> {
-                rows.forEachIndexed { index, value ->
-                    if (index > 0) Spacer(Modifier.height(6.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
-                    ) {
-                        MetadataInlineValueField(
-                            field = field,
-                            value = value,
-                            index = index,
-                            tag = if (provisional) {
-                                "metadata_provisional_${field.name.lowercase()}_$index"
-                            } else {
-                                "metadata_input_${field.name.lowercase()}_$index"
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = editable || provisional,
-                            autoFocus = (autoFocusField || focusGenre) && index == 0,
-                            focusRequestKey = if (index == rows.lastIndex) focusRequestKey else 0,
-                            placeholder = if (field in setOf(
-                                MetadataField.RELEASE_DATE,
-                                MetadataField.ORIGINAL_RELEASE_DATE,
-                                MetadataField.RECORDING_DATE,
-                            )) "AAAA-MM-DD" else metadataFieldPlaceholder(field),
-                            onFocusChanged = { isFocused ->
-                                focusedRows = if (isFocused) focusedRows + index
-                                else focusedRows - index
-                            },
-                            onValueChange = { changed ->
-                                emitCoalesced(rows.toMutableList().also { it[index] = changed })
-                            },
-                        )
-                        if (field.multiple && (focusedRows.contains(index) || valueMenuIndex == index)) {
-                            IconButton(
-                                onClick = { valueMenuIndex = index },
-                                modifier = Modifier.size(48.dp)
-                                    .testTag("metadata_value_menu_${field.name.lowercase()}_$index"),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.MoreVert,
-                                    contentDescription = "Acciones del valor ${index + 1} de ${metadataFieldLabel(field)}",
-                                    tint = TextSecondary,
+        } else {
+            rows.forEachIndexed { index, value ->
+                if (index > 0) Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
+                ) {
+                    MetadataValueCapsule(
+                        field = field,
+                        value = value,
+                        index = index,
+                        tag = when {
+                            index == pendingIndex ->
+                                "metadata_pending_${field.name.lowercase()}_0"
+                            provisional -> "metadata_provisional_${field.name.lowercase()}_$index"
+                            else -> "metadata_input_${field.name.lowercase()}_$index"
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = editable || provisional,
+                        autoFocus = (autoFocusField || focusGenre) && index == 0,
+                        focusRequestKey = if (index == (if (pendingIndex >= 0) pendingIndex else rows.lastIndex)) {
+                            focusRequestKey
+                        } else 0,
+                        placeholder = if (field in setOf(
+                            MetadataField.RELEASE_DATE,
+                            MetadataField.ORIGINAL_RELEASE_DATE,
+                            MetadataField.RECORDING_DATE,
+                        )) "AAAA-MM-DD" else metadataFieldPlaceholder(field),
+                        focused = focusedRows.contains(index),
+                        modified = field in draft.editedFields,
+                        onFocusChanged = { isFocused ->
+                            focusedRows = if (isFocused) focusedRows + index
+                            else focusedRows - index
+                        },
+                        onValueChange = { changed -> changeRow(index, changed) },
+                    )
+                    if (focusedRows.contains(index) || valueMenuIndex == index) {
+                        IconButton(
+                            onClick = { valueMenuIndex = index },
+                            modifier = Modifier.size(48.dp)
+                                .testTag("metadata_value_menu_${field.name.lowercase()}_$index"),
+                        ) {
+                            Icon(
+                                Icons.Outlined.MoreVert,
+                                contentDescription = "Acciones del valor ${index + 1} de ${metadataFieldLabel(field)}",
+                                tint = TextSecondary,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = valueMenuIndex == index,
+                            onDismissRequest = { valueMenuIndex = null },
+                        ) {
+                            if (index == pendingIndex) {
+                                DropdownMenuItem(
+                                    text = { Text("Descartar fila nueva") },
+                                    modifier = Modifier.testTag("metadata_discard_pending_${field.name.lowercase()}"),
+                                    onClick = {
+                                        valueMenuIndex = null
+                                        pendingRow = null
+                                    },
                                 )
-                            }
-                            DropdownMenu(
-                                expanded = valueMenuIndex == index,
-                                onDismissRequest = { valueMenuIndex = null },
-                            ) {
+                            } else {
                                 DropdownMenuItem(
                                     text = { Text("Quitar este valor") },
                                     modifier = Modifier.testTag("metadata_remove_${field.name.lowercase()}_$index"),
@@ -1187,46 +1282,57 @@ private fun MetadataInlineField(
                                         focusBack()
                                     },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Subir") },
-                                    enabled = index > 0,
-                                    onClick = {
-                                        val next = rows.toMutableList()
-                                        val previous = next[index - 1]
-                                        next[index - 1] = next[index]
-                                        next[index] = previous
-                                        valueMenuIndex = null
-                                        emitImmediate(next)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Bajar") },
-                                    enabled = index < rows.lastIndex,
-                                    onClick = {
-                                        val next = rows.toMutableList()
-                                        val following = next[index + 1]
-                                        next[index + 1] = next[index]
-                                        next[index] = following
-                                        valueMenuIndex = null
-                                        emitImmediate(next)
-                                    },
-                                )
+                                if (field.multiple) {
+                                    DropdownMenuItem(
+                                        text = { Text("Subir") },
+                                        enabled = index > 0,
+                                        onClick = {
+                                            val next = realRows.toMutableList()
+                                            val previous = next[index - 1]
+                                            next[index - 1] = next[index]
+                                            next[index] = previous
+                                            valueMenuIndex = null
+                                            emitImmediate(next)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Bajar") },
+                                        enabled = index < realRows.lastIndex,
+                                        onClick = {
+                                            val next = realRows.toMutableList()
+                                            val following = next[index + 1]
+                                            next[index + 1] = next[index]
+                                            next[index] = following
+                                            valueMenuIndex = null
+                                            emitImmediate(next)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+            if (canAddValue) {
+                TextButton(
+                    onClick = {
+                        pendingRow = ""
+                        focusBack()
+                    },
+                    modifier = Modifier.padding(start = 4.dp).sizeIn(minHeight = 48.dp)
+                        .testTag("metadata_add_value_${field.name.lowercase()}"),
+                ) { Text("+ Otro valor", color = accent) }
+            }
         }
-    }
-    if (canAddValue) {
-        TextButton(
-            onClick = {
-                emitImmediate(rows + "")
-                focusBack()
-            },
-            modifier = modifier.padding(start = 4.dp).sizeIn(minHeight = 48.dp)
-                .testTag("metadata_add_value_${field.name.lowercase()}"),
-        ) { Text("+ Añadir", color = accent) }
+        if (error != null) {
+            Text(
+                metadataDraftErrorLabel(error),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 4.dp)
+                    .testTag("metadata_error_${field.name.lowercase()}"),
+            )
+        }
     }
     if (confirmDelete) {
         AlertDialog(
@@ -1269,12 +1375,62 @@ private fun MetadataInlineField(
         }
         MetadataEvidenceDialog(
             title = metadataFieldLabel(field),
-            lines = listOfNotNull(
-                "Estado: $statusLabel",
-                reason,
-            ),
+            lines = listOfNotNull("Estado: $statusLabel", reason),
             tag = "metadata_field_info_${field.name.lowercase()}",
             onDismiss = { infoVisible = false; focusBack() },
+        )
+    }
+}
+
+@Composable
+private fun MetadataValueCapsule(
+    field: MetadataField,
+    value: String,
+    index: Int,
+    tag: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+    autoFocus: Boolean,
+    focusRequestKey: Int,
+    placeholder: String,
+    focused: Boolean,
+    modified: Boolean,
+    onFocusChanged: (Boolean) -> Unit,
+    onValueChange: (String) -> Unit,
+) {
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val shape = RoundedCornerShape(MetadataFormTokens.inputRadius)
+    val fill = if (highContrast) MaterialTheme.colorScheme.surfaceContainerHigh else AeroGraphite
+    val neutralBorder = if (highContrast) MaterialTheme.colorScheme.outline
+    else AeroHairline
+    val borderColor = when {
+        focused -> PrimaryPinkContainer
+        modified -> PrimaryPinkContainer.copy(alpha = 0.34f)
+        else -> neutralBorder
+    }
+    Box(
+        modifier.heightIn(min = MetadataFormTokens.inputMinHeight)
+            .background(fill, shape)
+            .border(if (focused) 1.5.dp else 1.dp, borderColor, shape)
+            .testTag(
+                if (field.multiple) "metadata_capsule_${field.name.lowercase()}_$index"
+                else "metadata_capsule_${field.name.lowercase()}",
+            )
+            .padding(horizontal = MetadataFormTokens.inputHPad),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        MetadataInlineValueField(
+            field = field,
+            value = value,
+            index = index,
+            tag = tag,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            autoFocus = autoFocus,
+            focusRequestKey = focusRequestKey,
+            placeholder = placeholder,
+            onFocusChanged = onFocusChanged,
+            onValueChange = onValueChange,
         )
     }
 }
