@@ -45,6 +45,7 @@ class MetadataSaveService(
         data class Saved(val snapshot: MetadataSnapshot, val indexPublished: Boolean) : Outcome
         data class ConsentRequired(val intent: PendingIntent) : Outcome
         data class Blocked(val reason: String) : Outcome
+        data class RecoveryRequired(val reason: String) : Outcome
         data class Failed(val reason: String, val needsRecovery: Boolean) : Outcome
     }
 
@@ -139,9 +140,27 @@ class MetadataSaveService(
                 if (intent.candidateSha256 != entry.stageSha256 ||
                     intent.originalSha256 != entry.originalSha256 ||
                     intent.candidateBytes != entry.stageBytes ||
-                    intent.changes.map { it.field } != pendingFields)
+                    intent.changes.map { it.field } != pendingFields ||
+                    intent.container != observed.format.toContainer() ||
+                    intent.provider != MetadataDocumentProvider.MEDIASTORE ||
+                    intent.ownerSha256 !=
+                    org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
+                        review.original.target,
+                    ))
                     return@withContext Outcome.Blocked(
                         "La revisión cambió desde la preparación; no se reanuda",
+                    )
+                val changed = review.diffs.associateBy { it.field }
+                if (intent.changes.any { change ->
+                        val diff = changed[change.field]
+                            ?: return@withContext Outcome.Blocked("La revisión no coincide")
+                        MetadataCommitIntentManifest.valuesDigest(diff.before) !=
+                            change.beforeSha256 ||
+                            MetadataCommitIntentManifest.valuesDigest(diff.after) !=
+                            change.afterSha256
+                    })
+                    return@withContext Outcome.Blocked(
+                        "El valor revisado no coincide con la intención persistida",
                     )
             } else {
                 entry = MetadataRecoveryJournalV1.Entry(
@@ -247,14 +266,25 @@ class MetadataSaveService(
             } finally { readback.delete() }
 
             val indexed = publish(sourceId, trackId, uriString, entry, review)
-            if (indexed) journal.completeVerified(entry.id)
-            else writeIndexReceipt(entry, review)
+            if (indexed) {
+                journal.completeVerified(entry.id)
+                val coldSnapshot = review.proposed.copy(
+                    target = review.proposed.target.copy(
+                        evidenceToken = "me13:sha256:${entry.stageSha256}",
+                    ),
+                )
+                return@withContext Outcome.Saved(coldSnapshot, true)
+            }
+            val durable = writeIndexReceipt(entry, review)
+            if (!durable) return@withContext Outcome.RecoveryRequired(
+                "INDEX_OBLIGATION_NOT_DURABLE",
+            )
             val coldSnapshot = review.proposed.copy(
                 target = review.proposed.target.copy(
                     evidenceToken = "me13:sha256:${entry.stageSha256}",
                 ),
             )
-            Outcome.Saved(coldSnapshot, indexed)
+            Outcome.Saved(coldSnapshot, false)
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -270,8 +300,8 @@ class MetadataSaveService(
     private fun writeIndexReceipt(
         entry: MetadataRecoveryJournalV1.Entry,
         review: MetadataReview.Ready,
-    ) {
-        MetadataIndexReconciliationReceipt.write(
+    ): Boolean {
+        return MetadataIndexReconciliationReceipt.write(
             File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
             MetadataIndexReconciliationReceipt(
                 transactionId = entry.id, sourceId = entry.sourceId,

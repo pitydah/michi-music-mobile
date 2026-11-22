@@ -309,6 +309,10 @@ internal fun MichiMetadataEditorPreviewContent(
                     saving = false
                     saveMessage = "No se puede guardar ahora: ${outcome.reason}."
                 }
+                is MetadataSaveService.Outcome.RecoveryRequired -> {
+                    saving = false
+                    saveMessage = "El archivo se guardó, pero falta asegurar la actualización de la biblioteca."
+                }
                 is MetadataSaveService.Outcome.Failed -> {
                     saving = false
                     saveMessage = if (outcome.needsRecovery)
