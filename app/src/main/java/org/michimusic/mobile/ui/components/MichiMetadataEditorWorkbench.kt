@@ -57,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -82,7 +83,13 @@ import org.michimusic.core.metadata.MetadataFieldDiff
 import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
+import org.michimusic.core.metadata.fieldReviewSummary
+import org.michimusic.data.metadata.LocalDraftWrite
+import org.michimusic.data.metadata.MetadataLocalDraftStore
+import org.michimusic.data.metadata.matchesIdentity
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
+import org.michimusic.data.metadata.StoredMetadataOperation
+import org.michimusic.data.metadata.StoredMetadataProposal
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
@@ -96,6 +103,8 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.components.MetadataArtLyricsOnDemandReader
+import kotlinx.coroutines.launch
 
 /**
  * ME-10. One workbench, one modal, no writer. Consumes verified embedded evidence
@@ -117,6 +126,7 @@ internal fun MichiMetadataEditorPreviewContent(
     focusGenre: Boolean = false,
     partial: Boolean = false,
     artworkModel: Any? = null,
+    draftStore: MetadataLocalDraftStore? = null,
 ) {
     val target = snapshot.target
     val highContrast = LocalVisualPreferences.current.highContrast
@@ -154,6 +164,86 @@ internal fun MichiMetadataEditorPreviewContent(
     var sectionEvidenceVisible by remember(section, target.evidenceToken) {
         mutableStateOf(false)
     }
+    var extraFields by remember(section, target.evidenceToken) {
+        mutableStateOf<Set<MetadataField>>(emptySet())
+    }
+    var fieldPickerVisible by remember(section, target.evidenceToken) {
+        mutableStateOf(false)
+    }
+    var fieldPickerQuery by remember(section, target.evidenceToken) {
+        mutableStateOf("")
+    }
+    var focusedExtraField by remember(section, target.evidenceToken) {
+        mutableStateOf<MetadataField?>(null)
+    }
+    var savedDraftVersion by remember(target.sourceId, target.trackId, target.evidenceToken) {
+        mutableStateOf<Long?>(null)
+    }
+    var draftNotice by remember(target.sourceId, target.trackId, target.evidenceToken) {
+        mutableStateOf<String?>(null)
+    }
+    var savingDraft by remember(target.sourceId, target.trackId, target.evidenceToken) {
+        mutableStateOf(false)
+    }
+    var saveError by remember(target.sourceId, target.trackId, target.evidenceToken) {
+        mutableStateOf<String?>(null)
+    }
+    val draftScope = rememberCoroutineScope()
+    val localStorageContext = androidx.compose.ui.platform.LocalContext.current
+    fun inspectArtworkLyrics() {
+        if (artLyrics.load is MetadataArtLyricsUiState.Load.Loading ||
+            artLyrics.load is MetadataArtLyricsUiState.Load.Ready) return
+        artLyrics = artLyrics.copy(load = MetadataArtLyricsUiState.Load.Loading)
+        draftScope.launch {
+            val result = try {
+                MetadataArtLyricsOnDemandReader.inspect(
+                    localStorageContext.contentResolver, target.uri,
+                )
+            } catch (_: Exception) {
+                MetadataArtLyricsOnDemandReader.Outcome.Blocked("No se pudo inspeccionar")
+            }
+            artLyrics = when (result) {
+                is MetadataArtLyricsOnDemandReader.Outcome.Ready ->
+                    artLyrics.copy(load = MetadataArtLyricsUiState.Load.Ready(result.snapshot))
+                is MetadataArtLyricsOnDemandReader.Outcome.Blocked ->
+                    artLyrics.copy(load = MetadataArtLyricsUiState.Load.Blocked(result.label))
+            }
+        }
+    }
+    LaunchedEffect(
+        draftStore, target.sourceId, target.trackId, target.uri,
+        target.evidenceToken, expectedFileBytes,
+    ) {
+        val store = draftStore ?: return@LaunchedEffect
+        if (draft.isDirty || provisional.isNotEmpty()) return@LaunchedEffect
+        val stored = store.find(target.sourceId, target.trackId) ?: return@LaunchedEffect
+        if (!stored.matchesIdentity(
+                target.sourceId, target.trackId, target.uri,
+                expectedFileBytes, target.evidenceToken,
+            )) {
+            savedDraftVersion = stored.version
+            draftNotice = "Borrador local requiere revalidación: cambió la identidad o la evidencia del archivo."
+            return@LaunchedEffect
+        }
+        var restored = MetadataEditorDraftSession.start(snapshot)
+        stored.operations.forEach { operation ->
+            val field = MetadataField.entries.firstOrNull { it.name == operation.field }
+                ?: return@forEach
+            if (!restored.canEdit(field)) return@forEach
+            restored = if (operation.clear) restored.clear(field)
+            else restored.type(field, operation.values)
+        }
+        provisional = stored.provisional.mapNotNull { (name, values) ->
+            MetadataField.entries.firstOrNull { it.name == name }
+                ?.takeIf { !restored.canEdit(it) }
+                ?.let { it to values }
+        }.toMap()
+        draft = restored
+        savedDraftVersion = stored.version
+        if (stored.operations.isNotEmpty() || stored.provisional.isNotEmpty()) {
+            draftNotice = "Borrador local recuperado · v${stored.version}"
+        }
+    }
     val fieldsState = rememberLazyListState()
     LaunchedEffect(section) { fieldsState.scrollToItem(0) }
     val compactHeader by remember {
@@ -164,6 +254,65 @@ internal fun MichiMetadataEditorPreviewContent(
     val certifiedDirty = draft.isDirty || artLyrics.isDirty
     val provisionalCount = provisional.values.count { values -> values.any(String::isNotBlank) }
     val anyDirty = certifiedDirty
+    val fieldSummary = fieldReviewSummary(draft)
+    val textEffectiveCount = (artLyrics.textResult
+        as? MetadataDescribedTextWorkbench.Result.Ready)?.differences?.size ?: 0
+    val effectiveEditCount = fieldSummary.effectiveFields + textEffectiveCount +
+        if (artLyrics.artwork != null) 1 else 0
+    fun buildStoredProposal(): StoredMetadataProposal? {
+        if (target.trackId.isBlank() || !target.uri.startsWith("content://") ||
+            expectedFileBytes <= 0L) return null
+        val operations = draft.editedFields.sortedBy { it.ordinal }.map { field ->
+            if (draft.isCleared(field)) {
+                StoredMetadataOperation(field = field.name, clear = true)
+            } else {
+                StoredMetadataOperation(field = field.name, values = draft.values(field))
+            }
+        }
+        val provisionalValues = provisional
+            .filterValues { values -> values.any(String::isNotBlank) }
+            .mapKeys { (field, _) -> field.name }
+        if (operations.isEmpty() && provisionalValues.isEmpty()) return null
+        return StoredMetadataProposal(
+            draftId = "",
+            sourceId = target.sourceId,
+            trackId = target.trackId,
+            trackUri = target.uri,
+            expectedSize = expectedFileBytes,
+            evidenceToken = target.evidenceToken,
+            version = savedDraftVersion ?: 0L,
+            operations = operations,
+            provisional = provisionalValues,
+            savedAtEpochMs = 0L,
+        )
+    }
+    fun saveDraft(exitAfter: Boolean) {
+        val store = draftStore ?: return
+        val proposal = buildStoredProposal()
+        if (proposal == null) {
+            if (exitAfter) onDismiss()
+            return
+        }
+        savingDraft = true
+        saveError = null
+        draftScope.launch {
+            when (val result = store.save(savedDraftVersion, proposal)) {
+                is LocalDraftWrite.Saved -> {
+                    savedDraftVersion = result.version
+                    draftNotice = "Borrador local guardado · v${result.version}"
+                    savingDraft = false
+                    if (exitAfter) {
+                        onDirtyChanged(false)
+                        onDismiss()
+                    }
+                }
+                is LocalDraftWrite.Rejected -> {
+                    savingDraft = false
+                    saveError = "No se pudo guardar el borrador (${result.code})."
+                }
+            }
+        }
+    }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     fun requestExit() {
         if (anyDirty || provisionalCount > 0) confirmExit = true else onDismiss()
@@ -172,8 +321,8 @@ internal fun MichiMetadataEditorPreviewContent(
     if (confirmExit) {
         AlertDialog(
             onDismissRequest = { confirmExit = false },
-            title = { Text("¿Descartar los cambios?") },
-            text = { Text("Hay modificaciones en el borrador o propuestas provisionales. Salir no escribe etiquetas en el archivo y descartará estas propuestas.") },
+            title = { Text("¿Salir del editor?") },
+            text = { Text("Puedes conservar el borrador en este dispositivo. No se escribirán etiquetas en el archivo original.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmExit = false
@@ -184,7 +333,14 @@ internal fun MichiMetadataEditorPreviewContent(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmExit = false }) { Text("Seguir editando") }
+                Row {
+                    TextButton(
+                        onClick = { confirmExit = false; saveDraft(exitAfter = true) },
+                        enabled = !savingDraft,
+                        modifier = Modifier.testTag("metadata_save_and_exit"),
+                    ) { Text(if (savingDraft) "Guardando…" else "Guardar y salir") }
+                    TextButton(onClick = { confirmExit = false }) { Text("Seguir editando") }
+                }
             },
         )
     }
@@ -232,7 +388,7 @@ internal fun MichiMetadataEditorPreviewContent(
             )
             MetadataTrackSummary(
                 snapshot,
-                draft.editedFields.size + artLyrics.operations.size + if (artLyrics.artwork != null) 1 else 0,
+                effectiveEditCount,
                 partial,
                 artworkModel,
                 compact = compactHeader,
@@ -243,6 +399,27 @@ internal fun MichiMetadataEditorPreviewContent(
                     recoveryVisible = false
                 },
             )
+            draftNotice?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (message.startsWith("Borrador local requiere"))
+                        PrimaryPinkContainer else TertiaryCyan,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = MichiSpacing.xl, vertical = 4.dp)
+                        .testTag("metadata_draft_notice"),
+                )
+            }
+            saveError?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = MichiSpacing.xl, vertical = 4.dp)
+                        .testTag("metadata_draft_error"),
+                )
+            }
         }
         if (!reviewing && !recoveryVisible && !suggestionsVisible) {
             LazyRow(
@@ -332,6 +509,7 @@ internal fun MichiMetadataEditorPreviewContent(
                             stillOwns = stillOwnsPrivateSource,
                             playbackDescriptorClosed = playbackDescriptorClosed,
                             currentSessionAllowsPreparation = currentSessionAllowsPreparation,
+                            onInspect = ::inspectArtworkLyrics,
                         )
                     }
                 }
@@ -365,6 +543,7 @@ internal fun MichiMetadataEditorPreviewContent(
                             recoveryVisible = false
                         },
                         modifier = Modifier.padding(horizontal = MichiSpacing.xl),
+                        autoFocusField = field == focusedExtraField,
                     )
                 }
                 val describedFields = artLyrics.inspected
@@ -372,6 +551,21 @@ internal fun MichiMetadataEditorPreviewContent(
                     ?.texts?.map { it.identity.kind.field }?.toSet().orEmpty()
                 val unverifiedSectionFields = section.fields.filterNot { it in describedFields }
                     .filterNot { draft.canEdit(it) }
+                val progressiveSection = section == MetadataEditorSection.CREDITS ||
+                    section == MetadataEditorSection.DISCOGRAPHY
+                fun hasContent(field: MetadataField): Boolean =
+                    draft.values(field).any(String::isNotBlank) ||
+                        field in draft.editedFields ||
+                        provisional[field].orEmpty().any(String::isNotBlank)
+                val visibleFieldsForSection = section.fields.filterNot {
+                    section == MetadataEditorSection.ART_LYRICS && it in describedFields
+                }
+                val presentFields = if (progressiveSection) {
+                    visibleFieldsForSection.filter { hasContent(it) || it in extraFields }
+                } else visibleFieldsForSection
+                val hiddenFields = if (progressiveSection) {
+                    visibleFieldsForSection.filterNot { it in presentFields }
+                } else emptyList()
                 fun evidenceReason(field: MetadataField): String =
                     when (val observation = draft.original.fieldObservations[field]) {
                         is MetadataFieldObservation.Conflicted ->
@@ -535,9 +729,7 @@ internal fun MichiMetadataEditorPreviewContent(
                             )
                         }
                     }
-                    val visibleFields = section.fields.filterNot {
-                        (section == MetadataEditorSection.ART_LYRICS && it in describedFields)
-                    }
+                    val visibleFields = visibleFieldsForSection
                     if (section == MetadataEditorSection.BASICS) {
                         // ME-11U: the frequent identity fields come first; genre is a
                         // natural multivalue field, never a separate modal tool. When the
@@ -631,7 +823,54 @@ internal fun MichiMetadataEditorPreviewContent(
                             }
                         }
                     } else {
-                        if (wide && section != MetadataEditorSection.ART_LYRICS) {
+                        if (progressiveSection) {
+                            if (presentFields.isEmpty()) {
+                                item(key = "progressive_empty_${section.name}") {
+                                    Column(Modifier.padding(horizontal = MichiSpacing.xl)) {
+                                        Text(
+                                            if (section == MetadataEditorSection.CREDITS)
+                                                "Sin créditos añadidos"
+                                            else "Sin datos de discografía añadidos",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary,
+                                        )
+                                        TextButton(
+                                            onClick = { fieldPickerVisible = true; fieldPickerQuery = "" },
+                                            modifier = Modifier.sizeIn(minHeight = 48.dp)
+                                                .testTag("metadata_add_field"),
+                                        ) { Text("+ Añadir campo", color = accent) }
+                                    }
+                                }
+                            } else {
+                                if (wide) {
+                                    items(presentFields.chunked(2), key = { row ->
+                                        row.joinToString("|") { it.name }
+                                    }) { row ->
+                                        Row(Modifier.padding(horizontal = MichiSpacing.xl),
+                                            horizontalArrangement = Arrangement.spacedBy(MetadataFormTokens.pairGap)) {
+                                            row.forEach { field ->
+                                                Box(Modifier.weight(1f)) { renderField(field, false) }
+                                            }
+                                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                                        }
+                                    }
+                                } else {
+                                    items(presentFields, key = { it.name }) { field ->
+                                        renderField(field, false)
+                                    }
+                                }
+                                if (hiddenFields.isNotEmpty()) {
+                                    item(key = "progressive_add_${section.name}") {
+                                        TextButton(
+                                            onClick = { fieldPickerVisible = true; fieldPickerQuery = "" },
+                                            modifier = Modifier.padding(horizontal = MichiSpacing.xl)
+                                                .sizeIn(minHeight = 48.dp)
+                                                .testTag("metadata_add_field"),
+                                        ) { Text("+ Añadir campo", color = accent) }
+                                    }
+                                }
+                            }
+                        } else if (wide && section != MetadataEditorSection.ART_LYRICS) {
                             items(visibleFields.chunked(2), key = { row ->
                                 row.joinToString("|") { it.name }
                             }) { row ->
@@ -652,6 +891,53 @@ internal fun MichiMetadataEditorPreviewContent(
                     item(key = "end_${section.name}") {
                         Spacer(Modifier.padding(bottom = MichiSpacing.xl))
                     }
+                }
+                if (fieldPickerVisible) {
+                    val query = fieldPickerQuery.trim()
+                    val options = hiddenFields.filter { field ->
+                        query.isEmpty() || metadataFieldLabel(field)
+                            .contains(query, ignoreCase = true)
+                    }
+                    AlertDialog(
+                        onDismissRequest = { fieldPickerVisible = false },
+                        title = { Text("Añadir campo") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = fieldPickerQuery,
+                                    onValueChange = { fieldPickerQuery = it },
+                                    label = { Text("Buscar campo") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                        .testTag("metadata_field_filter"),
+                                )
+                                Column(
+                                    Modifier.heightIn(max = 360.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                ) {
+                                    options.forEach { field ->
+                                        TextButton(
+                                            onClick = {
+                                                extraFields = extraFields + field
+                                                focusedExtraField = field
+                                                fieldPickerVisible = false
+                                                fieldPickerQuery = ""
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                                .testTag("metadata_add_field_${field.name.lowercase()}"),
+                                        ) { Text(metadataFieldLabel(field), color = PureWhite) }
+                                    }
+                                    if (options.isEmpty()) {
+                                        Text("No hay campos que coincidan.",
+                                            color = TextSecondary)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { fieldPickerVisible = false }) { Text("Cerrar") }
+                        },
+                    )
                 }
                 if (sectionEvidenceVisible) {
                     val detailLines = buildList {
@@ -686,9 +972,11 @@ internal fun MichiMetadataEditorPreviewContent(
             HorizontalDivider(color = outline)
             val draftStatus = if (suggestionsVisible) {
                 "Sugerencias externas · no se aplican automáticamente"
+            } else if (effectiveEditCount > 0) {
+                "Borrador · $effectiveEditCount " +
+                    if (effectiveEditCount == 1) "cambio" else "cambios"
             } else if (anyDirty) {
-                val changes = draft.editedFields.size + artLyrics.operations.size
-                "Borrador · $changes ${if (changes == 1) "cambio" else "cambios"}"
+                "Borrador con campos por corregir"
             } else if (provisionalCount > 0) {
                 "Propuesta provisional · no se revisa ni se escribe"
             } else {
@@ -729,6 +1017,21 @@ internal fun MichiMetadataEditorPreviewContent(
                             .border(1.dp, outline, MichiShapes.sm)
                             .padding(horizontal = MichiSpacing.sm, vertical = 4.dp)
                             .testTag("metadata_no_file_write"),
+                    )
+                }
+            }
+            if (draftStore != null && (draft.isDirty || provisionalCount > 0)) {
+                TextButton(
+                    onClick = { saveDraft(exitAfter = false) },
+                    enabled = !savingDraft,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("metadata_save_draft"),
+                ) {
+                    Text(
+                        if (savingDraft) "Guardando borrador…"
+                        else if (savedDraftVersion != null) "Guardar borrador de nuevo"
+                        else "Guardar borrador",
+                        color = PrimaryPinkContainer,
                     )
                 }
             }
@@ -900,6 +1203,7 @@ private fun MetadataInlineField(
     onProvisionalChange: (List<String>) -> Unit,
     onOpenGenreSuggestions: () -> Unit,
     modifier: Modifier = Modifier,
+    autoFocusField: Boolean = false,
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
     val accent = if (highContrast) PureWhite else PrimaryPinkContainer
@@ -1073,6 +1377,7 @@ private fun MetadataInlineField(
                             },
                             modifier = Modifier.weight(1f),
                             enabled = editable || provisional,
+                            autoFocus = autoFocusField,
                             focusRequestKey = focusRequestKey,
                             placeholder = metadataFieldPlaceholder(field),
                             onFocusChanged = { isFocused ->
@@ -1167,7 +1472,7 @@ private fun MetadataInlineField(
                             else "metadata_genre_input",
                             modifier = Modifier.weight(1f),
                             enabled = editable || provisional,
-                            autoFocus = focusGenre,
+                            autoFocus = focusGenre || autoFocusField,
                             placeholder = "Añadir género",
                             onValueChange = { genreInput = it },
                         )

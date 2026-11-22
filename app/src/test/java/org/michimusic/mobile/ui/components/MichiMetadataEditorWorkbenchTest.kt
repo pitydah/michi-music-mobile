@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,6 +19,9 @@ import org.robolectric.annotation.Config
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
+import org.michimusic.data.metadata.LocalDraftWrite
+import org.michimusic.data.metadata.MetadataLocalDraftStore
+import org.michimusic.data.metadata.StoredMetadataProposal
 import org.michimusic.mobile.ui.theme.AeroTheme
 
 /** Robolectric/Compose source tests. Execute only in OpenCode, not in Drive. */
@@ -203,6 +207,19 @@ class MichiMetadataEditorWorkbenchTest {
         }
     }
 
+    @Test fun returningToTheOriginalValueLeavesZeroEffectiveChanges() {
+        val genre = MetadataSnapshot(
+            MetadataTarget("", "test", "content://fixture/test", "test-evidence"), true,
+            mapOf(MetadataField.TITLE to listOf("Antes"), MetadataField.GENRE to listOf("Rock")),
+            verifiedFields = setOf(MetadataField.TITLE, MetadataField.GENRE),
+        )
+        compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(genre, {}, focusGenre = true) } }
+        compose.onNodeWithTag("metadata_input_genre_0").performTextClearance()
+        compose.onNodeWithTag("metadata_input_genre_0").performTextInput("Rock")
+        compose.onNodeWithText("Borrador sin cambios").assertExists()
+        compose.onNodeWithText("Borrador ·", substring = true).assertDoesNotExist()
+    }
+
     @Test fun multipleValuesKeepLiteralSeparatorsAndOrder() {
         val withSeparators = MetadataSnapshot(
             MetadataTarget("", "test", "content://fixture/test", "test-evidence"), true,
@@ -221,11 +238,25 @@ class MichiMetadataEditorWorkbenchTest {
         compose.onNodeWithTag("metadata_input_genre_0").assertExists()
     }
 
-    @Test fun emptyScalarIsEditableInOneTap() {
+    @Test fun creditsWithNoValuesStartWithOneAddFieldAction() {
         compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(evidence, {}) } }
         compose.onNodeWithTag("metadata_section_credits").performClick()
-        compose.onNodeWithTag("metadata_provisional_composer_0").performClick()
-        compose.onNodeWithTag("metadata_provisional_composer_0").assertIsFocused()
+        compose.onNodeWithText("Sin créditos añadidos").assertExists()
+        compose.onNodeWithTag("metadata_provisional_composer_0").assertDoesNotExist()
+        compose.onNodeWithTag("metadata_add_field").assertExists()
+    }
+
+    @Test fun emptyScalarIsEditableInOneTap() {
+        val emptyTitle = evidence.copy(
+            known = evidence.known - MetadataField.TITLE,
+            verifiedFields = evidence.verifiedFields + MetadataField.TITLE,
+            fieldObservations = mapOf(
+                MetadataField.TITLE to org.michimusic.core.metadata.MetadataFieldObservation.VerifiedAbsent,
+            ),
+        )
+        compose.setContent { AeroTheme { MichiMetadataEditorPreviewContent(emptyTitle, {}) } }
+        compose.onNodeWithTag("metadata_input_title_0").performClick()
+        compose.onNodeWithTag("metadata_input_title_0").assertIsFocused()
     }
 
     @Test fun capsuleEditorHasAStableMinimumTouchSurface() {
@@ -352,6 +383,40 @@ class MichiMetadataEditorWorkbenchTest {
         check(status.top >= title.bottom - 1f) {
             "At 320dp the state must stack below the title: title=$title status=$status"
         }
+    }
+
+    private class FakeDraftStore : MetadataLocalDraftStore {
+        var saved: StoredMetadataProposal? = null
+        override suspend fun save(
+            expectedVersion: Long?,
+            draft: StoredMetadataProposal,
+        ): LocalDraftWrite {
+            saved = draft
+            return LocalDraftWrite.Saved(draft.draftId.ifBlank { "private-draft" }, 1L)
+        }
+        override suspend fun find(sourceId: String, trackId: String): StoredMetadataProposal? = null
+        override suspend fun delete(draftId: String, expectedVersion: Long): Boolean = true
+    }
+
+    @Test fun saveDraftButtonPersistsEffectiveFieldsWithoutWritingAudio() {
+        val store = FakeDraftStore()
+        compose.setContent {
+            AeroTheme {
+                MichiMetadataEditorPreviewContent(
+                    evidence, {},
+                    expectedFileBytes = 1024L,
+                    draftStore = store,
+                )
+            }
+        }
+        compose.onNodeWithTag("metadata_input_title_0").performTextClearance()
+        compose.onNodeWithTag("metadata_input_title_0").performTextInput("Hard Rock")
+        compose.onNodeWithTag("metadata_save_draft").performClick()
+        compose.waitUntil(5_000) { store.saved != null }
+        val saved = store.saved!!
+        assertEquals("TITLE", saved.operations.single().field)
+        assertEquals(listOf("Hard Rock"), saved.operations.single().values)
+        compose.onNodeWithText("Borrador local guardado", substring = true).assertExists()
     }
 
 }
