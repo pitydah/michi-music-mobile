@@ -1,5 +1,6 @@
 package org.michimusic.data.metadata
 
+import org.michimusic.core.metadata.CertifiedWriteEvidence
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataField
 
@@ -22,6 +23,13 @@ internal data class MetadataWritePermit(
     val fields: Set<MetadataField>,
     val explicitUserAction: Boolean,
 ) {
+    fun evidence(): CertifiedWriteEvidence = CertifiedWriteEvidence(
+        transactionId = transactionId, profileId = profileId, evidenceId = evidenceId,
+        sourceId = sourceId, trackId = trackId, uri = uri,
+        originalSha256 = originalSha256, candidateSha256 = candidateSha256,
+        candidateBytes = stageBytes,
+    )
+
     fun matches(entry: MetadataRecoveryJournalV1.Entry): Boolean =
         explicitUserAction &&
             transactionId == entry.id && sourceId == entry.sourceId &&

@@ -55,6 +55,7 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
     suspend fun confirm(
         transactionId:String,target:MetadataTarget,explicitUserAction:Boolean,
         ownerCurrent:()->Boolean,playbackClosed:()->Boolean,
+        permit: MetadataWritePermit? = null,
     ):Result = withContext(Dispatchers.IO) {
         if (!explicitUserAction) return@withContext Result.Blocked(Refusal.ACTION_REQUIRED)
         val job=currentCoroutineContext()[Job]
@@ -69,7 +70,8 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
                     entry.trackId != target.trackId || entry.uri != target.uri ||
                     !ownerCurrent() || !playbackClosed())
                     return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
-                if (entry.phase != MetadataRecoveryPhase.MUTATION_UNKNOWN &&
+                if (entry.phase != MetadataRecoveryPhase.MUTATING &&
+                    entry.phase != MetadataRecoveryPhase.MUTATION_UNKNOWN &&
                     entry.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED)
                     return@withExclusiveSnapshot Result.Blocked(Refusal.NOT_A_POST_MUTATION)
                 if (!journal.privateArtifactsIntact(entry))
@@ -80,12 +82,17 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
                 val uri=try { Uri.parse(entry.uri) } catch (_: Exception) {
                     return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
                 }
-                val provider=when (MetadataReadAccessPolicy.classify(entry.sourceId,
-                    uri.scheme,uri.authority)) {
-                    MetadataReadAccessPolicy.Kind.MEDIASTORE -> MetadataDocumentProvider.MEDIASTORE
-                    MetadataReadAccessPolicy.Kind.SAF_LOCAL -> MetadataDocumentProvider.SAF
-                    MetadataReadAccessPolicy.Kind.REJECT ->
-                        return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
+                val provider=when {
+                    uri.scheme == "content" && uri.authority == "media" ->
+                        MetadataDocumentProvider.MEDIASTORE
+                    else -> when (MetadataReadAccessPolicy.classify(entry.sourceId,
+                        uri.scheme,uri.authority)) {
+                        MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                            MetadataDocumentProvider.MEDIASTORE
+                        MetadataReadAccessPolicy.Kind.SAF_LOCAL -> MetadataDocumentProvider.SAF
+                        MetadataReadAccessPolicy.Kind.REJECT ->
+                            return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
+                    }
                 }
                 val container=try { MetadataAudioContainer.valueOf(entry.format) }
                     catch (_: Exception) {
@@ -126,18 +133,19 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
                 // The private backup and candidate are rehashed before any promotion.
                 if (!journal.privateArtifactsIntact(pending))
                     return@publishIfUnchanged Result.Blocked(Refusal.INVALID_PRIVATE_EVIDENCE)
-                // Do not promote an uncertified observation into a postcheck
-                // phase. Keep MUTATION_UNKNOWN and the private recovery files.
-                if (!MetadataCommitCertification.mayMutateOriginal())
+                // Only the exact typed permit for this journal transaction may
+                // replace the legacy global boolean.
+                if (permit == null || !permit.matches(pending))
                     return@publishIfUnchanged Result.ComparedButNotCertified(pending.id)
-                val next=if (pending.phase == MetadataRecoveryPhase.MUTATION_UNKNOWN) {
+                val next=if (pending.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED) {
                     pending.copy(phase=MetadataRecoveryPhase.POSTCHECK_VERIFIED).also {
                         journal.advance(pending,it)
                     }
                 } else pending
                 // Physical bytes/fields are observed. Writer certification is
                 // independently required and remains FALSE in the patch.
-                when (val receipt=MetadataVerifiedReceiptGate.assess(
+                when (val receipt=MetadataVerifiedReceiptGate.assessCertified(
+                    permit.evidence(),
                     next.id,next.phase,next.stageSha256,
                     MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED,
                     fieldsVerified=true,ownerStillCurrent=ownerCurrent() && playbackClosed(),

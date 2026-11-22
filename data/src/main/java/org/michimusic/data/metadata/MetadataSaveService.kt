@@ -10,7 +10,6 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.nio.channels.FileChannel
 import java.nio.file.LinkOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
@@ -22,8 +21,6 @@ import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
-import org.michimusic.core.metadata.MetadataColdFieldParser
-import org.michimusic.core.metadata.MetadataFieldReadbackPolicy
 import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataReview
@@ -53,6 +50,7 @@ class MetadataSaveService(
         File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
     )
     private val transport = MetadataProviderMutationTransport(context)
+    private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val intents = MetadataCommitIntentStore(journal)
     private val profile = MediaStoreMp3TextProfile.profile
 
@@ -80,8 +78,15 @@ class MetadataSaveService(
         trackId: String,
         uriString: String,
         expectedBytes: Long,
-        review: MetadataReview.Ready,
+        reviewInput: MetadataReview.Ready,
     ): Outcome = withContext(Dispatchers.IO) {
+        val canonicalTarget = reviewInput.proposed.target.copy(
+            sourceId = sourceId, trackId = trackId, uri = uriString,
+        )
+        val review = reviewInput.copy(
+            original = reviewInput.original.copy(target = canonicalTarget),
+            proposed = reviewInput.proposed.copy(target = canonicalTarget),
+        )
         if (expectedBytes <= 0L) return@withContext Outcome.Blocked("Tamaño de origen no válido")
         if (review.diffs.isEmpty()) return@withContext Outcome.Blocked("No hay cambios efectivos")
         if (review.diffs.any { it.field !in profile.supportedFields })
@@ -251,37 +256,37 @@ class MetadataSaveService(
                 }
             }
 
-            val readback = File(context.cacheDir, "me13-readback-${UUID.randomUUID()}.bin")
-            try {
-                copy(uri, readback)
-                if (sha(readback) != entry.stageSha256)
-                    return@withContext Outcome.Failed("La relectura no coincide", true)
-                val report = FileChannel.open(readback.toPath(), StandardOpenOption.READ,
-                    LinkOption.NOFOLLOW_LINKS).use { MetadataColdFieldParser.observe(it) }
-                if (MetadataFieldReadbackPolicy.check(review, report) !=
-                    MetadataFieldReadbackPolicy.Result.VERIFIED)
-                    return@withContext Outcome.Failed("Las etiquetas releídas no coinciden", true)
-                journal.advance(mutating.copy(phase = MetadataRecoveryPhase.MUTATION_UNKNOWN),
-                    mutating.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED))
-            } finally { readback.delete() }
+            val confirmed = finalization.confirm(
+                transactionId = entry.id,
+                target = review.proposed.target,
+                explicitUserAction = true,
+                ownerCurrent = { true },
+                playbackClosed = { true },
+                permit = permit,
+            )
+            if (confirmed !is MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas)
+                return@withContext if (confirmed is MetadataPostMutationFinalizationCoordinator.Result.Blocked)
+                    Outcome.Failed("La finalización física no se pudo demostrar (${confirmed.reason})", true)
+                else Outcome.RecoveryRequired("POSTCHECK_NOT_CERTIFIED")
+            val postEntry = entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED)
 
-            val indexed = publish(sourceId, trackId, uriString, entry, review)
+            val indexed = publish(sourceId, trackId, uriString, postEntry, review)
             if (indexed) {
-                journal.completeVerified(entry.id)
+                journal.completeVerified(postEntry.id)
                 val coldSnapshot = review.proposed.copy(
                     target = review.proposed.target.copy(
-                        evidenceToken = "me13:sha256:${entry.stageSha256}",
+                        evidenceToken = "me13:sha256:${postEntry.stageSha256}",
                     ),
                 )
                 return@withContext Outcome.Saved(coldSnapshot, true)
             }
-            val durable = writeIndexReceipt(entry, review)
+            val durable = writeIndexReceipt(postEntry, review)
             if (!durable) return@withContext Outcome.RecoveryRequired(
                 "INDEX_OBLIGATION_NOT_DURABLE",
             )
             val coldSnapshot = review.proposed.copy(
                 target = review.proposed.target.copy(
-                    evidenceToken = "me13:sha256:${entry.stageSha256}",
+                    evidenceToken = "me13:sha256:${postEntry.stageSha256}",
                 ),
             )
             Outcome.Saved(coldSnapshot, false)

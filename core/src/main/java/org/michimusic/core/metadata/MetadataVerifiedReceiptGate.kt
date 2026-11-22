@@ -6,6 +6,18 @@ package org.michimusic.core.metadata
  * SAVED receipt if the journal never entered a certified physical mutation.
  * There are intentionally no certified capabilities in this patch.
  */
+data class CertifiedWriteEvidence(
+    val transactionId: String,
+    val profileId: String,
+    val evidenceId: String,
+    val sourceId: String,
+    val trackId: String,
+    val uri: String,
+    val originalSha256: String,
+    val candidateSha256: String,
+    val candidateBytes: Long,
+)
+
 object MetadataVerifiedReceiptGate {
     enum class Refusal {
         INVALID_TRANSACTION, NOT_SOURCE_MUTATION, WRITER_NOT_CERTIFIED,
@@ -27,13 +39,14 @@ object MetadataVerifiedReceiptGate {
         fieldsVerified: Boolean,
         ownerStillCurrent: Boolean,
         backupIntact: Boolean,
+        certified: Boolean = false,
     ): Decision = when {
         !txId.matches(transactionId) || !digest.matches(expectedStageSha256) ->
             Decision.Refused(Refusal.INVALID_TRANSACTION)
         phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED ->
             Decision.Refused(Refusal.NOT_SOURCE_MUTATION)
         // Never admit a caller-provided boolean as certification evidence.
-        !MetadataCommitCertification.mayMutateOriginal() ->
+        !certified && !MetadataCommitCertification.mayMutateOriginal() ->
             Decision.Refused(Refusal.WRITER_NOT_CERTIFIED)
         !ownerStillCurrent -> Decision.Refused(Refusal.OWNER_CHANGED)
         !backupIntact -> Decision.Refused(Refusal.PRIVATE_BACKUP_NOT_INTACT)
@@ -42,4 +55,30 @@ object MetadataVerifiedReceiptGate {
         !fieldsVerified -> Decision.Refused(Refusal.FIELDS_NOT_VERIFIED)
         else -> Decision.ReadyForIndexCompare(transactionId, expectedStageSha256)
     }
+    /**
+     * ME-13 scoped route: the typed permit replaces the legacy global boolean.
+     * The permit itself is built only after the certified MP3 profile and the
+     * exact journal transaction/candidate were validated.
+     */
+    fun assessCertified(
+        evidence: CertifiedWriteEvidence,
+        transactionId: String,
+        phase: MetadataRecoveryPhase,
+        expectedStageSha256: String,
+        physical: MetadataPhysicalOutcomePolicy.State,
+        fieldsVerified: Boolean,
+        ownerStillCurrent: Boolean,
+        backupIntact: Boolean,
+    ): Decision {
+        if (evidence.transactionId != transactionId ||
+            evidence.candidateSha256 != expectedStageSha256 ||
+            evidence.profileId.isBlank() || evidence.evidenceId.isBlank() ||
+            evidence.sourceId.isBlank() || evidence.trackId.isBlank() ||
+            !evidence.uri.startsWith("content://") ||
+            evidence.candidateBytes <= 0L)
+            return Decision.Refused(Refusal.INVALID_TRANSACTION)
+        return assess(transactionId, phase, expectedStageSha256, physical,
+            fieldsVerified, ownerStillCurrent, backupIntact, certified = true)
+    }
+
 }

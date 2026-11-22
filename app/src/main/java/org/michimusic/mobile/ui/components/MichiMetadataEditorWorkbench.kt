@@ -286,7 +286,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 trackId = target.trackId,
                 uriString = target.uri,
                 expectedBytes = expectedFileBytes,
-                review = review,
+                reviewInput = review,
             )) {
                 is MetadataSaveService.Outcome.Saved -> {
                     saving = false
