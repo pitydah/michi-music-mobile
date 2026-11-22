@@ -18,6 +18,9 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MetadataAudioContainer
+import org.michimusic.core.metadata.MetadataCommitIntentManifest
+import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataFieldReadbackPolicy
@@ -49,6 +52,7 @@ class MetadataSaveService(
         File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
     )
     private val transport = MetadataProviderMutationTransport(context)
+    private val intents = MetadataCommitIntentStore(journal)
     private val profile = MediaStoreMp3TextProfile.profile
 
     fun eligibility(uriString: String): Eligibility {
@@ -125,6 +129,20 @@ class MetadataSaveService(
                 if (entry.phase == MetadataRecoveryPhase.SNAPSHOTTING) {
                     return@withContext Outcome.Failed("Recuperación pendiente incompleta", true)
                 }
+                val persisted = intents.inspect(entry)
+                if (persisted !is MetadataCommitIntentStore.Inspection.Present)
+                    return@withContext Outcome.Blocked(
+                        "La intención persistida no es válida; no se reanuda",
+                    )
+                val intent = persisted.receipt
+                val pendingFields = review.diffs.map { it.field }.sortedBy { it.name }
+                if (intent.candidateSha256 != entry.stageSha256 ||
+                    intent.originalSha256 != entry.originalSha256 ||
+                    intent.candidateBytes != entry.stageBytes ||
+                    intent.changes.map { it.field } != pendingFields)
+                    return@withContext Outcome.Blocked(
+                        "La revisión cambió desde la preparación; no se reanuda",
+                    )
             } else {
                 entry = MetadataRecoveryJournalV1.Entry(
                     id = UUID.randomUUID().toString(), phase = MetadataRecoveryPhase.SNAPSHOTTING,
@@ -151,6 +169,22 @@ class MetadataSaveService(
                     stageSha256 = receipt.candidateSha256, stageBytes = receipt.candidateBytes,
                     format = observed.format.name)
                 journal.advance(backupEntry, entry)
+                val manifest = MetadataCommitIntentManifest.create(
+                    transactionId = entry.id, review = review,
+                    provider = MetadataDocumentProvider.MEDIASTORE,
+                    container = observed.format.toContainer(),
+                    originalBytes = entry.expectedBytes,
+                    originalSha256 = entry.originalSha256,
+                    candidateBytes = entry.stageBytes,
+                    candidateSha256 = entry.stageSha256,
+                )
+                val written = journal.exclusive {
+                    runCatching { intents.write(entry, manifest) }.isSuccess
+                }
+                if (!written) {
+                    journal.discardPrepared(entry.id)
+                    return@withContext Outcome.Blocked("No se pudo persistir la intención")
+                }
             }
             if (entry.phase != MetadataRecoveryPhase.STAGE_READY)
                 return@withContext Outcome.Failed("La transacción no está preparada", true)
