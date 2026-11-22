@@ -67,3 +67,12 @@ a71-ui-state	compose-state-and-effects	LOADED	session:skill-tool:compose-state-a
 a71-ui-component	compose-component-design	LOADED	session:skill-tool:compose-component-design:a71-s6-2026-11-18
 a71-ui-test	compose-ui-testing-patterns	LOADED	session:skill-tool:compose-ui-testing-patterns:a71-s7-2026-11-18
 a71-gradle	gradle-run	LOADED	session:skill-tool:gradle-run:a71-workflow-6539dd50-2026-11-18
+me12-bootstrap	using-chrisbanes-skills	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-plan	to-plan	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-implement	deliver-spec	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-api	kotlin-api-design	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-ui-state	compose-state-and-effects	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-ui-component	compose-component-design	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-ui-test	compose-ui-testing-patterns	LOADED	opencode-session:ses_e03f52f4effedtaqSkqDqFiB3S
+me12-gradle	gradle-run	LOADED	opencode-log:/tmp/gradle-run/77acc276044e736ca614cf7e961d8ede
