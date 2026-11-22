@@ -111,8 +111,12 @@ object MetadataArtworkEvidence {
         var result: Pair<Int, Int>? = null
         while (at + 4 <= image.size) {
             if (image[at] != 0xff.toByte()) return null
-            val marker = image[at + 1].toInt() and 255
-            at += 2
+            var markerAt = at + 1
+            // A marker may be preceded by any number of 0xff fill bytes.
+            while (markerAt < image.size && image[markerAt] == 0xff.toByte()) markerAt++
+            if (markerAt >= image.size) return null
+            val marker = image[markerAt].toInt() and 255
+            at = markerAt + 1
             // Entropy-coded data follows SOS; a marker walk cannot continue there.
             if (marker == 0xda) return result
             if (marker == 0xd8 || marker == 0xd9 || marker == 0x01 ||
