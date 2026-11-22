@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -170,6 +171,7 @@ internal fun MichiMetadataArtworkLyricsSection(
     var showAnchorMenu by remember(sourceUri) { mutableStateOf(false) }
     var confirmRemove by remember(sourceUri) { mutableStateOf(false) }
     var transformJob by remember(sourceUri) { mutableStateOf<Job?>(null) }
+    val latestState by rememberUpdatedState(state)
 
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target=pickedOrdinal
@@ -186,7 +188,7 @@ internal fun MichiMetadataArtworkLyricsSection(
             val dims=withContext(Dispatchers.Default) { orientedDimensions(bytes) }
             if(dims==null) {message="La imagen no se pudo decodificar de forma segura";return@launch}
             val ordinal=if(add) null else target
-            onChange(state.copy(
+            onChange(latestState.copy(
                 artworkSource=ArtworkSource(bytes,mime,dims.first,dims.second,ordinal),
                 artwork=null,
                 artworkEdit=null,
@@ -355,15 +357,15 @@ internal fun MichiMetadataArtworkLyricsSection(
                         onClick={
                             val w=widthText.toIntOrNull()
                             val h=heightText.toIntOrNull()
-                            if(w==null || h==null || w !in 1..8192 || h !in 1..8192 ||
-                                w.toLong()*h.toLong() > 16_000_000L) {
-                                message="Indica un ancho y alto válidos (máximo 8192 px y 16 MP)"
+                            if(w==null || h==null || w !in 1..4096 || h !in 1..4096 ||
+                                w.toLong()*h.toLong() > 8_000_000L) {
+                                message="Indica un ancho y alto válidos (máximo 4096 px y 8 MP)"
                             } else {
                                 transformJob?.cancel()
                                 transformJob=scope.launch {
                                     val result=withContext(Dispatchers.Default) {
                                         runCatching {
-                                            transformArtwork(bytes,mime,w,h,preserveAspect,fit,anchor)
+                                            transformArtwork(bytes,mime,w,h,fit,anchor)
                                         }
                                     }
                                     result.onSuccess { transformed ->
@@ -373,7 +375,7 @@ internal fun MichiMetadataArtworkLyricsSection(
                                                 snapshot,ordinal,transformed,proposedMime)
                                             when(reviewed) {
                                                 is MetadataArtworkReplacementPreview.Result.Ready -> {
-                                                    onChange(state.copy(
+                                                    onChange(latestState.copy(
                                                         artwork=reviewed.proposal,
                                                         artworkEdit=ArtworkEdit.Replace(
                                                             ordinal,reviewed.proposal.sourceSha256,
@@ -385,7 +387,7 @@ internal fun MichiMetadataArtworkLyricsSection(
                                                     message="No se pudo aplicar: ${reviewed.reason.name.lowercase()}"
                                             }
                                         } else if(snapshot.artworks.isEmpty()) {
-                                            onChange(state.copy(
+                                            onChange(latestState.copy(
                                                 artwork=null,
                                                 artworkEdit=ArtworkEdit.Add(transformed,proposedMime,w,h),
                                             ))
@@ -535,14 +537,14 @@ private fun orientedDimensions(bytes:ByteArray):Pair<Int,Int>? {
 }
 
 internal fun transformArtwork(
-    bytes:ByteArray,mime:String,targetW:Int,targetH:Int,preserveAspect:Boolean,
+    bytes:ByteArray,mime:String,targetW:Int,targetH:Int,
     fit:ArtworkFit,anchor:ArtworkAnchor,
 ):ByteArray {
     val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
     BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
     require(bounds.outWidth>0 && bounds.outHeight>0)
     var sample=1
-    while(maxOf(bounds.outWidth,bounds.outHeight)/sample > maxOf(targetW,targetH)*2) sample*=2
+    while(maxOf(bounds.outWidth,bounds.outHeight)/sample > maxOf(targetW,targetH)) sample*=2
     val decoded=BitmapFactory.decodeByteArray(bytes,0,bytes.size,
         BitmapFactory.Options().apply{inSampleSize=sample;inPreferredConfig=Bitmap.Config.ARGB_8888})
         ?: error("DECODE_FAILED")

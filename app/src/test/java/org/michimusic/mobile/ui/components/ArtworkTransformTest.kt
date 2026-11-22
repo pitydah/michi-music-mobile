@@ -34,7 +34,7 @@ class ArtworkTransformTest {
     fun lockedAspectJpegProducesExactTargetSize() {
         val result = transformArtwork(
             source(1200, 800, Bitmap.CompressFormat.JPEG), "image/jpeg",
-            600, 400, preserveAspect = true, fit = ArtworkFit.CROP, anchor = ArtworkAnchor.CENTER,
+            600, 400, fit = ArtworkFit.CROP, anchor = ArtworkAnchor.CENTER,
         )
         assertEquals(600 to 400, dimensions(result))
     }
@@ -43,7 +43,7 @@ class ArtworkTransformTest {
     fun cropProducesExactSquareWithoutStretching() {
         val result = transformArtwork(
             source(1200, 800, Bitmap.CompressFormat.JPEG), "image/jpeg",
-            500, 500, preserveAspect = false, fit = ArtworkFit.CROP, anchor = ArtworkAnchor.CENTER,
+            500, 500, fit = ArtworkFit.CROP, anchor = ArtworkAnchor.CENTER,
         )
         assertEquals(500 to 500, dimensions(result))
     }
@@ -52,7 +52,7 @@ class ArtworkTransformTest {
     fun containProducesExactSizeWithMargins() {
         val result = transformArtwork(
             source(1200, 800, Bitmap.CompressFormat.JPEG), "image/jpeg",
-            500, 500, preserveAspect = false, fit = ArtworkFit.CONTAIN, anchor = ArtworkAnchor.CENTER,
+            500, 500, fit = ArtworkFit.CONTAIN, anchor = ArtworkAnchor.CENTER,
         )
         assertEquals(500 to 500, dimensions(result))
     }
@@ -61,7 +61,7 @@ class ArtworkTransformTest {
     fun pngContainKeepsTransparentMargins() {
         val result = transformArtwork(
             source(1200, 800, Bitmap.CompressFormat.PNG), "image/png",
-            500, 500, preserveAspect = false, fit = ArtworkFit.CONTAIN, anchor = ArtworkAnchor.CENTER,
+            500, 500, fit = ArtworkFit.CONTAIN, anchor = ArtworkAnchor.CENTER,
         )
         assertEquals(500 to 500, dimensions(result))
         val bitmap = BitmapFactory.decodeByteArray(result, 0, result.size)
