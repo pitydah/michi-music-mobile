@@ -137,6 +137,15 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND id = :id")
     suspend fun getTrackBySource(sourceId: String, id: String): CachedTrack?
 
+    @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND filepath = :filepath LIMIT 1")
+    suspend fun getTrackBySourcePath(sourceId: String, filepath: String): CachedTrack?
+
+    @Query("SELECT * FROM cached_tracks WHERE filepath LIKE '%' || :suffix")
+    suspend fun getTracksByPathSuffix(suffix: String): List<CachedTrack>
+
+    @Query("SELECT * FROM cached_tracks WHERE title = :title AND artist = :artist")
+    suspend fun getTracksByTitleArtist(title: String, artist: String): List<CachedTrack>
+
     /**
      * MI-24: exact owner/path/previous-size AND genre compare-and-swap after physical
      * post-write verification. An altered file invalidates any old sync digest;

@@ -63,6 +63,7 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.cache.toTrack
+import org.michimusic.data.metadata.MetadataPilotWriteCoordinator
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
 import org.michimusic.data.repository.ExtendedTagUnavailableReason
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
@@ -163,6 +164,7 @@ internal fun MetadataEditorScreen(onClose: () -> Unit) {
                 snapshot = current.snapshot,
                 partial = current.partial,
                 onClose = onClose,
+                trackDao = trackDao,
             )
         }
 
@@ -195,6 +197,7 @@ private fun MetadataEditorReadyContent(
     snapshot: MetadataSnapshot,
     partial: Boolean,
     onClose: () -> Unit,
+    trackDao: TrackDao,
 ) {
     val context = LocalContext.current
     val repository: ExtendedTrackMetadataRepository = koinInject()
@@ -217,6 +220,9 @@ private fun MetadataEditorReadyContent(
     // certifies physical ownership and never writes the original file.
     val bundle = remember(context, repository) {
         MetadataPrivateBundleCoordinator(context.applicationContext, repository)
+    }
+    val pilotWriter = remember(context, trackDao) {
+        MetadataPilotWriteCoordinator(context.applicationContext, trackDao)
     }
     fun authority() = MichiGenreAccessPolicy.Context(
         trackLocal = track.source == TrackSource.LOCAL,
@@ -249,6 +255,10 @@ private fun MetadataEditorReadyContent(
                 open.get() && MichiGenreAccessPolicy.canMutateAudioFile(authority())
             },
             currentSessionAllowsPreparation = currentSessionAllowsPreparation,
+            pilotWriter = pilotWriter,
+            indexSourceId = track.sourceId.ifBlank {
+                MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID
+            },
         )
     }
 }

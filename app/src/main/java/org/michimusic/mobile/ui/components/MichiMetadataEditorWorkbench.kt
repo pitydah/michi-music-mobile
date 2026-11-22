@@ -1,5 +1,9 @@
 package org.michimusic.mobile.ui.components
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -79,8 +83,10 @@ import org.michimusic.core.metadata.MetadataEditorDraftSession
 import org.michimusic.core.metadata.MetadataEditorSection
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataFieldObservation
+import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.fieldReviewSummary
+import org.michimusic.data.metadata.MetadataPilotWriteCoordinator
 import org.michimusic.data.metadata.MetadataPrivateBundleCoordinator
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
@@ -118,6 +124,8 @@ internal fun MichiMetadataEditorPreviewContent(
     focusGenre: Boolean = false,
     partial: Boolean = false,
     artworkModel: Any? = null,
+    pilotWriter: MetadataPilotWriteCoordinator? = null,
+    indexSourceId: String = "",
 ) {
     val target = snapshot.target
     val narrowTopBar = LocalConfiguration.current.screenWidthDp < 360 ||
@@ -149,6 +157,18 @@ internal fun MichiMetadataEditorPreviewContent(
     }
     var showSaveDetail by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(false)
+    }
+    var pilotEligible by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf(false)
+    }
+    var saving by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf(false)
+    }
+    var saveMessage by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf<String?>(null)
+    }
+    var pendingReview by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf<MetadataReview.Ready?>(null)
     }
     var genreFirst by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(focusGenre)
@@ -215,6 +235,11 @@ internal fun MichiMetadataEditorPreviewContent(
         if (artLyrics.artwork != null || artLyrics.artworkEdit != null) 1 else 0
     val canRevert = certifiedDirty || effectiveEditCount > 0 ||
         provisionalCount > 0 || artLyrics.isDirty
+    val saveableReview = draft.review as? MetadataReview.Ready
+    val pilotArtworkBlocked = artLyrics.artwork != null || artLyrics.artworkEdit != null
+    val canSave = pilotEligible && !saving && saveableReview != null &&
+        fieldSummary.effectiveFields > 0 && !pilotArtworkBlocked &&
+        textEffectiveCount == 0 && provisionalCount == 0
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     fun requestExit() {
         if (certifiedDirty || provisionalCount > 0) confirmExit = true else onDismiss()
@@ -224,9 +249,71 @@ internal fun MichiMetadataEditorPreviewContent(
         provisional = emptyMap()
         artLyrics = artLyrics.reset()
         genreFirst = false
+        saveMessage = null
         onDirtyChanged(false)
         confirmRevert = false
     }
+    LaunchedEffect(pilotWriter, target.sourceId, target.trackId, target.uri, expectedFileBytes) {
+        val eligibility = pilotWriter?.eligibility(target.uri)
+        pilotEligible = eligibility is MetadataPilotWriteCoordinator.Eligibility.Eligible
+    }
+    var retryPilotSave: (MetadataReview.Ready) -> Unit = {}
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        val review = pendingReview
+        if (result.resultCode == Activity.RESULT_OK && review != null) {
+            pendingReview = null
+            retryPilotSave(review)
+        } else {
+            pendingReview = null
+            saveMessage = "Permiso de escritura no concedido."
+        }
+    }
+    fun performPilotSave(review: MetadataReview.Ready) {
+        val writer = pilotWriter ?: return
+        if (saving) return
+        saving = true
+        saveMessage = null
+        scope.launch {
+            when (val outcome = writer.save(
+                sourceId = indexSourceId.ifBlank { target.sourceId },
+                trackId = target.trackId,
+                uriString = target.uri,
+                expectedBytes = expectedFileBytes,
+                review = review,
+            )) {
+                is MetadataPilotWriteCoordinator.Outcome.Saved -> {
+                    saving = false
+                    pendingReview = null
+                    draft = MetadataEditorDraftSession.start(outcome.snapshot)
+                    artLyrics = MetadataArtLyricsUiState()
+                    provisional = emptyMap()
+                    saveMessage = if (outcome.indexPublished) "Cambios guardados"
+                    else "Archivo guardado y releído; biblioteca pendiente de actualizar"
+                    onDirtyChanged(false)
+                }
+                is MetadataPilotWriteCoordinator.Outcome.ConsentRequired -> {
+                    saving = false
+                    pendingReview = review
+                    consentLauncher.launch(
+                        IntentSenderRequest.Builder(outcome.intent.intentSender).build(),
+                    )
+                }
+                is MetadataPilotWriteCoordinator.Outcome.Blocked -> {
+                    saving = false
+                    saveMessage = "No se puede guardar ahora: ${outcome.reason}."
+                }
+                is MetadataPilotWriteCoordinator.Outcome.Failed -> {
+                    saving = false
+                    saveMessage = if (outcome.needsRecovery)
+                        "El archivo necesita recuperación. No se declara guardado."
+                    else "No se pudo guardar: ${outcome.reason}."
+                }
+            }
+        }
+    }
+    retryPilotSave = ::performPilotSave
     BackHandler(enabled = true) { requestExit() }
     LaunchedEffect(certifiedDirty) { onDirtyChanged(certifiedDirty) }
 
@@ -297,17 +384,31 @@ internal fun MichiMetadataEditorPreviewContent(
             title = { Text("Guardar en el archivo") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Este tipo de archivo todavía no tiene una ruta de escritura certificada.",
-                        color = TextSecondary,
-                    )
-                    Text(
-                        "No se ha modificado el archivo. Para habilitar Guardar se necesita " +
-                            "permiso exacto del proveedor, copia recuperable, journal, relectura " +
-                            "independiente y confirmación de la biblioteca.",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    if (pilotEligible) {
+                        Text(
+                            "Perfil piloto certificado: MediaStore + MP3/ID3v2.3-2.4 " +
+                                "para TITLE, ARTIST, ALBUM y GENRE.",
+                            color = TertiaryCyan,
+                        )
+                        Text(
+                            "Guardar solicita permiso exacto para este archivo, crea una copia " +
+                                "privada con journal, escribe el original, lo relee y publica la " +
+                                "biblioteca. Las carátulas quedan fuera de este perfil.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "Este tipo de archivo todavía no tiene una ruta de escritura certificada.",
+                            color = TextSecondary,
+                        )
+                        Text(
+                            "El perfil piloto solo admite archivos MediaStore MP3 cuyo nombre " +
+                                "empiece por michi-me122-. No se ha modificado ningún archivo.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -791,20 +892,29 @@ internal fun MichiMetadataEditorPreviewContent(
                         )
                     }
                     Button(
-                        onClick = {},
-                        enabled = false,
+                        onClick = { saveableReview?.let(::performPilotSave) },
+                        enabled = canSave,
                         modifier = Modifier.weight(1f).heightIn(min = 50.dp)
                             .testTag("metadata_save_file"),
-                    ) { Text("Guardar") }
+                    ) { Text(if (saving) "Guardando…" else "Guardar") }
                 }
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val caption = when {
+                        saving -> "Guardando…"
+                        saveMessage != null -> saveMessage!!
+                        pilotEligible && pilotArtworkBlocked ->
+                            "La carátula no se puede guardar en este perfil todavía"
+                        pilotEligible && effectiveEditCount == 0 -> "Sin cambios"
+                        pilotEligible && saveableReview != null -> "Listo para guardar en el archivo"
+                        else -> "No se puede guardar este tipo de archivo todavía"
+                    }
                     Text(
-                        "No se puede guardar este tipo de archivo todavía",
+                        caption,
                         style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
+                        color = if (saveMessage == "Cambios guardados") TertiaryCyan else TextSecondary,
                         modifier = Modifier.weight(1f)
                             .testTag("metadata_save_unavailable"),
                     )
