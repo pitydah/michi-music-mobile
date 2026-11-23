@@ -28,6 +28,11 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
             val mediaStoreAdvertisedSize: Long?,
             val mediaStoreAdvertisedModifiedAt: Long?,
             val metadataLagObserved: Boolean,
+            /**
+             * True when the accepted read needed a bounded retry because the
+             * provider's announced stamp moved during the first attempt.
+             */
+            val announcedStampMovedDuringRead: Boolean = false,
         ) : PostCommitRead
         data class Rejected(val reason: String) : PostCommitRead
     }
@@ -82,9 +87,67 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
           catch (_: SecurityException) { return Result.Failed(Failure.PERMISSION_DENIED) }
           catch (_: Exception) { return Result.Failed(Failure.UNREADABLE) }
     }
+    private fun readExactBytes(
+        uri: Uri,
+        expectedCandidateBytes: Long,
+        checkCancellation: () -> Unit,
+    ): MetadataCommittedCandidateStability.BytesRead {
+        val hash = MessageDigest.getInstance("SHA-256")
+        var actual = 0L
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val chunk = ByteArray(64 * 1024)
+                var empty = 0
+                while (true) {
+                    checkCancellation()
+                    val n = stream.read(chunk)
+                    if (n < 0) break
+                    if (n == 0) {
+                        if (++empty > 8)
+                            return MetadataCommittedCandidateStability.BytesRead
+                                .Rejected("UNREADABLE")
+                        continue
+                    }
+                    empty = 0
+                    actual += n
+                    if (actual > expectedCandidateBytes)
+                        return MetadataCommittedCandidateStability.BytesRead
+                            .Rejected("ACTUAL_SIZE_MISMATCH")
+                    hash.update(chunk, 0, n)
+                }
+            } ?: return MetadataCommittedCandidateStability.BytesRead.Rejected("UNREADABLE")
+        } catch (cancel: CancellationException) { throw cancel }
+          catch (_: SecurityException) {
+              return MetadataCommittedCandidateStability.BytesRead
+                  .Rejected("PERMISSION_DENIED")
+          }
+          catch (_: Exception) {
+              return MetadataCommittedCandidateStability.BytesRead.Rejected("UNREADABLE")
+          }
+        val sha = hash.digest().joinToString("") {
+            (it.toInt() and 255).toString(16).padStart(2, '0')
+        }
+        return MetadataCommittedCandidateStability.BytesRead.Read(actual, sha)
+    }
+
+    private fun announcement(uri: Uri): MetadataCommittedCandidateStability.Announcement? =
+        stamp(uri, true)?.let {
+            MetadataCommittedCandidateStability.Announcement(it.size, it.modified)
+        }
+
     /**
      * ME-13 P0: MediaStore may lag after rwt. Exact physical bytes win; an
      * advertised-size mismatch is reported, never treated as a successful hash.
+     *
+     * The announced stamp is provider bookkeeping, and MediaStore frequently
+     * publishes the post-close size only after the writer's descriptor is gone, so
+     * the stamp can move while the already committed candidate bytes stream back.
+     * Content is the authority: a wrong length or SHA always refuses, exact content
+     * with a settled stamp is accepted (reporting announced lag), and exact content
+     * with a stamp that moved during the read is re-proved by ONE fresh independent
+     * read. A persistently moving stamp still fails closed, as does any stamp that
+     * moves around non-exact content. The bounded retry lives in
+     * [MetadataCommittedCandidateStability.resolve], which is unit-tested.
      */
     fun readCommittedCandidate(
         sourceId: String,
@@ -99,42 +162,24 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
         if (uri.scheme != "content" || uri.authority != "media" ||
             sourceId != "lib_device_local" || expectedCandidateBytes !in 1..(1024L*1024*1024))
             return PostCommitRead.Rejected("INVALID_SOURCE")
-        val before = stamp(uri, true) ?: return PostCommitRead.Rejected("MISSING_STAMP")
-        val hash = MessageDigest.getInstance("SHA-256")
-        var actual = 0L
-        try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val chunk = ByteArray(64 * 1024)
-                var empty = 0
-                while (true) {
-                    checkCancellation()
-                    val n = stream.read(chunk)
-                    if (n < 0) break
-                    if (n == 0) {
-                        if (++empty > 8) return PostCommitRead.Rejected("UNREADABLE")
-                        continue
-                    }
-                    empty = 0
-                    actual += n
-                    if (actual > expectedCandidateBytes)
-                        return PostCommitRead.Rejected("ACTUAL_SIZE_MISMATCH")
-                    hash.update(chunk, 0, n)
-                }
-            } ?: return PostCommitRead.Rejected("UNREADABLE")
-        } catch (cancel: CancellationException) { throw cancel }
-          catch (_: SecurityException) { return PostCommitRead.Rejected("PERMISSION_DENIED") }
-          catch (_: Exception) { return PostCommitRead.Rejected("UNREADABLE") }
-        val after = stamp(uri, true) ?: return PostCommitRead.Rejected("MISSING_STAMP")
-        if (before != after) return PostCommitRead.Rejected("STAMP_CHANGED_DURING_READ")
-        val sha = hash.digest().joinToString("") {
-            (it.toInt() and 255).toString(16).padStart(2, '0')
+        return when (val outcome = MetadataCommittedCandidateStability.resolve(
+            expectedCandidateBytes, expectedCandidateSha256,
+        ) {
+            MetadataCommittedCandidateStability.Observation(
+                before = announcement(uri),
+                read = readExactBytes(uri, expectedCandidateBytes, checkCancellation),
+                after = announcement(uri),
+            )
+        }) {
+            is MetadataCommittedCandidateStability.Outcome.Accepted -> PostCommitRead.Exact(
+                outcome.bytes, outcome.sha256,
+                outcome.announced.bytes, outcome.announced.modifiedAt,
+                metadataLagObserved = outcome.announcedLag,
+                announcedStampMovedDuringRead = outcome.retried,
+            )
+            is MetadataCommittedCandidateStability.Outcome.Rejected ->
+                PostCommitRead.Rejected(outcome.reason)
         }
-        if (actual != expectedCandidateBytes)
-            return PostCommitRead.Rejected("ACTUAL_SIZE_MISMATCH")
-        if (sha != expectedCandidateSha256)
-            return PostCommitRead.Rejected("SHA_MISMATCH")
-        return PostCommitRead.Exact(actual, sha, after.size, after.modified,
-            metadataLagObserved = after.size != actual)
     }
 
 }

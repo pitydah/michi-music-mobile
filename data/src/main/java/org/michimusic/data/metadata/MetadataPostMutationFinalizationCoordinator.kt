@@ -135,6 +135,11 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
                     Refusal.SOURCE_NOT_CANDIDATE, FinalizationStep.SOURCE_READ,
                     "READ_${(actual as MetadataCurrentBytesReader.PostCommitRead.Rejected).reason}",
                 )
+            // Bounded diagnostic: a retried read means MediaStore published its
+            // bookkeeping size only after the commit. No URI, id or tag value.
+            if (actual.announcedStampMovedDuringRead)
+                android.util.Log.d("MetadataFinalize",
+                    "postcheck=announcement_moved_retried lag=${actual.metadataLagObserved}")
             if (actual.actualSize != pending.stageBytes ||
                 actual.actualSha256 != pending.stageSha256)
                 return@withContext Result.Blocked(

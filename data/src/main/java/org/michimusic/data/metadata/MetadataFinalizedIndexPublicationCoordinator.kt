@@ -83,6 +83,14 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
             return@withContext Result.Blocked(Reason.WRONG_OWNER)
         val finalized=finalizer.confirm(transactionId,original.target,true,
             ownerStillCurrent,playbackDescriptorClosed,permit)
+        // Diagnostics only: the finalization step and refusal code. Never the URI,
+        // the transaction id or any tag value (contract P0-B.7).
+        if (finalized !is MetadataPostMutationFinalizationCoordinator.Result
+                .PreparedForExternalCas) {
+            val blocked=finalized as? MetadataPostMutationFinalizationCoordinator.Result.Blocked
+            android.util.Log.d("MetadataFinalize",
+                "blocked=${blocked?.step?.name ?: "UNKNOWN"}:${blocked?.code ?: "NO_CODE"}")
+        }
         val certified=(finalized as?
             MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas)?.receipt
             ?: return@withContext Result.Blocked(Reason.POSTCHECK_NOT_READY)
@@ -126,11 +134,15 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
             if (unverified != org.michimusic.core.metadata.MetadataUnverifiedIndexRowPolicy.Verdict.MayAttemptExternalCas)
                 return@withContext Result.Blocked(Reason.CAS_REJECTED)
         }
-        val first=bytes.read(entry.sourceId,entry.uri,entry.stageBytes)
-            as? MetadataCurrentBytesReader.Result.Read
+        // Content is the authority here (contract P0-B.6 / T26): the exact committed
+        // candidate SHA and physical length, read twice with a settled announced
+        // stamp. MediaStore's announced SIZE may still lag; that bookkeeping lag is
+        // reported by the reader and never substitutes for the candidate hash.
+        val first=bytes.readCommittedCandidate(entry.sourceId,entry.uri,entry.stageBytes,
+            entry.stageSha256)
+            as? MetadataCurrentBytesReader.PostCommitRead.Exact
             ?: return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
-        if (first.fingerprint.sha256!=entry.stageSha256 ||
-            first.fingerprint.bytes!=entry.stageBytes)
+        if (first.actualSha256!=entry.stageSha256 || first.actualSize!=entry.stageBytes)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
         val parsed=try {
             val descriptor=resolver.openFileDescriptor(Uri.parse(entry.uri),"r")
@@ -142,10 +154,12 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
           catch (_:Exception) { return@withContext Result.Blocked(Reason.FIELDS_UNVERIFIED) }
         if (!ownerStillCurrent() || !playbackDescriptorClosed())
             return@withContext Result.Blocked(Reason.WRONG_OWNER)
-        val second=bytes.read(entry.sourceId,entry.uri,entry.stageBytes)
-            as? MetadataCurrentBytesReader.Result.Read
+        val second=bytes.readCommittedCandidate(entry.sourceId,entry.uri,entry.stageBytes,
+            entry.stageSha256)
+            as? MetadataCurrentBytesReader.PostCommitRead.Exact
             ?: return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
-        if (second.fingerprint!=first.fingerprint)
+        if (second.actualSize!=first.actualSize ||
+            second.actualSha256!=first.actualSha256)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
         // The journal, the private evidence and the intent binding are re-proved
         // unchanged after both cold reads. Room's conditional UPDATE remains the
@@ -163,7 +177,7 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         if (fenced !is MetadataRecoveryJournalV1.Publication.Published || fenced.value!=true)
             return@withContext Result.Blocked(Reason.JOURNAL_MISSING)
         val delta=MetadataSourceIndexDelta.propose(original,intent,
-            second.fingerprint.sha256,parsed,candidateBytes=second.fingerprint.bytes)
+            second.actualSha256,parsed,candidateBytes=second.actualSize)
         if (delta !is MetadataSourceIndexDelta.Result.PreparedForExternalCas)
             return@withContext Result.Blocked(Reason.FIELDS_UNVERIFIED)
         when (val refresh=MetadataScalarIndexRefreshPolicy.evaluate(delta.delta)) {
