@@ -21,12 +21,12 @@ import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
+import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
-import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 
@@ -38,7 +38,9 @@ class MetadataSaveService(
 ) {
     sealed interface Eligibility {
         data object Eligible : Eligibility
-        data class Ineligible(val reason: String) : Eligibility
+        /** A durable journal obligation still owns this or another source. */
+        data object RecoveryPending : Eligibility
+        data class UnsupportedProfile(val reason: String) : Eligibility
     }
 
     sealed interface Outcome {
@@ -53,27 +55,27 @@ class MetadataSaveService(
         File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
     )
     private val transport = MetadataProviderMutationTransport(context)
-    private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
+    private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val intents = MetadataCommitIntentStore(journal)
     private val profile = MediaStoreMp3TextProfile.profile
 
     fun eligibility(uriString: String): Eligibility {
         val uri = runCatching { Uri.parse(uriString) }.getOrNull()
-            ?: return Eligibility.Ineligible("URI no válida")
+            ?: return Eligibility.UnsupportedProfile("URI no válida")
         if (uri.scheme != ContentResolver.SCHEME_CONTENT || uri.authority != MediaStore.AUTHORITY)
-            return Eligibility.Ineligible("El archivo no pertenece a MediaStore")
+            return Eligibility.UnsupportedProfile("El archivo no pertenece a MediaStore")
         val display = query(uri, OpenableColumns.DISPLAY_NAME)
-            ?: return Eligibility.Ineligible("No se puede leer el nombre del archivo")
+            ?: return Eligibility.UnsupportedProfile("No se puede leer el nombre del archivo")
         if (!display.endsWith(".mp3", ignoreCase = true))
-            return Eligibility.Ineligible("Solo se admiten archivos MP3 en este perfil")
+            return Eligibility.UnsupportedProfile("Solo se admiten archivos MP3 en este perfil")
         val mime = context.contentResolver.getType(uri)
         if (mime != null && mime != "audio/mpeg" && mime != "audio/mp3")
-            return Eligibility.Ineligible("Contenedor no admitido")
-        val pending = journal.inspect()
-        if (pending is MetadataRecoveryJournalV1.Inspection.Pending &&
-            pending.entry.uri != uriString)
-            return Eligibility.Ineligible("Hay otra escritura pendiente de recuperación")
+            return Eligibility.UnsupportedProfile("Contenedor no admitido")
+        // Any pending journal forbids a fresh edit until the user resolves it:
+        // the physical bytes of the old transaction are still uncertain.
+        if (journal.inspect() is MetadataRecoveryJournalV1.Inspection.Pending)
+            return Eligibility.RecoveryPending
         return Eligibility.Eligible
     }
 
@@ -212,6 +214,7 @@ class MetadataSaveService(
                     sourceId = sourceId, trackId = trackId, uri = uriString,
                     expectedBytes = expectedBytes, expectedModifiedAt = stamp,
                     format = observed.format.name,
+                    ownerEvidenceToken = review.original.target.evidenceToken,
                 )
                 journal.start(entry)
                 val snapshotEntry = entry
@@ -334,6 +337,7 @@ class MetadataSaveService(
             }
             val durable = writeIndexReceipt(
                 entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED), review,
+                expectedIndex,
             )
             if (!durable) return@withContext Outcome.RecoveryRequired(
                 "INDEX_OBLIGATION_NOT_DURABLE",
@@ -418,49 +422,148 @@ class MetadataSaveService(
         )
         if (!permit.matches(entry))
             return Outcome.RecoveryRequired("PERMIT_MISMATCH")
-        val confirmed = finalization.confirm(
-            transactionId = entry.id,
-            target = review.proposed.target,
-            explicitUserAction = true,
-            ownerCurrent = ownerCurrent,
-            playbackClosed = playbackClosed,
-            permit = permit,
-        )
-        when (confirmed) {
-            is MetadataPostMutationFinalizationCoordinator.Result.Blocked ->
-                return Outcome.RecoveryRequired(
-                    "${confirmed.step.name}:${confirmed.code}",
-                )
-            is MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas -> Unit
-            else -> return Outcome.RecoveryRequired("RECEIPT_GATE_NOT_CERTIFIED")
-        }
         val postEntry = entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED)
-        val indexed = publish(sourceId, trackId, uriString, postEntry, review)
-        if (indexed) {
-            if (!journal.completeVerified(postEntry.id))
-                return Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
-        } else if (!writeIndexReceipt(postEntry, review)) {
-            return Outcome.RecoveryRequired("INDEX_OBLIGATION_NOT_DURABLE")
-        }
-        return Outcome.Saved(review.proposed.copy(
+        val expectedIndex = currentIndexIdentity(entry)
+        val coldSnapshot = review.proposed.copy(
             target = review.proposed.target.copy(
                 evidenceToken = "me13:sha256:${postEntry.stageSha256}",
             ),
-        ), indexed)
+        )
+        if (expectedIndex == null) {
+            // A historical MUTATING/MUTATION_UNKNOWN journal must be re-proved
+            // against the physical source before any "saved" claim, even when
+            // the Room row cannot be used for an exact CAS.
+            val confirmed = finalization.confirm(
+                transactionId = entry.id,
+                target = review.proposed.target,
+                explicitUserAction = true,
+                ownerCurrent = ownerCurrent,
+                playbackClosed = playbackClosed,
+                permit = permit,
+            )
+            if (confirmed !is MetadataPostMutationFinalizationCoordinator.Result
+                    .PreparedForExternalCas) {
+                val blocked = confirmed as? MetadataPostMutationFinalizationCoordinator.Result.Blocked
+                return Outcome.RecoveryRequired(
+                    "${blocked?.step?.name ?: "POSTCHECK"}:${blocked?.code ?: "NOT_VERIFIED"}",
+                )
+            }
+            if (alreadyApplied(entry, review)) {
+                if (!journal.completeVerified(entry.id))
+                    return Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
+                return Outcome.Saved(coldSnapshot, true)
+            }
+            // The exact pre-write row is absent or still conflicting. Preserve a
+            // durable, non-actionable receipt; the on-demand reconciler and the
+            // recovery panel keep the obligation visible without a blind CAS.
+            if (!writeIndexReceipt(postEntry, review, null))
+                return Outcome.RecoveryRequired("INDEX_OBLIGATION_NOT_DURABLE")
+            return Outcome.Saved(coldSnapshot, false)
+        }
+        val published = publication.reconcile(
+            transactionId = postEntry.id,
+            original = review.original,
+            expectedIndex = expectedIndex,
+            explicitUserAction = true,
+            ownerStillCurrent = ownerCurrent,
+            playbackDescriptorClosed = playbackClosed,
+            permit = permit,
+        )
+        val indexed = published is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly ||
+            published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||
+            published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleIndexed ||
+            published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleAndGenreIndexed
+        if (indexed) {
+            if (!journal.completeVerified(postEntry.id))
+                return Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
+            return Outcome.Saved(coldSnapshot, true)
+        }
+        // Physical bytes are already postcheck-verified, so a CAS refusal is an
+        // index obligation, never a claim that the audio is damaged.
+        if (!writeIndexReceipt(postEntry, review, expectedIndex))
+            return Outcome.RecoveryRequired("INDEX_OBLIGATION_NOT_DURABLE")
+        if (published is MetadataFinalizedIndexPublicationCoordinator.Result.Blocked)
+            return Outcome.RecoveryRequired("PUBLICATION:${published.reason.name}")
+        return Outcome.Saved(coldSnapshot, false)
+    }
+
+    private suspend fun alreadyApplied(
+        entry: MetadataRecoveryJournalV1.Entry,
+        review: MetadataReview.Ready,
+    ): Boolean {
+        val row = trackDao.getTrackBySource(entry.sourceId, entry.trackId) ?: return false
+        if (row.filepath != entry.uri || row.size != entry.stageBytes) return false
+        if (row.verifiedAt != 0L || row.verifiedSha256.isNotEmpty() ||
+            row.verifiedSize != 0L || row.verifiedAlgorithm.isNotEmpty()) return false
+        if (review.diffs.isEmpty()) return false
+        return review.diffs.all { diff ->
+            val expected = diff.after.firstOrNull().orEmpty()
+            when (diff.field) {
+                MetadataField.TITLE -> row.title == expected
+                MetadataField.ARTIST -> row.artist == expected
+                MetadataField.ALBUM -> row.album == expected
+                MetadataField.GENRE -> row.genre == expected
+                else -> false
+            }
+        }
+    }
+
+    private suspend fun currentIndexIdentity(
+        entry: MetadataRecoveryJournalV1.Entry,
+    ): MetadataIndexPublicationPolicy.IndexIdentity? {
+        val row = trackDao.getTrackBySource(entry.sourceId, entry.trackId) ?: return null
+        if (row.filepath != entry.uri || row.size != entry.expectedBytes) return null
+        val verified = row.verifiedAt > 0L && row.verifiedSha256 == entry.originalSha256 &&
+            row.verifiedSize == row.size && row.verifiedAlgorithm.lowercase() == "sha256"
+        val unhashed = row.verifiedAt == 0L && row.verifiedSha256.isEmpty() &&
+            row.verifiedSize == 0L && row.verifiedAlgorithm.isEmpty()
+        if (!verified && !unhashed) return null
+        return MetadataIndexPublicationPolicy.IndexIdentity(
+            sourceId = row.sourceId, trackId = row.id, uri = row.filepath,
+            version = row.verifiedAt, observedSourceSha256 = row.verifiedSha256,
+        )
     }
 
     private fun writeIndexReceipt(
         entry: MetadataRecoveryJournalV1.Entry,
         review: MetadataReview.Ready,
+        expectedIndex: MetadataIndexPublicationPolicy.IndexIdentity?,
     ): Boolean {
+        val root = File(context.noBackupFilesDir, "michi-metadata-editor-v1")
+        val intent = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
+            ?.receipt
+        val token = review.original.target.evidenceToken
+        val ownerBound = intent != null && token.isNotBlank() && runCatching {
+            org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
+                review.original.target) == intent.ownerSha256
+        }.getOrDefault(false)
+        // V2 is written only with the exact pre-write row identity and the exact
+        // owner token bound into the durable intent. A legacy V1 receipt is
+        // retained for readback but can never authorize a Room CAS.
+        if (expectedIndex != null && ownerBound && token.isNotBlank()) {
+            val v2 = MetadataIndexReconciliationReceipt(
+                transactionId = entry.id, sourceId = entry.sourceId,
+                trackId = entry.trackId, uri = entry.uri,
+                originalSha256 = entry.originalSha256,
+                candidateSha256 = entry.stageSha256,
+                candidateBytes = entry.stageBytes, format = entry.format,
+                ownerEvidenceToken = token,
+                previousVerifiedAt = expectedIndex.version,
+                previousVerifiedSha256 = expectedIndex.observedSourceSha256,
+                previousSize = entry.expectedBytes,
+            )
+            if (v2.actionable &&
+                MetadataIndexReconciliationReceipt.write(root, v2)) return true
+        }
         return MetadataIndexReconciliationReceipt.write(
-            File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            root,
             MetadataIndexReconciliationReceipt(
                 transactionId = entry.id, sourceId = entry.sourceId,
                 trackId = entry.trackId, uri = entry.uri,
                 originalSha256 = entry.originalSha256,
                 candidateSha256 = entry.stageSha256,
                 candidateBytes = entry.stageBytes, format = entry.format,
+                version = 1,
             ),
         )
     }
@@ -470,47 +573,6 @@ class MetadataSaveService(
                 MetadataRecoveryPhase.BACKUP_DURABLE, MetadataRecoveryPhase.STAGE_READY))
             journal.discardPrepared(entry.id)
         return Outcome.Blocked(reason)
-    }
-
-    private fun publish(
-        sourceId: String, trackId: String, uri: String,
-        entry: MetadataRecoveryJournalV1.Entry, review: MetadataReview.Ready,
-    ): Boolean {
-        val row: CachedTrack = kotlinx.coroutines.runBlocking {
-            trackDao.getTrackBySource(sourceId, trackId)
-        } ?: return false
-        if (row.filepath != uri || row.size <= 0L) return false
-        fun one(field: org.michimusic.core.metadata.MetadataField, fallback: String): String =
-            review.proposed.known[field]?.firstOrNull() ?: fallback
-        val title = one(org.michimusic.core.metadata.MetadataField.TITLE, row.title)
-        val artist = one(org.michimusic.core.metadata.MetadataField.ARTIST, row.artist)
-        val album = one(org.michimusic.core.metadata.MetadataField.ALBUM, row.album)
-        val genre = one(org.michimusic.core.metadata.MetadataField.GENRE, row.genre)
-        return kotlinx.coroutines.runBlocking {
-            if (row.verifiedAt > 0L && row.verifiedSha256 == entry.originalSha256)
-                trackDao.commitMetadataAfterVerifiedWrite(
-                    row.sourceId, row.id, row.filepath,
-                    previousSize = row.size, previousVerifiedAt = row.verifiedAt,
-                    previousSha256 = row.verifiedSha256,
-                    previousTitle = row.title, previousArtist = row.artist,
-                    previousAlbum = row.album, previousAlbumArtist = row.albumArtist,
-                    previousGenre = row.genre, previousTrackNumber = row.trackNumber,
-                    previousYear = row.year,
-                    newSize = entry.stageBytes, newTitle = title, newArtist = artist,
-                    newAlbum = album, newAlbumArtist = row.albumArtist,
-                    newGenre = genre, newTrackNumber = row.trackNumber, newYear = row.year,
-                )
-            else trackDao.commitMetadataAfterVerifiedWriteUnhashed(
-                row.sourceId, row.id, row.filepath,
-                previousSize = row.size, previousTitle = row.title,
-                previousArtist = row.artist, previousAlbum = row.album,
-                previousAlbumArtist = row.albumArtist, previousGenre = row.genre,
-                previousTrackNumber = row.trackNumber, previousYear = row.year,
-                newSize = entry.stageBytes, newTitle = title, newArtist = artist,
-                newAlbum = album, newAlbumArtist = row.albumArtist,
-                newGenre = genre, newTrackNumber = row.trackNumber, newYear = row.year,
-            )
-        }
     }
 
     private fun MetadataArtworkLyricsProbe.Format.toContainer() =

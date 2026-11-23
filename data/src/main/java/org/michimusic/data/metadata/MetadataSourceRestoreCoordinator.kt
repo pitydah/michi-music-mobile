@@ -21,28 +21,41 @@ import org.michimusic.core.metadata.MetadataRecoveryRestorePolicy
 import org.michimusic.core.metadata.MetadataTarget
 
 /**
- * ME-10R. Protected, opt-in source restoration blueprint using the SAME durable
- * journal as commit. Never called by UI; both physical source-write gates remain
- * hard-false. Restoration is only ever considered if live bytes are identical
- * to the staged candidate. UNKNOWN_BYTES is NOT safe to overwrite, since an
- * outside actor may have changed the provider document in the interim.
+ * ME-10R / ME-13 S5. Protected source restoration using the SAME durable
+ * journal as commit. Two routes exist:
  *
- * Records ROLLBACK_PENDING BEFORE the first destructive provider open. All
+ * - The legacy global route remains hard-false behind
+ *   [MetadataCommitCertification] and [MetadataProviderRecoveryProfile].
+ * - The S5 route accepts only an exact, transaction-bound
+ *   [MetadataRestorePermit] for a local MediaStore MP3 ID3v2.3/2.4 transaction.
+ *   It does not open SAF, FLAC, MP4 or any other container.
+ *
+ * Restoration is only ever considered after the exact private backup and the
+ * durable manifest are revalidated. A verified candidate means the write landed:
+ * the caller must finalize it, never restore. ORIGINAL_INTACT is reported without
+ * touching the provider. UNKNOWN/truncated bytes require the explicit permit and
+ * a durable ROLLBACK_PENDING reservation BEFORE the first destructive open.
+ * Records ROLLBACK_PENDING before the first destructive provider open. All
  * errors or unverified readbacks retain both private copies. A successful byte
  * send alone is not a result or index publication. No automatic undo on start.
  */
-internal class MetadataSourceRestoreCoordinator(context: Context) {
+internal class MetadataSourceRestoreCoordinator(
+    context: Context,
+    private val permissionProbe: ((String, String, Boolean) ->
+        MetadataExactWritePermission.Result)? = null,
+) {
     data class Request(
         val transactionId: String,
         val target: MetadataTarget,
         val explicitlyConfirmedByUser: Boolean,
         val ownerStillCurrent: () -> Boolean,
         val playbackClosed: () -> Boolean,
-        val providerProfile: MetadataProviderRecoveryProfile.Evidence,
+        val providerProfile: MetadataProviderRecoveryProfile.Evidence? = null,
+        val permit: MetadataRestorePermit? = null,
     )
     enum class Refusal {
         ACTION_REQUIRED, NOT_CERTIFIED, JOURNAL_UNREADABLE,
-        WRONG_TRANSACTION_OR_OWNER, NOT_IN_UNKNOWN_PHASE,
+        WRONG_TRANSACTION_OR_OWNER, NOT_IN_UNKNOWN_PHASE, PERMIT_MISMATCH,
         BACKUP_OR_CANDIDATE_UNVERIFIED, INTENT_NOT_BOUND,
         SEMANTIC_OR_OPAQUE_AUDIT_FAILED, SOURCE_CHANGED_OR_UNREADABLE,
         PROVIDER_MISMATCH, PERMISSION_UNAVAILABLE,
@@ -53,8 +66,10 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
         data class PermissionRequired(val intent: PendingIntent) : Outcome
         /** No restoration happened: original fingerprint was already present. */
         data class OriginalWasIntact(val transactionId: String) : Outcome
-        /** Verified immediate readback, but no automatic cleanup or publication. */
-        data class OriginalBytesReadBack(val transactionId: String) : Outcome
+        /** The write already landed. Finalize/index it; do not restore. */
+        data class CandidateInstalledFinalizeRequired(val transactionId: String) : Outcome
+        /** Only this outcome means a provider reread proved the original bytes. */
+        data class RestoredVerified(val transactionId: String) : Outcome
         data class KeepBothPrivateCopies(val transactionId: String,
             val observed: MetadataPhysicalOutcomePolicy.State) : Outcome
     }
@@ -74,10 +89,15 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
     suspend fun attempt(request: Request): Outcome = withContext(Dispatchers.IO) {
         if (!request.explicitlyConfirmedByUser)
             return@withContext Outcome.Blocked(Refusal.ACTION_REQUIRED)
-        // The two independent production gates are deliberate and false here.
-        if (!MetadataCommitCertification.mayMutateOriginal() ||
-            !MetadataProviderRecoveryProfile.permitsSourceMutation(request.providerProfile))
-            return@withContext Outcome.Blocked(Refusal.NOT_CERTIFIED)
+        val scoped = request.permit?.authorizes(request.transactionId, request.target) == true
+        val profile = request.providerProfile
+        if (!scoped) {
+            // The two independent production gates are deliberate and false here.
+            if (!MetadataCommitCertification.mayMutateOriginal() ||
+                profile == null ||
+                !MetadataProviderRecoveryProfile.permitsSourceMutation(profile))
+                return@withContext Outcome.Blocked(Refusal.NOT_CERTIFIED)
+        }
         val job = currentCoroutineContext()[Job]
         try {
             lateinit var entry: MetadataRecoveryJournalV1.Entry
@@ -93,7 +113,10 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                     pending.trackId != request.target.trackId ||
                     pending.uri != request.target.uri)
                     return@withExclusiveSnapshot Outcome.Blocked(Refusal.WRONG_TRANSACTION_OR_OWNER)
-                if (pending.phase != MetadataRecoveryPhase.MUTATION_UNKNOWN)
+                if (request.permit != null && !request.permit.matches(pending))
+                    return@withExclusiveSnapshot Outcome.Blocked(Refusal.PERMIT_MISMATCH)
+                if (pending.phase !in setOf(MetadataRecoveryPhase.MUTATING,
+                        MetadataRecoveryPhase.MUTATION_UNKNOWN))
                     return@withExclusiveSnapshot Outcome.Blocked(Refusal.NOT_IN_UNKNOWN_PHASE)
                 if (!request.ownerStillCurrent() || !request.playbackClosed())
                     return@withExclusiveSnapshot Outcome.Blocked(Refusal.SOURCE_CHANGED_OR_UNREADABLE)
@@ -129,24 +152,26 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                     return@withContext Outcome.Blocked(Refusal.WRONG_TRANSACTION_OR_OWNER)
                 return@withContext Outcome.OriginalWasIntact(entry.id)
             }
-            if (physical != MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
+            if (physical == MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
+                return@withContext Outcome.CandidateInstalledFinalizeRequired(entry.id)
+            if (physical != MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES)
                 return@withContext Outcome.Blocked(Refusal.SOURCE_CHANGED_OR_UNREADABLE)
+            // Truncated/unknown bytes are eligible only through the exact typed
+            // permit. The provider is reopened independently against the stamp
+            // just observed; the stale candidate is not required to be installed.
             val exactSource = try {
-                reader.openForRead(entry.sourceId,entry.uri,entry.stageBytes)
+                reader.openForRead(entry.sourceId,entry.uri,observed.fingerprint.bytes)
             } catch (cancel: CancellationException) { throw cancel }
               catch (_: Exception) {
                 return@withContext Outcome.Blocked(Refusal.SOURCE_CHANGED_OR_UNREADABLE)
             }
-            // Revalidate exact candidate bytes and provider stamp before
-            // inspecting grants or entering the protected rollback phase.
-            if (!reader.verifyBytes(exactSource,entry.stageBytes,entry.stageSha256) {
-                    job?.ensureActive()
-                }) return@withContext Outcome.Blocked(Refusal.SOURCE_CHANGED_OR_UNREADABLE)
             val providerMatches = when (exactSource.provider) {
-                MetadataDocumentProvider.MEDIASTORE -> request.providerProfile.provider ==
-                    MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
-                MetadataDocumentProvider.SAF -> request.providerProfile.provider ==
-                    MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                MetadataDocumentProvider.MEDIASTORE ->
+                    if (scoped) request.permit?.uri == entry.uri
+                    else profile?.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                MetadataDocumentProvider.SAF ->
+                    !scoped && profile?.provider ==
+                        MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
                 else -> false
             }
             if (!providerMatches)
@@ -164,7 +189,7 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                     intent.changes.mapTo(linkedSetOf()){it.field})
                 !is MetadataOpaquePreservationAudit.Verdict.Compared)
                 return@withContext Outcome.Blocked(Refusal.SEMANTIC_OR_OPAQUE_AUDIT_FAILED)
-            val grant = when (val check=permission.inspect(entry.sourceId,entry.uri,true)) {
+            val grant = when (val check = inspectPermission(entry)) {
                 is MetadataExactWritePermission.Result.MediaStoreConsentRequired ->
                     return@withContext Outcome.PermissionRequired(check.intent)
                 MetadataExactWritePermission.Result.ExistingExactGrant -> true
@@ -183,8 +208,11 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                         request.explicitlyConfirmedByUser,entry.phase,request.ownerStillCurrent(),
                         request.playbackClosed(),journal.privateArtifactsIntact(entry),physical,
                         exactSource.provider,grant,
-                        MetadataProviderRecoveryProfile.permitsSourceMutation(request.providerProfile),
-                        MetadataCommitCertification.mayMutateOriginal()))
+                        profile?.let {
+                            MetadataProviderRecoveryProfile.permitsSourceMutation(it)
+                        } == true,
+                        MetadataCommitCertification.mayMutateOriginal(),
+                        scopedRestorePermit = scoped))
                 if (readiness != MetadataRecoveryRestorePolicy.Decision.ReadyForTransportBehindCertification)
                     return@publishIfUnchanged Reserved.Refused(
                         Outcome.Blocked(Refusal.RESTORE_PRECONDITIONS_FAILED))
@@ -202,9 +230,14 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                     }
             }
 
-            // Phase 4: unlocked physical transport and cold readback.
-            val transferred = transport.restore(restoring,journal.backup(entry),
-                request.providerProfile) { job?.ensureActive() }
+            // Phase 4: unlocked physical transport and independent cold readback.
+            val transferred = if (scoped) {
+                transport.restoreWithPermit(restoring,journal.backup(entry),request.permit!!)
+            } else {
+                val legacyProfile = profile
+                    ?: return@withContext Outcome.Blocked(Refusal.PROVIDER_MISMATCH)
+                transport.restore(restoring,journal.backup(entry),legacyProfile)
+            }
             val newSource = if (transferred ==
                 MetadataProviderMutationTransport.Result.BytesSentRequireColdReadback)
                 currentBytes.read(entry.sourceId,entry.uri,
@@ -216,7 +249,10 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                         entry.originalSha256,entry.stageBytes,entry.stageSha256),
                     newSource.fingerprint)
                 else MetadataPhysicalOutcomePolicy.State.READBACK_UNAVAILABLE
-            if (post == MetadataPhysicalOutcomePolicy.State.ORIGINAL_INTACT) {
+            if (post == MetadataPhysicalOutcomePolicy.State.ORIGINAL_INTACT &&
+                newSource is MetadataCurrentBytesReader.Result.Read &&
+                newSource.fingerprint.bytes == entry.expectedBytes &&
+                newSource.fingerprint.sha256 == entry.originalSha256) {
                 // Phase 5: publish RESTORED_VERIFIED only while the reservation stands.
                 val advanced=journal.publishIfUnchanged(reservedGeneration,restoring) {
                     journal.advance(restoring,
@@ -226,7 +262,7 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
                 if (advanced !is MetadataRecoveryJournalV1.Publication.Published ||
                     advanced.value != true)
                     return@withContext Outcome.KeepBothPrivateCopies(entry.id,post)
-                return@withContext Outcome.OriginalBytesReadBack(entry.id)
+                return@withContext Outcome.RestoredVerified(entry.id)
             }
             // ROLLBACK_PENDING and both private copies remain durable.
             Outcome.KeepBothPrivateCopies(entry.id,post)
@@ -235,4 +271,10 @@ internal class MetadataSourceRestoreCoordinator(context: Context) {
             Outcome.Blocked(Refusal.PROTECTED_JOURNAL_TRANSITION)
         }
     }
+
+    private fun inspectPermission(
+        entry: MetadataRecoveryJournalV1.Entry,
+    ): MetadataExactWritePermission.Result =
+        permissionProbe?.invoke(entry.sourceId, entry.uri, true)
+            ?: permission.inspect(entry.sourceId, entry.uri, true)
 }

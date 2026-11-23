@@ -56,7 +56,8 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         permit: MetadataWritePermit,
         checkCancellation: () -> Unit = {},
     ): Result = writeExact(entry, candidate, null, entry.stageBytes,
-        entry.stageSha256, MetadataRecoveryPhase.MUTATING, checkCancellation, permit)
+        entry.stageSha256, MetadataRecoveryPhase.MUTATING, checkCancellation,
+        ScopedAuthorization.Write(permit))
 
     /**
      * ME-10R: rollback bytes can ONLY come from the journal-bound verified backup,
@@ -72,6 +73,25 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
     ): Result = writeExact(entry, originalBackup, profile, entry.expectedBytes,
         entry.originalSha256, MetadataRecoveryPhase.ROLLBACK_PENDING, checkCancellation, null)
 
+    /**
+     * ME-13 S5: exact MediaStore MP3 restore behind a typed permit. The permit
+     * replaces only the two global review booleans for this exact transaction;
+     * the backup hash, provider family and phase are revalidated here too.
+     */
+    fun restoreWithPermit(
+        entry: MetadataRecoveryJournalV1.Entry,
+        originalBackup: File,
+        permit: MetadataRestorePermit,
+        checkCancellation: () -> Unit = {},
+    ): Result = writeExact(entry, originalBackup, null, entry.expectedBytes,
+        entry.originalSha256, MetadataRecoveryPhase.ROLLBACK_PENDING, checkCancellation,
+        ScopedAuthorization.Restore(permit))
+
+    private sealed interface ScopedAuthorization {
+        data class Write(val permit: MetadataWritePermit) : ScopedAuthorization
+        data class Restore(val permit: MetadataRestorePermit) : ScopedAuthorization
+    }
+
     private fun writeExact(
         entry: MetadataRecoveryJournalV1.Entry,
         candidate: File,
@@ -80,11 +100,19 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         expectedSha256: String,
         requiredPhase: MetadataRecoveryPhase,
         checkCancellation: () -> Unit,
-        permit: MetadataWritePermit?,
+        scoped: ScopedAuthorization?,
     ): Result {
-        val permitted = permit != null && requiredPhase == MetadataRecoveryPhase.MUTATING &&
-            permit.matches(entry) && permit.stageBytes == expectedBytes &&
-            permit.candidateSha256 == expectedSha256
+        val permitted = when (scoped) {
+            is ScopedAuthorization.Write -> requiredPhase == MetadataRecoveryPhase.MUTATING &&
+                scoped.permit.matches(entry) && scoped.permit.stageBytes == expectedBytes &&
+                scoped.permit.candidateSha256 == expectedSha256
+            is ScopedAuthorization.Restore ->
+                requiredPhase == MetadataRecoveryPhase.ROLLBACK_PENDING &&
+                    scoped.permit.matches(entry) &&
+                    scoped.permit.originalBytes == expectedBytes &&
+                    scoped.permit.originalSha256 == expectedSha256
+            null -> false
+        }
         // No caller can promote a V2 preview receipt or bypass these static gates.
         if (!permitted && (!MetadataCommitCertification.mayMutateOriginal() ||
                 profile == null ||
@@ -104,14 +132,18 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         // guessed content:// authority or a mismatched recovery profile fails.
         val sourceKind = MetadataReadAccessPolicy.classify(entry.sourceId,
             uri.scheme, uri.authority)
-        val scopeMatches = if (permitted) {
-            uri.authority == "media"
-        } else when (sourceKind) {
-            MetadataReadAccessPolicy.Kind.MEDIASTORE ->
-                profile?.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
-            MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
-                profile?.provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
-            MetadataReadAccessPolicy.Kind.REJECT -> false
+        val scopeMatches = when (scoped) {
+            is ScopedAuthorization.Write -> uri.authority == "media"
+            is ScopedAuthorization.Restore ->
+                uri.authority == "media" && scoped.permit.sourceId == "lib_device_local" &&
+                    scoped.permit.container == entry.format
+            null -> when (sourceKind) {
+                MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                    profile?.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
+                    profile?.provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                MetadataReadAccessPolicy.Kind.REJECT -> false
+            }
         }
         if (!scopeMatches) return Result.Refused(Refusal.INVALID_SOURCE_URI)
 

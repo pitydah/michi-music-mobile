@@ -1,5 +1,6 @@
 package org.michimusic.data.metadata
 
+import android.app.PendingIntent
 import android.content.Context
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -8,6 +9,7 @@ import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.MetadataRecoveryActionPolicy
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataRecoveryPhasePolicy
+import org.michimusic.core.metadata.MetadataTarget
 
 /**
  * ME-07: manually invoked, exact-track recovery console. Its only destructive
@@ -16,8 +18,10 @@ import org.michimusic.core.metadata.MetadataRecoveryPhasePolicy
  * No background inspection and no release of any possibly unique backup.
  */
 class MetadataRecoveryConsole(context: Context) {
+    private val context = context.applicationContext
     private val journal=MetadataRecoveryJournalV1(
         File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
+    private val intents=MetadataCommitIntentStore(journal)
 
     sealed interface Status {
         data object NoPending : Status
@@ -28,6 +32,20 @@ class MetadataRecoveryConsole(context: Context) {
         data object CorruptOrInaccessibleKeepBackup : Status
         data object ActionMustBeExplicit : Status
     }
+    sealed interface RestoreResult {
+        data object RestoredVerified : RestoreResult
+        data object OriginalWasIntact : RestoreResult
+        data object CandidateInstalledFinalizeRequired : RestoreResult
+        data class PermissionRequired(val intent: PendingIntent) : RestoreResult
+        data class KeptPrivateCopies(val observed: String) : RestoreResult
+        data class Blocked(val reason: String) : RestoreResult
+        data object ActionRequired : RestoreResult
+        data object NoExactPendingRestore : RestoreResult
+    }
+    private data class RestoreBinding(
+        val entry: MetadataRecoveryJournalV1.Entry,
+        val permit: MetadataRestorePermit,
+    )
     enum class DiscardResult {
         DISCARDED_PRIVATE_ONLY,
         NO_EXPLICIT_CONFIRMATION,
@@ -78,6 +96,73 @@ class MetadataRecoveryConsole(context: Context) {
             status
         } catch (cancel: CancellationException) { throw cancel }
           catch (_: Exception) { Status.CorruptOrInaccessibleKeepBackup }
+    }
+
+    /**
+     * ME-13 S5: explicit, typed restore of the original bytes for the exact
+     * local MediaStore MP3. The permit is minted ONLY from the durable journal
+     * token + intent owner digest, so a process restart can still authorize the
+     * exact transaction without trusting a Compose draft.
+     */
+    suspend fun restoreOriginal(
+        sourceId: String, trackId: String, uri: String,
+        explicitlyConfirmed: Boolean,
+        ownerStillCurrent: () -> Boolean,
+        playbackClosed: () -> Boolean,
+    ): RestoreResult = withContext(Dispatchers.IO) {
+        if (!explicitlyConfirmed) return@withContext RestoreResult.ActionRequired
+        try {
+            val bound = journal.withExclusiveSnapshot { state ->
+                val pending = (state as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
+                    ?: return@withExclusiveSnapshot RestoreResult.NoExactPendingRestore
+                if (!sameTrack(pending, sourceId, trackId, uri))
+                    return@withExclusiveSnapshot RestoreResult.NoExactPendingRestore
+                if (pending.phase !in setOf(MetadataRecoveryPhase.MUTATING,
+                        MetadataRecoveryPhase.MUTATION_UNKNOWN))
+                    return@withExclusiveSnapshot RestoreResult.Blocked("PHASE_NOT_RECOVERABLE")
+                if (!journal.privateArtifactsIntact(pending))
+                    return@withExclusiveSnapshot RestoreResult.Blocked("PRIVATE_COPIES_INVALID")
+                val intent = (intents.inspect(pending) as?
+                    MetadataCommitIntentStore.Inspection.Present)?.receipt
+                    ?: return@withExclusiveSnapshot RestoreResult.Blocked("INTENT_NOT_DURABLE")
+                val permit = MetadataRestorePermit.fromDurable(
+                    pending, intent, explicitUserAction = true,
+                ) ?: return@withExclusiveSnapshot RestoreResult.Blocked("PERMIT_UNAVAILABLE")
+                RestoreBinding(pending, permit)
+            }
+            val value = bound.value
+            if (value is RestoreResult) return@withContext value
+            val binding = value as? RestoreBinding
+                ?: return@withContext RestoreResult.Blocked("JOURNAL_SNAPSHOT_INVALID")
+            val entry = binding.entry
+            val permit = binding.permit
+            val outcome = MetadataSourceRestoreCoordinator(context).attempt(
+                MetadataSourceRestoreCoordinator.Request(
+                    transactionId = entry.id,
+                    target = MetadataTarget(entry.sourceId, entry.trackId,
+                        entry.uri, entry.ownerEvidenceToken),
+                    explicitlyConfirmedByUser = true,
+                    ownerStillCurrent = ownerStillCurrent,
+                    playbackClosed = playbackClosed,
+                    permit = permit,
+                ),
+            )
+            when (outcome) {
+                is MetadataSourceRestoreCoordinator.Outcome.RestoredVerified ->
+                    RestoreResult.RestoredVerified
+                is MetadataSourceRestoreCoordinator.Outcome.OriginalWasIntact ->
+                    RestoreResult.OriginalWasIntact
+                is MetadataSourceRestoreCoordinator.Outcome.CandidateInstalledFinalizeRequired ->
+                    RestoreResult.CandidateInstalledFinalizeRequired
+                is MetadataSourceRestoreCoordinator.Outcome.PermissionRequired ->
+                    RestoreResult.PermissionRequired(outcome.intent)
+                is MetadataSourceRestoreCoordinator.Outcome.KeepBothPrivateCopies ->
+                    RestoreResult.KeptPrivateCopies(outcome.observed.name)
+                is MetadataSourceRestoreCoordinator.Outcome.Blocked ->
+                    RestoreResult.Blocked(outcome.reason.name)
+            }
+        } catch (cancel: CancellationException) { throw cancel }
+          catch (_: Exception) { RestoreResult.Blocked("RESTORE_UNAVAILABLE") }
     }
 
     /**

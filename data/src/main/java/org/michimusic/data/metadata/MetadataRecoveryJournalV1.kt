@@ -110,6 +110,12 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         val stageSha256: String = "",
         val stageBytes: Long = 0,
         val format: String = "",
+        /**
+         * V2: exact opaque evidence token bound into the durable intent owner
+         * digest. It is persisted so a typed restore can be authorized after a
+         * process restart without trusting a Compose draft. Empty for V1 records.
+         */
+        val ownerEvidenceToken: String = "",
     )
 
     sealed interface Inspection {
@@ -155,8 +161,10 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
 
     private companion object {
         const val MAGIC = 0x4d453035 // ME05
-        const val VERSION = 1
+        const val VERSION = 2
+        const val VERSION_LEGACY = 1
         const val MAX_RECORD = 32 * 1024
+        const val MAX_OWNER_TOKEN = 256
         val validId = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val digestRegex = Regex("[a-f0-9]{64}")
 
@@ -439,6 +447,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
             out.writeLong(e.expectedBytes); out.writeLong(e.expectedModifiedAt)
             out.writeUTF(e.originalSha256); out.writeUTF(e.stageSha256)
             out.writeLong(e.stageBytes); out.writeUTF(e.format)
+            out.writeUTF(e.ownerEvidenceToken)
         }
         val data = payload.toByteArray()
         require(data.size in 1..MAX_RECORD) { "RECORD_TOO_BIG" }
@@ -461,18 +470,24 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         stream.readFully(hash)
         require(MessageDigest.isEqual(hash,MessageDigest.getInstance("SHA-256").digest(payload)))
         DataInputStream(ByteArrayInputStream(payload)).use { input ->
-            require(input.readInt() == MAGIC && input.readInt() == VERSION)
+            require(input.readInt() == MAGIC)
+            val version = input.readInt()
+            require(version == VERSION || version == VERSION_LEGACY)
             val id=validatedId(input.readUTF())
             val phase=MetadataRecoveryPhase.valueOf(input.readUTF())
             val sourceId=input.readUTF();val trackId=input.readUTF();val uri=input.readUTF()
             val expectedBytes=input.readLong(); val modifiedAt=input.readLong()
             val original=input.readUTF();val staged=input.readUTF()
             val stageBytes=input.readLong();val format=input.readUTF()
+            val ownerToken = if (version >= VERSION) input.readUTF() else ""
             require(input.available() == 0 && trackId.isNotBlank() && uri.startsWith("content://") &&
                 expectedBytes > 0 && modifiedAt > 0 && stageBytes >= 0)
             require(original.isEmpty() || digestRegex.matches(original))
             require(staged.isEmpty() || digestRegex.matches(staged))
-            return Entry(id,phase,sourceId,trackId,uri,expectedBytes,modifiedAt,original,staged,stageBytes,format)
+            require(ownerToken.length <= MAX_OWNER_TOKEN &&
+                ownerToken.none { it.isISOControl() })
+            return Entry(id,phase,sourceId,trackId,uri,expectedBytes,modifiedAt,original,
+                staged,stageBytes,format,ownerToken)
         }
     }
 }
