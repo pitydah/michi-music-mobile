@@ -14,11 +14,24 @@ The real MediaStore E2E on emulator-5554 produced the observed candidate:
 The candidate was produced and independently reread by the production Save path.
 See fixture-indexed-proof.txt and gradle-run log 0425.
 
-2) Xiaomi physical device
-=========================
-Final HEAD c5664eda physical save: NOT RUN / BLOCKED_HARDWARE.
-Reason: HyperOS denies automated input injection (INJECT_EVENTS); the save
-gesture requires a human. No physical result is attributed to this HEAD.
+2) Xiaomi physical device, final product code
+=============================================
+Device: 25010PN30G, Android 16, serial 26dfb91d.
+Instrumented production E2E on the final product tree: PASS (2026-11-22).
+  test: MetadataSaveMediaStoreE2EInstrumentedTest
+  original SHA-256:  7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+  candidate SHA-256: 5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3
+  candidate bytes:   1897
+  row title/size:    ME13 Renombrada / 1897
+  journal after:     Clear
+  Room publication:  indexPublished=true
+The fixture was a disposable, app-owned MediaStore MP3, not personal audio.
+Observed output: physical-xiaomi-logcat-excerpt.txt and physical-xiaomi-e2e.txt.
+
+Manual app-UI traversal (Biblioteca -> Editor -> Guardar) on this phone:
+NOT RUN / BLOCKED_HARDWARE. HyperOS denies automated input injection
+(INJECT_EVENTS); the human gesture was not performed. The instrumented result
+above certifies the production engine path, not a human-tap UI certification.
 
 Historical reference only (baseline 08a0b750, before this worktree, not a
 certification of c5664eda):

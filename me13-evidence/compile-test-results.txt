@@ -76,8 +76,20 @@ Result: BUILD SUCCESSFUL, exit 0
 gradle-run log: 0423
 Only pre-existing warnings (deprecated Icons.Filled.OpenInNew, test unchecked casts).
 
+8) Xiaomi physical device, production engine path
+Device: 25010PN30G, Android 16, serial 26dfb91d
+Command:
+  adb -s 26dfb91d shell am instrument -w -r \
+    -e class org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest \
+    org.michimusic.data.test/androidx.test.runner.AndroidJUnitRunner
+Result: OK (1 test)
+Observed: indexPublished=true, journal=Clear, candidate
+  5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3
+Evidence: physical-xiaomi-e2e.txt, physical-xiaomi-logcat-excerpt.txt
+
 Not run:
-  - Xiaomi physical certification of c5664eda: BLOCKED_HARDWARE (HyperOS denies
-    adb shell input; a human must perform the save).
+  - Manual Xiaomi app-UI save (Biblioteca -> Editor -> Guardar): NOT RUN /
+    BLOCKED_HARDWARE. HyperOS denies adb input; the human tap run was not
+    performed. The physical engine PASS is not a UI certification.
   - A production Save process kill at each fault point: NOT RUN. The opt-in
     process kill above uses the synthetic provider harness.

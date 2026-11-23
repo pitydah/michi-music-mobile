@@ -7,8 +7,9 @@ GLOBAL: NO-GO for final certification.
 LOCAL EMULATOR: the scalar MP3 Save -> physical postcheck -> exact Room CAS ->
 durable receipt -> on-demand reconciliation -> typed restore chain is implemented
 and passes the observed tests below.
-XIAOMI: BLOCKED_HARDWARE for the final product code c5664eda (HEAD 197ec0c5 adds
-only the evidence directory). No physical certification is claimed.
+XIAOMI: the production engine chain (real MediaStore MP3 Save -> independent
+postcheck -> exact Room CAS -> journal clear) passed on the physical device.
+The manual app-UI traversal on Xiaomi remains NOT RUN / BLOCKED_HARDWARE.
 
 Separate completion measures
 ----------------------------
@@ -21,7 +22,13 @@ W/X matrix emulator-validated:        28/40 PASS = 70.0%
   - W01-W24: 17/24 PASS, 7 NOT RUN.
   - X01-X16: 11/16 PASS, 5 NOT RUN.
   - NOT RUN is never reported as PASS.
-Xiaomi physical final HEAD:           0% (BLOCKED_HARDWARE)
+Xiaomi physical production engine:      PASS (2026-11-22)
+  - Real MediaStore MP3, production MetadataSaveService, independent postcheck,
+    exact cached_tracks CAS, indexPublished=true, journal Clear.
+  - Evidence: physical-xiaomi-e2e.txt, physical-xiaomi-logcat-excerpt.txt.
+Xiaomi physical manual UI traversal:    0% (NOT RUN / BLOCKED_HARDWARE)
+  - HyperOS denies automated input injection (INJECT_EVENTS); no human tap run.
+  - The engine PASS is not inflated into a UI certification.
 Historical baseline 08a0b750:          one real POSTCHECK_VERIFIED save, excluded
                                        from final-HEAD certification.
 S7 expanded editor (fields/APIC/FLAC): 0% (disabled by design)
@@ -57,7 +64,9 @@ Known gaps before final GO
 3. No deterministic MediaStore SIZE-lag test (X01) or 500->600 resize (W21).
 4. No forced completeVerified() failure test (X12), and no row-appears-later
    test (X08).
-5. Xiaomi physical save of this HEAD requires a human; HyperOS denies adb input.
+5. Xiaomi engine path is physically certified, but the manual app-UI save and
+   Library -> Editor -> Save traversal are still NOT RUN because HyperOS denies
+   adb input; that UI certification requires a human tap run.
 
 Safety posture
 --------------
