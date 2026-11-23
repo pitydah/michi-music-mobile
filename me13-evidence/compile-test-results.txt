@@ -1,0 +1,83 @@
+ME-13 compile and test results
+==============================
+
+All commands were executed through the gradle-run lifecycle on the final product
+commit c5664eda. The targeted E2E run used a transient androidTest Log.i line to
+capture hashes; that line was reverted afterwards, so product code remains
+exactly c5664eda. The final HEAD 197ec0c5 adds only this evidence directory.
+
+1) Full JVM suites
+Command:
+  ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest \
+    :player:testDebugUnitTest :michi-link-client:testDebugUnitTest \
+    :aircat-transfer:testDebugUnitTest :app:testNormalDebugUnitTest \
+    :app:testFdroidDebugUnitTest
+
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0424
+Parsed JUnit XML totals:
+  core                 1023 tests, 0 failures/errors
+  data                  710 tests, 0 failures/errors
+  player                234 tests, 0 failures/errors
+  michi-link-client     205 tests, 0 failures/errors
+  aircat-transfer       414 tests, 0 failures/errors
+  app Normal           2443 tests, 0 failures/errors
+  app F-Droid          2443 tests, 0 failures/errors
+  TOTAL                7472 tests, 0 failures/errors
+
+2) Data instrumented suite
+Command:
+  ./gradlew :data:connectedDebugAndroidTest
+Device: Medium_Phone(AVD) - Android 16 (emulator-5554)
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0420
+JUnit XML: 21 tests, 3 opt-in SKIPPED, 0 failures/errors
+Included MetadataSaveMediaStoreE2EInstrumentedTest and both
+MetadataTrackDaoCasInstrumentedTest cases.
+
+3) Focused real MediaStore E2E with observed logging
+Command:
+  ./gradlew :data:connectedDebugAndroidTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest
+Result: BUILD SUCCESSFUL, 1 test, exit 0
+gradle-run log: 0425
+Observed logcat tag ME13_EVIDENCE: save hashes and receipt round-trip
+(see fixture-indexed-proof.txt and physical-candidate-sha.txt).
+
+4) Real process-kill / restart opt-in harness
+Installed data-debug-androidTest.apk manually, then:
+  am instrument ... -e class ...#phaseOneSeedThenKillRunnerOptInOnly \
+    -e ME09_KILL_SYNTHETIC_RUNNER I_ACCEPT_RUNNER_TERMINATION
+Result: INSTRUMENTATION_RESULT: shortMsg=Process crashed. (expected kill)
+  am instrument ... -e class ...#phaseTwoRestartAndRestoreOptInOnly \
+    -e ME09_RESTORE_SYNTHETIC_RUNNER I_ACCEPT_SYNTHETIC_RESTORE
+Result: OK (1 test)
+Scope: synthetic test DocumentsProvider, not a production MediaStore save.
+
+5) App instrumented suite
+Command:
+  ./gradlew :app:connectedNormalDebugAndroidTest
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0421
+JUnit XML: 206 tests, 25 skipped, 0 failures/errors
+
+6) Lint
+Command: ./gradlew lint
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0422
+
+7) All APK variants and AndroidTest sourcesets
+Command:
+  ./gradlew :app:assembleNormalDebug :app:assembleFdroidDebug \
+    :app:assembleNormalRelease :app:assembleFdroidRelease \
+    :app:compileNormalDebugAndroidTestKotlin \
+    :app:compileFdroidDebugAndroidTestKotlin
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0423
+Only pre-existing warnings (deprecated Icons.Filled.OpenInNew, test unchecked casts).
+
+Not run:
+  - Xiaomi physical certification of c5664eda: BLOCKED_HARDWARE (HyperOS denies
+    adb shell input; a human must perform the save).
+  - A production Save process kill at each fault point: NOT RUN. The opt-in
+    process kill above uses the synthetic provider harness.

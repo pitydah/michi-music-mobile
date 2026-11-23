@@ -1,0 +1,32 @@
+ME-13 candidate SHA evidence
+============================
+
+1) Final HEAD, emulator MediaStore provider (not Xiaomi physical)
+=================================================================
+The real MediaStore E2E on emulator-5554 produced the observed candidate:
+  original SHA-256:  7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+  candidate SHA-256: 5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3
+  audio SHA-256:     eac0569ff61203b94d8469851c7284af7d3e925ba27528cf20addda13c9e055e
+  candidate bytes:   1897
+  audio bytes:       1776
+  journal after:     Clear
+  Room publication:  indexPublished=true
+The candidate was produced and independently reread by the production Save path.
+See fixture-indexed-proof.txt and gradle-run log 0425.
+
+2) Xiaomi physical device
+=========================
+Final HEAD c5664eda physical save: NOT RUN / BLOCKED_HARDWARE.
+Reason: HyperOS denies automated input injection (INJECT_EVENTS); the save
+gesture requires a human. No physical result is attributed to this HEAD.
+
+Historical reference only (baseline 08a0b750, before this worktree, not a
+certification of c5664eda):
+  track label: redacted
+  original SHA-256:  abe34ed9088b4d6ca72aac0ba03f7215ae6275c49f5830f9d9ca65eb9549d501
+  candidate SHA-256: 512c7032af520f2f1e1a5bfa133547aea2bd1d0fff9963b7751dff91706295cb
+  candidate bytes:   15992242
+  journal:           POSTCHECK_VERIFIED
+  ID3v1:             preserved
+This historical observation is excluded from final-HEAD certification.
+No personal file is used for destructive testing.

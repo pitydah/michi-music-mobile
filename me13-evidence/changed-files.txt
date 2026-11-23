@@ -1,0 +1,45 @@
+ME-13 changed files
+====================
+
+Range: 08a0b750..c5664eda
+Files changed: 32
+Insertions: 3135
+Deletions: 313
+
+Status  Path
+------------
+M  app/src/main/java/org/michimusic/mobile/ui/components/MichiMetadataEditorPreview.kt
+M  app/src/main/java/org/michimusic/mobile/ui/components/MichiMetadataEditorWorkbench.kt
+M  app/src/main/java/org/michimusic/mobile/ui/components/MichiMetadataRecoveryPanel.kt
+M  app/src/main/java/org/michimusic/mobile/ui/screens/AlbumsScreen.kt
+M  app/src/main/java/org/michimusic/mobile/ui/screens/MetadataEditorScreen.kt
+M  app/src/test/java/org/michimusic/mobile/ui/components/MichiMetadataEditorWorkbenchTest.kt
+M  core/src/main/java/org/michimusic/core/metadata/MetadataCandidateSemanticPolicy.kt
+M  core/src/main/java/org/michimusic/core/metadata/MetadataRecoveryRestorePolicy.kt
+M  core/src/main/java/org/michimusic/core/metadata/MetadataVerifiedReceiptGate.kt
+M  core/src/test/java/org/michimusic/core/metadata/MetadataRecoveryRestorePolicyTest.kt
+M  core/src/test/java/org/michimusic/core/metadata/MetadataVerifiedReceiptGateTest.kt
+A  data/src/androidTest/assets/me13-silence.mp3
+A  data/src/androidTest/java/org/michimusic/data/metadata/MetadataSaveMediaStoreE2EInstrumentedTest.kt
+A  data/src/androidTest/java/org/michimusic/data/metadata/MetadataTrackDaoCasInstrumentedTest.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataFinalizedIndexPublicationCoordinator.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataIndexCasCoordinator.kt
+A  data/src/main/java/org/michimusic/data/metadata/MetadataIndexReconciler.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataIndexReconciliationReceipt.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataProviderMutationTransport.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataRecoveryConsole.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataRecoveryJournalV1.kt
+A  data/src/main/java/org/michimusic/data/metadata/MetadataRestorePermit.kt
+A  data/src/main/java/org/michimusic/data/metadata/MetadataSaveRecoveryRouting.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataSaveService.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataSourceRestoreCoordinator.kt
+M  data/src/main/java/org/michimusic/data/metadata/MetadataTrackDaoCasPort.kt
+M  data/src/test/java/org/michimusic/data/metadata/MetadataIndexCasCoordinatorTest.kt
+A  data/src/test/java/org/michimusic/data/metadata/MetadataIndexReconcilerTest.kt
+M  data/src/test/java/org/michimusic/data/metadata/MetadataIndexReconciliationReceiptTest.kt
+A  data/src/test/java/org/michimusic/data/metadata/MetadataSaveRecoveryRoutingTest.kt
+A  data/src/test/java/org/michimusic/data/metadata/MetadataSourceRestoreCoordinatorTest.kt
+A  data/src/test/java/org/michimusic/data/metadata/MetadataTrackDaoCasPortTest.kt
+
+Note: build/ outputs and local.properties are not part of the diff.
+The original UI worktree is not part of this diff and remains untouched.
