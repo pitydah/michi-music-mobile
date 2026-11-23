@@ -287,6 +287,8 @@ internal fun MichiMetadataEditorPreviewContent(
                 uriString = target.uri,
                 expectedBytes = expectedFileBytes,
                 reviewInput = review,
+                ownerCurrent = stillOwnsPrivateSource,
+                playbackClosed = playbackDescriptorClosed,
             )) {
                 is MetadataSaveService.Outcome.Saved -> {
                     saving = false
