@@ -165,19 +165,6 @@ internal fun PlaylistCatalogSpotlight(
                         // letters over a near-white banner) and a bottom-anchored gradient
                         // (2.94:1 at 320 dp/2.0x, where the caption spans 33%-74% of the
                         // card). WCAG AA for the words wins over the softer edge.
-                        .drawBehind {
-                            drawRect(
-                                brush = Brush.radialGradient(
-                                    colorStops = arrayOf(
-                                        0f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha),
-                                        0.6f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.92f),
-                                        1f to Color.Transparent,
-                                    ),
-                                    center = Offset(size.width * 0.42f, size.height * 0.5f),
-                                    radius = size.maxDimension * 1.05f,
-                                ),
-                            )
-                        }
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {

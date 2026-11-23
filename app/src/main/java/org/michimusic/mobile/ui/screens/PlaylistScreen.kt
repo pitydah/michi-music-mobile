@@ -100,6 +100,9 @@ fun PlaylistScreen(
     var menuPlaylist by remember { mutableStateOf<PlaylistItem?>(null) }
     var renameTarget by remember { mutableStateOf<PlaylistItem?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaylistItem?>(null) }
+    var appearanceTarget by remember { mutableStateOf<PlaylistItem?>(null) }
+    var isSavingVisual by remember { mutableStateOf(false) }
+    var visualEditError by remember { mutableStateOf<String?>(null) }
     val appContext = LocalContext.current.applicationContext
     val visualStore = remember(appContext) { PlaylistVisualStore(appContext) }
     val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
@@ -188,6 +191,15 @@ fun PlaylistScreen(
                         visualScope.launch { visualStore.setPinned(playlist.id, !isPinned) }
                     },
                     modifier = Modifier.testTag("playlist_menu_pin_${playlist.id}"),
+                )
+                DropdownMenuItem(
+                    text = { Text("Editar apariencia") },
+                    onClick = {
+                        menuPlaylist = null
+                        visualEditError = null
+                        appearanceTarget = playlist
+                    },
+                    modifier = Modifier.testTag("playlist_menu_appearance_${playlist.id}"),
                 )
                 DropdownMenuItem(
                     text = { Text("Gestionar canciones") },
@@ -459,6 +471,46 @@ fun PlaylistScreen(
                     }
                 },
                 onDismiss = { if (!isDeletingPlaylist) deleteTarget = null },
+            )
+        }
+
+        appearanceTarget?.let { target ->
+            PlaylistVisualEditorDialog(
+                visual = visualById[target.id] ?: PlaylistVisualState(),
+                isSaving = isSavingVisual,
+                errorMessage = visualEditError,
+                onDismiss = {
+                    if (!isSavingVisual) {
+                        appearanceTarget = null
+                        visualEditError = null
+                    }
+                },
+                onConfirm = { request ->
+                    if (!isSavingVisual) {
+                        isSavingVisual = true
+                        visualEditError = null
+                        visualScope.launch {
+                            when (val result = visualStore.applyVisualEdit(target.id, request)) {
+                                PlaylistVisualEditResult.Success -> {
+                                    visualById = visualById + (target.id to visualStore.read(target.id))
+                                    appearanceTarget = null
+                                    isSavingVisual = false
+                                }
+                                PlaylistVisualEditResult.Conflict -> {
+                                    visualEditError = "La apariencia cambió en otra pantalla. " +
+                                        "Cierra y vuelve a abrir el editor para revisar los cambios."
+                                    isSavingVisual = false
+                                }
+                                is PlaylistVisualEditResult.Rejected -> {
+                                    val label = if (result.field == "banner") "Banner" else "Portada"
+                                    visualEditError = "$label: " +
+                                        playlistImageImportErrorMessage(result.reason)
+                                    isSavingVisual = false
+                                }
+                            }
+                        }
+                    }
+                },
             )
         }
 
