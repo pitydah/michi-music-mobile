@@ -18,7 +18,10 @@ import org.michimusic.data.cache.TrackDao
  * update of ALL source-facing cached scalar fields and deletion of the stale
  * embedded-tag sidecar. It never invents multivalue scalar flattening.
  */
-internal class MetadataTrackDaoCasPort(private val dao: TrackDao) : MetadataIndexCasCoordinator.Port {
+internal class MetadataTrackDaoCasPort(
+    private val dao: TrackDao,
+    private val permit: MetadataWritePermit? = null,
+) : MetadataIndexCasCoordinator.Port {
     private val hex=Regex("[a-f0-9]{64}")
 
     override suspend fun current(targetSource: String,targetTrack: String):
@@ -45,7 +48,12 @@ internal class MetadataTrackDaoCasPort(private val dao: TrackDao) : MetadataInde
 
     override suspend fun updateIfVersion(expected: MetadataIndexPublicationPolicy.IndexIdentity,
         delta: MetadataSourceIndexDelta.Delta): Boolean {
-        if (!MetadataCommitCertification.mayMutateOriginal()) return false
+        if (permit == null && !MetadataCommitCertification.mayMutateOriginal()) return false
+        if (permit != null && (permit.transactionId != delta.transactionId ||
+                permit.candidateSha256 != delta.sourceSha256 ||
+                permit.stageBytes != delta.candidateBytes ||
+                permit.uri != delta.target.uri || permit.sourceId != delta.target.sourceId ||
+                permit.trackId != delta.target.trackId)) return false
         if (expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri ||
             !hex.matches(delta.sourceSha256) || delta.candidateBytes !in 12..(1024L*1024*1024))

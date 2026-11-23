@@ -36,11 +36,19 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
         verifiedReceipt: MetadataVerifiedReceiptGate.Decision,
         playbackClosed: Boolean,
         ownerCurrent: () -> Boolean,
+        permit: MetadataWritePermit? = null,
     ): Result {
-        if (!MetadataCommitCertification.mayMutateOriginal())
-            return Result.Blocked(Refusal.NOT_CERTIFIED)
         val delta=(prepared as? MetadataSourceIndexDelta.Result.PreparedForExternalCas)?.delta
             ?: return Result.Blocked(Refusal.SOURCE_UNVERIFIED)
+        val scoped = permit != null &&
+            permit.transactionId == delta.transactionId &&
+            permit.candidateSha256 == delta.sourceSha256 &&
+            permit.stageBytes == delta.candidateBytes &&
+            permit.uri == delta.target.uri &&
+            permit.sourceId == delta.target.sourceId &&
+            permit.trackId == delta.target.trackId
+        if (!scoped && !MetadataCommitCertification.mayMutateOriginal())
+            return Result.Blocked(Refusal.NOT_CERTIFIED)
         if (!ownerCurrent() || expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri)
             return Result.Blocked(Refusal.OWNER_MISMATCH)
