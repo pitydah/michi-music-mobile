@@ -268,6 +268,9 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
     /** ME-10N: an independent V1 journal intent, never the V2 preview receipt. */
     fun intent(entry: Entry): File = File(root, "intent-${validatedId(entry.id)}.bin")
 
+    /** Durable owner evidence written before MUTATING; optional for legacy V2. */
+    fun owner(entry: Entry): File = File(root, "owner-${validatedId(entry.id)}.bin")
+
     private fun validatedId(id: String): String {
         require(validId.matches(id)) { "INVALID_PRIVATE_TRANSACTION_ID" }
         return id
@@ -386,14 +389,25 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
      * Terminal cleanup after a verified physical write and coherent index CAS.
      * Never call after an uncertain postcheck or an index-pending outcome.
      */
+    /**
+     * Terminal cleanup, resumable after a process kill. The first call advances
+     * POSTCHECK_VERIFIED to CLEANUP_SAFE and then deletes private artifacts
+     * idempotently. A later call accepts CLEANUP_SAFE directly, so a kill after
+     * the phase transition or after any single delete can continue without
+     * re-running the provider postcheck or requiring both hashes again.
+     */
     fun completeVerified(id: String): Boolean {
         val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
         if (entry.id != id) return false
-        if (entry.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED) return false
-        val cleanup = entry.copy(phase = MetadataRecoveryPhase.CLEANUP_SAFE)
+        val cleanup = when (entry.phase) {
+            MetadataRecoveryPhase.POSTCHECK_VERIFIED ->
+                entry.copy(phase = MetadataRecoveryPhase.CLEANUP_SAFE)
+            MetadataRecoveryPhase.CLEANUP_SAFE -> entry
+            else -> return false
+        }
         return try {
-            advance(entry, cleanup)
-            for (file in listOf(intent(entry), stage(entry), backup(entry))) {
+            if (cleanup !== entry) advance(entry, cleanup)
+            for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry))) {
                 if (Files.isSymbolicLink(file.toPath())) return false
                 if (file.exists() && !file.delete()) return false
             }
