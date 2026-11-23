@@ -263,9 +263,7 @@ class MetadataSaveService(
 
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes de escribir")
-            if (context.checkUriPermission(uri, Process.myPid(), Process.myUid(),
-                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (!hasExactWriteAccess(uri)) {
                 val consent = runCatching {
                     MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
                 }.getOrNull()
@@ -506,6 +504,21 @@ class MetadataSaveService(
                 else -> false
             }
         }
+    }
+
+    /**
+     * A URI grant is not the only proof of exact write access: MediaStore items
+     * created by this app are writable through the owning provider without a
+     * persisted grant. Probe with a non-truncating "rw" descriptor before asking
+     * the user for a system consent dialog.
+     */
+    private fun hasExactWriteAccess(uri: Uri): Boolean {
+        if (context.checkUriPermission(uri, Process.myPid(), Process.myUid(),
+                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED) return true
+        return runCatching {
+            context.contentResolver.openFileDescriptor(uri, "rw")?.use { true } ?: false
+        }.getOrDefault(false)
     }
 
     private suspend fun currentIndexIdentity(

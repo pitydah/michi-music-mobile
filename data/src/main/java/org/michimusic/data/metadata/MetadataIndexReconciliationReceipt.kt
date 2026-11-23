@@ -200,8 +200,14 @@ internal data class MetadataIndexReconciliationReceipt(
                 } catch (_: AtomicMoveNotSupportedException) {
                     Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
                 }
-                FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) }
-                true
+                // Directory fsync is best effort on Android; some providers reject
+                // opening a directory channel. The atomic rename above is already
+                // durable, so only that failure must keep the obligation.
+                try {
+                    FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) }
+                } catch (_: Exception) { /* best effort, never lose the receipt */ }
+                Files.isRegularFile(target.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                    !Files.isSymbolicLink(target.toPath())
             }
         } catch (_: Exception) { false }
 
