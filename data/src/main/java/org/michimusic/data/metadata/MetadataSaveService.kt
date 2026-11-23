@@ -25,13 +25,16 @@ import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
+import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 
 /** ME-13: the single Save facade. All source changes are reserved by Journal V1. */
 class MetadataSaveService(
     private val context: Context,
     private val trackDao: TrackDao,
+    database: MichiDatabase,
 ) {
     sealed interface Eligibility {
         data object Eligible : Eligibility
@@ -51,6 +54,7 @@ class MetadataSaveService(
     )
     private val transport = MetadataProviderMutationTransport(context)
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
+    private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
     private val intents = MetadataCommitIntentStore(journal)
     private val profile = MediaStoreMp3TextProfile.profile
 
@@ -269,6 +273,12 @@ class MetadataSaveService(
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes del consentimiento")
 
+            val expectedRow = trackDao.getTrackBySource(sourceId, trackId)
+            val expectedIndex = MetadataIndexPublicationPolicy.IndexIdentity(
+                sourceId = sourceId, trackId = trackId, uri = uriString,
+                version = expectedRow?.verifiedAt ?: 0L,
+                observedSourceSha256 = expectedRow?.verifiedSha256.orEmpty(),
+            )
             val permit = MetadataWritePermit(
                 transactionId = entry.id, sourceId = entry.sourceId, trackId = entry.trackId,
                 uri = entry.uri, originalSha256 = entry.originalSha256,
@@ -299,39 +309,34 @@ class MetadataSaveService(
                 }
             }
 
-            val confirmed = finalization.confirm(
+            val published = publication.reconcile(
                 transactionId = entry.id,
-                target = review.proposed.target,
+                original = review.original,
+                expectedIndex = expectedIndex,
                 explicitUserAction = true,
-                ownerCurrent = ownerCurrent,
-                playbackClosed = playbackClosed,
+                ownerStillCurrent = ownerCurrent,
+                playbackDescriptorClosed = playbackClosed,
                 permit = permit,
             )
-            if (confirmed !is MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas)
-                return@withContext if (confirmed is MetadataPostMutationFinalizationCoordinator.Result.Blocked)
-                    Outcome.Failed("La finalización física no se pudo demostrar (${confirmed.reason})", true)
-                else Outcome.RecoveryRequired("POSTCHECK_NOT_CERTIFIED")
-            val postEntry = entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED)
-
-            val indexed = publish(sourceId, trackId, uriString, postEntry, review)
-            if (indexed) {
-                if (!journal.completeVerified(postEntry.id))
-                    return@withContext Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
-                val coldSnapshot = review.proposed.copy(
-                    target = review.proposed.target.copy(
-                        evidenceToken = "me13:sha256:${postEntry.stageSha256}",
-                    ),
-                )
-                return@withContext Outcome.Saved(coldSnapshot, true)
-            }
-            val durable = writeIndexReceipt(postEntry, review)
-            if (!durable) return@withContext Outcome.RecoveryRequired(
-                "INDEX_OBLIGATION_NOT_DURABLE",
-            )
+            val indexed = published is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly ||
+                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||
+                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleIndexed ||
+                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleAndGenreIndexed
             val coldSnapshot = review.proposed.copy(
                 target = review.proposed.target.copy(
-                    evidenceToken = "me13:sha256:${postEntry.stageSha256}",
+                    evidenceToken = "me13:sha256:${entry.stageSha256}",
                 ),
+            )
+            if (indexed) {
+                if (!journal.completeVerified(entry.id))
+                    return@withContext Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
+                return@withContext Outcome.Saved(coldSnapshot, true)
+            }
+            val durable = writeIndexReceipt(
+                entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED), review,
+            )
+            if (!durable) return@withContext Outcome.RecoveryRequired(
+                "INDEX_OBLIGATION_NOT_DURABLE",
             )
             Outcome.Saved(coldSnapshot, false)
         } catch (cancel: kotlinx.coroutines.CancellationException) {

@@ -221,8 +221,9 @@ private fun MetadataEditorReadyContent(
     val bundle = remember(context, repository) {
         MetadataPrivateBundleCoordinator(context.applicationContext, repository)
     }
-    val pilotWriter = remember(context, trackDao) {
-        MetadataSaveService(context.applicationContext, trackDao)
+    val database: MichiDatabase = koinInject()
+    val pilotWriter = remember(context, trackDao, database) {
+        MetadataSaveService(context.applicationContext, trackDao, database)
     }
     fun authority() = MichiGenreAccessPolicy.Context(
         trackLocal = track.source == TrackSource.LOCAL,
