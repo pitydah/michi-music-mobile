@@ -150,7 +150,24 @@ internal class MetadataSourceRestoreCoordinator(
                 // Withhold the "already intact" verdict if the record moved meanwhile.
                 if (!journal.isUnchanged(snapshot.generation,entry))
                     return@withContext Outcome.Blocked(Refusal.WRONG_TRANSACTION_OR_OWNER)
-                return@withContext Outcome.OriginalWasIntact(entry.id)
+                if (!scoped) return@withContext Outcome.OriginalWasIntact(entry.id)
+                // T45: an already-restored source needs no provider write, but the
+                // typed transaction must still reach its idempotent terminal state.
+                val terminal = journal.publishIfUnchanged(snapshot.generation,entry) {
+                    val unknown = if (entry.phase == MetadataRecoveryPhase.MUTATING)
+                        entry.copy(phase=MetadataRecoveryPhase.MUTATION_UNKNOWN) else entry
+                    if (unknown !== entry) journal.advance(entry,unknown)
+                    journal.advance(unknown,
+                        unknown.copy(phase=MetadataRecoveryPhase.RESTORED_VERIFIED))
+                    true
+                }
+                return@withContext when (terminal) {
+                    is MetadataRecoveryJournalV1.Publication.Stale ->
+                        Outcome.Blocked(Refusal.PROTECTED_JOURNAL_TRANSITION)
+                    is MetadataRecoveryJournalV1.Publication.Published ->
+                        if (terminal.value) Outcome.RestoredVerified(entry.id)
+                        else Outcome.KeepBothPrivateCopies(entry.id,physical)
+                }
             }
             if (physical == MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
                 return@withContext Outcome.CandidateInstalledFinalizeRequired(entry.id)

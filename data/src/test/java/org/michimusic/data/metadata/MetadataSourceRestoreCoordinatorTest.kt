@@ -160,15 +160,18 @@ class MetadataSourceRestoreCoordinatorTest {
         assertEquals(MetadataRecoveryPhase.MUTATION_UNKNOWN, phase())
     }
 
-    @Test fun originalAlreadyIntactIsNotOverwritten() = runBlocking {
+    @Test fun alreadyRestoredCompletesTerminalStateWithoutWrite() = runBlocking {
         val entry = unknownEntry()
         provider.file.writeBytes(original)
+        var openedWrites = 0
+        provider.onWrite = { openedWrites++ }
         val outcome = coordinator { _, _, _ ->
             MetadataExactWritePermission.Result.ExistingExactGrant
         }.attempt(request(entry))
-        assertEquals(MetadataSourceRestoreCoordinator.Outcome.OriginalWasIntact(TX), outcome)
+        assertEquals(MetadataSourceRestoreCoordinator.Outcome.RestoredVerified(TX), outcome)
+        assertEquals(0, openedWrites)
         assertArrayEquals(original, provider.file.readBytes())
-        assertEquals(MetadataRecoveryPhase.MUTATION_UNKNOWN, phase())
+        assertEquals(MetadataRecoveryPhase.RESTORED_VERIFIED, phase())
     }
 
     @Test fun failedRestoreKeepsRollbackPendingAndBothPrivateCopies() = runBlocking {
