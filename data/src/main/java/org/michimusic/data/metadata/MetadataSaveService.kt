@@ -98,7 +98,7 @@ class MetadataSaveService(
             is MetadataRecoveryJournalV1.Inspection.Pending -> {
                 if (MetadataSaveRecoveryRouting.requiresReadOnlyFinalization(recovery.entry.phase)) {
                     return@withContext resumePostMutation(
-                        recovery.entry, sourceId, trackId, uriString, expectedBytes,
+                        recovery.entry, sourceId, trackId, uriString,
                         review, ownerCurrent, playbackClosed,
                     )
                 }
@@ -247,7 +247,7 @@ class MetadataSaveService(
             }
             if (MetadataSaveRecoveryRouting.requiresReadOnlyFinalization(entry.phase)) {
                 return@withContext resumePostMutation(
-                    entry, sourceId, trackId, uriString, expectedBytes,
+                    entry, sourceId, trackId, uriString,
                     review, ownerCurrent, playbackClosed,
                 )
             }
@@ -366,13 +366,15 @@ class MetadataSaveService(
         sourceId: String,
         trackId: String,
         uriString: String,
-        expectedBytes: Long,
         review: MetadataReview.Ready,
         ownerCurrent: () -> Boolean,
         playbackClosed: () -> Boolean,
     ): Outcome {
+        // The screen's cached size can be either the old size or the new one.
+        // For an already-mutated source, only the journal's original/candidate
+        // fingerprints, manifest and actual readback may decide recovery.
         if (entry.sourceId != sourceId || entry.trackId != trackId ||
-            entry.uri != uriString || entry.expectedBytes != expectedBytes)
+            entry.uri != uriString)
             return Outcome.RecoveryRequired("OTHER_OR_CHANGED_TRANSACTION")
         if (!ownerCurrent() || !playbackClosed())
             return Outcome.RecoveryRequired("OWNER_OR_PLAYBACK_CHANGED")
