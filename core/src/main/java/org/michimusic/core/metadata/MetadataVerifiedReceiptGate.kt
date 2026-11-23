@@ -39,14 +39,28 @@ object MetadataVerifiedReceiptGate {
         fieldsVerified: Boolean,
         ownerStillCurrent: Boolean,
         backupIntact: Boolean,
-        certified: Boolean = false,
+    ): Decision = assessAuthorized(
+        transactionId, phase, expectedStageSha256, physical, fieldsVerified,
+        ownerStillCurrent, backupIntact,
+        certified = MetadataCommitCertification.mayMutateOriginal(),
+    )
+
+    /** Not exposed as a public caller-controlled "certified=true" shortcut. */
+    private fun assessAuthorized(
+        transactionId: String,
+        phase: MetadataRecoveryPhase,
+        expectedStageSha256: String,
+        physical: MetadataPhysicalOutcomePolicy.State,
+        fieldsVerified: Boolean,
+        ownerStillCurrent: Boolean,
+        backupIntact: Boolean,
+        certified: Boolean,
     ): Decision = when {
         !txId.matches(transactionId) || !digest.matches(expectedStageSha256) ->
             Decision.Refused(Refusal.INVALID_TRANSACTION)
         phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED ->
             Decision.Refused(Refusal.NOT_SOURCE_MUTATION)
-        // Never admit a caller-provided boolean as certification evidence.
-        !certified && !MetadataCommitCertification.mayMutateOriginal() ->
+        !certified ->
             Decision.Refused(Refusal.WRITER_NOT_CERTIFIED)
         !ownerStillCurrent -> Decision.Refused(Refusal.OWNER_CHANGED)
         !backupIntact -> Decision.Refused(Refusal.PRIVATE_BACKUP_NOT_INTACT)
@@ -70,14 +84,22 @@ object MetadataVerifiedReceiptGate {
         ownerStillCurrent: Boolean,
         backupIntact: Boolean,
     ): Decision {
-        if (evidence.transactionId != transactionId ||
+        // Requiring a named profile is stronger than an arbitrary nonempty
+        // evidence label. The finalizer independently verifies the typed permit
+        // against the exact journal entry and candidate before issuing a receipt.
+        if (!txId.matches(transactionId) ||
+            evidence.transactionId != transactionId ||
             evidence.candidateSha256 != expectedStageSha256 ||
-            evidence.profileId.isBlank() || evidence.evidenceId.isBlank() ||
-            evidence.sourceId.isBlank() || evidence.trackId.isBlank() ||
-            !evidence.uri.startsWith("content://") ||
-            evidence.candidateBytes <= 0L)
+            !digest.matches(evidence.originalSha256) ||
+            !digest.matches(evidence.candidateSha256) ||
+            evidence.profileId != MediaStoreMp3TextProfile.ID ||
+            evidence.evidenceId != MediaStoreMp3TextProfile.EVIDENCE_ID ||
+            evidence.sourceId != "lib_device_local" ||
+            evidence.trackId.isBlank() ||
+            !evidence.uri.startsWith("content://media/") ||
+            evidence.candidateBytes !in 12L..(1024L * 1024L * 1024L))
             return Decision.Refused(Refusal.INVALID_TRANSACTION)
-        return assess(transactionId, phase, expectedStageSha256, physical,
+        return assessAuthorized(transactionId, phase, expectedStageSha256, physical,
             fieldsVerified, ownerStillCurrent, backupIntact, certified = true)
     }
 
