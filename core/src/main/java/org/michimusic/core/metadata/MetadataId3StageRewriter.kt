@@ -160,13 +160,9 @@ object MetadataId3StageRewriter {
         if (staging.exists()) throw Rejected(Code.STAGE_EXISTS)
         val originalSize=sourceCache.length()
         val originalModified=sourceCache.lastModified()
-        if (originalSize >= 128) RandomAccessFile(sourceCache,"r").use { raf ->
-            raf.seek(originalSize-128)
-            val legacy=ByteArray(3)
-            raf.readFully(legacy)
-            if (String(legacy,StandardCharsets.US_ASCII)=="TAG")
-                throw Rejected(Code.ID3V1_CONFLICT)
-        }
+        // A pre-existing ID3v1 footer is preserved byte-for-byte in the audio tail.
+        // ID3v2 remains the authoritative edited tag; the certified server profile
+        // documents this coexistence instead of silently deleting the legacy footer.
         val header=ByteArray(10)
         FileInputStream(sourceCache).use { input ->
             if(input.read(header)!=10) throw Rejected(Code.INVALID_ID3)

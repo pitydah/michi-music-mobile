@@ -124,13 +124,12 @@ class MetadataId3StageRewriterTest {
         }
         assertFalse(stage.exists())
     }
-    @Test fun sourceID3v1IsRejected()=inTemp{source,stage->
-        val bytes=sample()+ByteArray(128).also{"TAG".toByteArray().copyInto(it)}
-        source.writeBytes(bytes)
-        try{MetadataId3StageRewriter.stage(source,stage,review(),source.length());throw AssertionError()}
-        catch(e:MetadataId3StageRewriter.Rejected){
-            assertEquals(MetadataId3StageRewriter.Code.ID3V1_CONFLICT,e.code)
-        }
+    @Test fun sourceID3v1FooterIsPreservedByteForByte()=inTemp{source,stage->
+        val footer=ByteArray(128).also{"TAG".toByteArray().copyInto(it)}
+        source.writeBytes(sample()+footer)
+        MetadataId3StageRewriter.stage(source,stage,review(),source.length())
+        val result=stage.readBytes()
+        assertTrue(result.takeLast(128).toByteArray().contentEquals(footer))
     }
     @Test fun existingStageNeverOverwritten()=inTemp{source,stage->
         source.writeBytes(sample());stage.writeText("SENTINEL")

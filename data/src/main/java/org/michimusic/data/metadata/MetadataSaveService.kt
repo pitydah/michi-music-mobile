@@ -119,9 +119,19 @@ class MetadataSaveService(
             if (!profile.supports(observed.format.toContainer(), revision, fields, emptySet(), false))
                 return@withContext Outcome.Blocked("Perfil de escritura no certificado")
 
-            val pending = journal.inspect()
+            var pending = journal.inspect()
             if (pending is MetadataRecoveryJournalV1.Inspection.Blocked)
                 return@withContext Outcome.Failed("Journal no legible", true)
+            // PREPARED-ONLY: no candidate/intent exists and no source bytes changed.
+            // A previous attempt without an intent cannot be "resumed"; safely
+            // discard its private-only artifacts and start a fresh preparation.
+            if (pending is MetadataRecoveryJournalV1.Inspection.Pending &&
+                pending.entry.phase in setOf(MetadataRecoveryPhase.SNAPSHOTTING,
+                    MetadataRecoveryPhase.BACKUP_DURABLE)) {
+                if (!journal.discardPrepared(pending.entry.id))
+                    return@withContext Outcome.RecoveryRequired("PREPARED_CLEANUP_FAILED")
+                pending = journal.inspect()
+            }
             if (pending is MetadataRecoveryJournalV1.Inspection.Pending) {
                 val existing = pending.entry
                 if (existing.uri != uriString || existing.sourceId != sourceId ||
@@ -341,11 +351,18 @@ class MetadataSaveService(
             Outcome.Saved(coldSnapshot, false)
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            android.util.Log.d("MichiSave", "prepare_failure=${error.javaClass.simpleName}:${error.message}")
             val pending = (journal.inspect() as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
-            if (pending != null && pending.phase == MetadataRecoveryPhase.STAGE_READY)
-                abort(pending, "No se pudo preparar la escritura")
-            else Outcome.Failed("La escritura quedó en recuperación pendiente", true)
+            if (pending != null && pending.phase in setOf(
+                    MetadataRecoveryPhase.SNAPSHOTTING,
+                    MetadataRecoveryPhase.BACKUP_DURABLE,
+                    MetadataRecoveryPhase.STAGE_READY,
+                )) {
+                if (journal.discardPrepared(pending.id))
+                    Outcome.Blocked("No se pudo preparar la escritura: ${error.javaClass.simpleName}")
+                else Outcome.RecoveryRequired("PREPARED_CLEANUP_FAILED")
+            } else Outcome.Failed("La escritura quedó en recuperación pendiente", true)
         } finally {
             sourceCopy.delete()
         }
