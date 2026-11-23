@@ -96,9 +96,7 @@ class MetadataSaveService(
             is MetadataRecoveryJournalV1.Inspection.Blocked ->
                 return@withContext Outcome.RecoveryRequired("JOURNAL_UNREADABLE")
             is MetadataRecoveryJournalV1.Inspection.Pending -> {
-                if (recovery.entry.phase in setOf(MetadataRecoveryPhase.MUTATING,
-                        MetadataRecoveryPhase.MUTATION_UNKNOWN,
-                        MetadataRecoveryPhase.POSTCHECK_VERIFIED)) {
+                if (MetadataSaveRecoveryRouting.requiresReadOnlyFinalization(recovery.entry.phase)) {
                     return@withContext resumePostMutation(
                         recovery.entry, sourceId, trackId, uriString, expectedBytes,
                         review, ownerCurrent, playbackClosed,
@@ -148,11 +146,11 @@ class MetadataSaveService(
             // A previous attempt without an intent cannot be "resumed"; safely
             // discard its private-only artifacts and start a fresh preparation.
             if (pending is MetadataRecoveryJournalV1.Inspection.Pending &&
-                pending.entry.sourceId == sourceId &&
-                pending.entry.trackId == trackId &&
-                pending.entry.uri == uriString &&
-                pending.entry.phase in setOf(MetadataRecoveryPhase.SNAPSHOTTING,
-                    MetadataRecoveryPhase.BACKUP_DURABLE)) {
+                MetadataSaveRecoveryRouting.mayDiscardPrivatePreparation(
+                    pending.entry.phase,
+                    pending.entry.sourceId, pending.entry.trackId, pending.entry.uri,
+                    sourceId, trackId, uriString,
+                )) {
                 if (!journal.discardPrepared(pending.entry.id))
                     return@withContext Outcome.RecoveryRequired("PREPARED_CLEANUP_FAILED")
                 pending = journal.inspect()
@@ -247,9 +245,7 @@ class MetadataSaveService(
                     return@withContext Outcome.Blocked("No se pudo persistir la intención")
                 }
             }
-            if (entry.phase in setOf(MetadataRecoveryPhase.MUTATING,
-                    MetadataRecoveryPhase.MUTATION_UNKNOWN,
-                    MetadataRecoveryPhase.POSTCHECK_VERIFIED)) {
+            if (MetadataSaveRecoveryRouting.requiresReadOnlyFinalization(entry.phase)) {
                 return@withContext resumePostMutation(
                     entry, sourceId, trackId, uriString, expectedBytes,
                     review, ownerCurrent, playbackClosed,
