@@ -71,6 +71,47 @@ class MichiMetadataEditorWorkbenchTest {
     }
 
     @Test
+    fun recoveryPendingDisablesNewSaveAndExplainsTheObligation() {
+        compose.setContent {
+            AeroTheme {
+                MichiMetadataEditorPreviewContent(
+                    evidence, {},
+                    pilotEligibilityOverride =
+                        org.michimusic.data.metadata.MetadataSaveService.Eligibility.RecoveryPending,
+                )
+            }
+        }
+        compose.onNodeWithTag("metadata_save_file").assertIsNotEnabled()
+        compose.onNodeWithText("Recuperación necesaria antes de editar").assertExists()
+        compose.onNodeWithTag("metadata_save_detail").performClick()
+        compose.onNodeWithText("Hay una escritura pendiente de recuperación.").assertExists()
+        compose.onNodeWithText("Perfil piloto certificado", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("No se permite iniciar otra edición", substring = true).assertExists()
+    }
+
+    @Test
+    fun recoveryPanelInspectsTheExactTrackAndReportsNoPendingWork() {
+        compose.setContent {
+            AeroTheme {
+                MichiMetadataRecoveryPanel(
+                    sourceId = "lib_device_local",
+                    trackId = "test",
+                    uri = "content://fixture/test",
+                    ownerStillCurrent = { true },
+                    playbackClosed = { true },
+                )
+            }
+        }
+        compose.onNodeWithTag("metadata_recovery_panel").assertExists()
+        compose.onNodeWithText("Comprobar operación pendiente").performClick()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithText("No hay una operación privada pendiente.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("No hay una operación privada pendiente.").assertExists()
+    }
+
+    @Test
     fun basicsAlwaysShowsCommonFieldsIncludingComposerAndBpm() {
         setEditor()
         compose.onNodeWithText("Información principal").assertExists()

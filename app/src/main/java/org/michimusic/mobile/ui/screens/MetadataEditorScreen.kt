@@ -54,6 +54,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import org.michimusic.core.intelligence.MichiGenreAccessPolicy
 import org.michimusic.core.metadata.MetadataEditorSection
@@ -237,6 +239,29 @@ private fun MetadataEditorReadyContent(
         handoffActive = session.sessionState.value.handoffState != HandoffState.IDLE,
         localEndpoint = session.sessionState.value.activeEndpoint.isLocal,
     )
+    // S4: visiting the editor retries only this exact track's durable receipt.
+    LaunchedEffect(database, track.sourceId, track.id, track.filepath) {
+        if (track.source == TrackSource.LOCAL && track.filepath.startsWith("content://")) {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    org.michimusic.data.metadata.MetadataIndexReconciler(
+                        context.applicationContext, database,
+                    ).reconcileForTrack(
+                        sourceId = track.sourceId.ifBlank {
+                            MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID
+                        },
+                        trackId = track.id,
+                        ownerStillCurrent = {
+                            open.get() && MichiGenreAccessPolicy.canLookup(authority())
+                        },
+                        playbackDescriptorClosed = {
+                            open.get() && MichiGenreAccessPolicy.canMutateAudioFile(authority())
+                        },
+                    )
+                }
+            }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         MichiMetadataEditorPreviewContent(
             snapshot = snapshot,
@@ -247,7 +272,17 @@ private fun MetadataEditorReadyContent(
             artworkModel = artworkModelFor(track.coverId),
             recoveryPanel = if (track.source == TrackSource.LOCAL &&
                 track.filepath.startsWith("content://")) {
-                { MichiMetadataRecoveryPanel(track.sourceId, track.id, track.filepath) }
+                {
+                    MichiMetadataRecoveryPanel(
+                        track.sourceId, track.id, track.filepath,
+                        ownerStillCurrent = {
+                            open.get() && MichiGenreAccessPolicy.canLookup(authority())
+                        },
+                        playbackClosed = {
+                            open.get() && MichiGenreAccessPolicy.canMutateAudioFile(authority())
+                        },
+                    )
+                }
             } else null,
             privateBundleCoordinator = bundle,
             expectedFileBytes = track.size,

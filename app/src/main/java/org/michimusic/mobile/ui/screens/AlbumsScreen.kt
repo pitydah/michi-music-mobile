@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.mobile.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -176,6 +178,7 @@ fun AlbumsScreen(
 
     val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
     val musicLibraryRepo: org.michimusic.data.repository.MusicLibraryRepository = koinInject()
+    val database: org.michimusic.data.cache.MichiDatabase = koinInject()
     val activeScope by libraryScopeStore.activeScope.collectAsStateWithLifecycle()
     // K48-R12-02: `activeScope` is a placeholder until the store verifies it, so the
     // collections below are only built from an authorized scope. While loading, or
@@ -183,6 +186,25 @@ fun AlbumsScreen(
     val scopeResolution by libraryScopeStore.resolution.collectAsStateWithLifecycle()
     val authorizedScope = scopeResolution.authority().authorizedScope()
     val availableLibraries by musicLibraryRepo.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // S4: opening the library is the only activation. Receipts are bounded and
+    // private; a missing or conflicting row stays pending instead of being forced.
+    LaunchedEffect(authorizedScope) {
+        val expectedScope = authorizedScope ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            runCatching {
+                org.michimusic.data.metadata.MetadataIndexReconciler(
+                    context.applicationContext, database,
+                ).reconcileAll(
+                    ownerStillCurrent = {
+                        libraryScopeStore.resolution.value.authority()
+                            .authorizedScope() == expectedScope
+                    },
+                    playbackDescriptorClosed = { currentTrack == null },
+                )
+            }
+        }
+    }
 
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }

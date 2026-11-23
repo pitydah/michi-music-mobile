@@ -126,6 +126,7 @@ internal fun MichiMetadataEditorPreviewContent(
     artworkModel: Any? = null,
     pilotWriter: MetadataSaveService? = null,
     indexSourceId: String = "",
+    pilotEligibilityOverride: MetadataSaveService.Eligibility? = null,
 ) {
     val target = snapshot.target
     val narrowTopBar = LocalConfiguration.current.screenWidthDp < 360 ||
@@ -158,9 +159,11 @@ internal fun MichiMetadataEditorPreviewContent(
     var showSaveDetail by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(false)
     }
-    var pilotEligible by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
-        mutableStateOf(false)
+    var pilotEligibility by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
+        mutableStateOf<MetadataSaveService.Eligibility?>(null)
     }
+    val pilotEligible = pilotEligibility is MetadataSaveService.Eligibility.Eligible
+    val recoveryPending = pilotEligibility is MetadataSaveService.Eligibility.RecoveryPending
     var saving by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(false)
     }
@@ -254,9 +257,11 @@ internal fun MichiMetadataEditorPreviewContent(
         onDirtyChanged(false)
         confirmRevert = false
     }
-    LaunchedEffect(pilotWriter, target.sourceId, target.trackId, target.uri, expectedFileBytes) {
-        val eligibility = pilotWriter?.eligibility(target.uri)
-        pilotEligible = eligibility is MetadataSaveService.Eligibility.Eligible
+    LaunchedEffect(
+        pilotWriter, target.sourceId, target.trackId, target.uri,
+        expectedFileBytes, pilotEligibilityOverride,
+    ) {
+        pilotEligibility = pilotEligibilityOverride ?: pilotWriter?.eligibility(target.uri)
     }
     var retryPilotSave: (MetadataReview.Ready) -> Unit = {}
     val consentLauncher = rememberLauncherForActivityResult(
@@ -297,7 +302,7 @@ internal fun MichiMetadataEditorPreviewContent(
                     artLyrics = MetadataArtLyricsUiState()
                     provisional = emptyMap()
                     saveMessage = if (outcome.indexPublished) "Cambios guardados"
-                    else "Archivo guardado y releído; biblioteca pendiente de actualizar"
+                    else "Archivo verificado; biblioteca pendiente"
                     onDirtyChanged(false)
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
@@ -314,12 +319,12 @@ internal fun MichiMetadataEditorPreviewContent(
                 is MetadataSaveService.Outcome.RecoveryRequired -> {
                     saving = false
                     android.util.Log.d("MichiSave", "recovery=${outcome.reason}")
-                    saveMessage = "El archivo necesita recuperación. No se declara guardado."
+                    saveMessage = "Recuperación necesaria. No se declara guardado."
                 }
                 is MetadataSaveService.Outcome.Failed -> {
                     saving = false
                     saveMessage = if (outcome.needsRecovery)
-                        "El archivo necesita recuperación. No se declara guardado."
+                        "Recuperación necesaria. No se declara guardado."
                     else "No se pudo guardar: ${outcome.reason}."
                 }
             }
@@ -398,14 +403,33 @@ internal fun MichiMetadataEditorPreviewContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pilotEligible) {
                         Text(
-                            "Perfil piloto certificado: MediaStore + MP3/ID3v2.3-2.4 " +
-                                "para TITLE, ARTIST, ALBUM y GENRE.",
+                            "Perfil MP3 de texto: MediaStore + ID3v2.3/2.4 para " +
+                                "TITLE, ARTIST, ALBUM y GENRE.",
                             color = TertiaryCyan,
                         )
                         Text(
                             "Guardar solicita permiso exacto para este archivo, crea una copia " +
-                                "privada con journal, escribe el original, lo relee y publica la " +
-                                "biblioteca. Las carátulas quedan fuera de este perfil.",
+                                "privada con journal, escribe el original, lo verifica y publica " +
+                                "la biblioteca. Si la biblioteca no puede publicarse, el archivo " +
+                                "queda verificado y la operación se reintenta al abrirla.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Carátulas, letras, varios valores por campo, FLAC y SAF quedan " +
+                                "fuera de este perfil.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else if (recoveryPending) {
+                        Text(
+                            "Hay una escritura pendiente de recuperación.",
+                            color = PrimaryPinkContainer,
+                        )
+                        Text(
+                            "No se permite iniciar otra edición sobre bytes físicos inciertos. " +
+                                "Comprueba la operación pendiente en el panel de recuperación y " +
+                                "restaura el original si corresponde.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -917,6 +941,7 @@ internal fun MichiMetadataEditorPreviewContent(
                     val caption = when {
                         saving -> "Guardando…"
                         saveMessage != null -> saveMessage!!
+                        recoveryPending -> "Recuperación necesaria antes de editar"
                         pilotEligible && pilotArtworkBlocked ->
                             "La carátula no se puede guardar en este perfil todavía"
                         pilotEligible && effectiveEditCount == 0 -> "Sin cambios"

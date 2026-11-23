@@ -107,7 +107,11 @@ internal fun MichiMetadataEditorPreviewEntry(
                 EditorNotice("No se pudieron verificar los metadatos (${state.reason.name}). " +
                     "No se aplicará ningún cambio.", onDismiss)
                 if (track.source == TrackSource.LOCAL && track.filepath.startsWith("content://")) {
-                    MichiMetadataRecoveryPanel(track.sourceId, track.id, track.filepath)
+                    MichiMetadataRecoveryPanel(
+                        track.sourceId, track.id, track.filepath,
+                        ownerStillCurrent = stillOwns,
+                        playbackClosed = playbackClosed,
+                    )
                 }
             }
             is EditorLoadState.Ready -> MichiMetadataEditorPreviewContent(
@@ -119,7 +123,13 @@ internal fun MichiMetadataEditorPreviewEntry(
                 currentSessionAllowsPreparation = currentSessionAllowsPreparation,
                 recoveryPanel = if (track.source == TrackSource.LOCAL &&
                     track.filepath.startsWith("content://")) {
-                    { MichiMetadataRecoveryPanel(track.sourceId, track.id, track.filepath) }
+                    {
+                        MichiMetadataRecoveryPanel(
+                            track.sourceId, track.id, track.filepath,
+                            ownerStillCurrent = stillOwns,
+                            playbackClosed = playbackClosed,
+                        )
+                    }
                 } else null)
         }
     }
