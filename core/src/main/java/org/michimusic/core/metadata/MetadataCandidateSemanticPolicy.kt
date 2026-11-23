@@ -82,7 +82,19 @@ object MetadataCandidateSemanticPolicy {
             // supplied by either decoder. An omitted observation is unknown.
             val unedited = (MetadataReadFieldCatalog.primary + original.observations.keys +
                 candidate.observations.keys).filterNot { it in editedFields }.toSet()
+            // A field outside the container's own vocabulary is unknown on both
+            // sides. The separate opaque audit still digests every unedited
+            // frame/block and the audio stream, so this is not proof of absence
+            // and must never be reported as one.
+            fun unsupportedOnBothSides(field: MetadataField): Boolean {
+                fun unsupported(observation: MetadataFieldObservation?): Boolean =
+                    observation is MetadataFieldObservation.Unverifiable &&
+                        observation.issue == MetadataObservationIssue.FIELD_NOT_SUPPORTED
+                return unsupported(original.observations[field]) &&
+                    unsupported(candidate.observations[field])
+            }
             for (field in unedited.sortedBy { it.name }) {
+                if (unsupportedOnBothSides(field)) continue
                 // RIFF/INFO only proves positive existing values. A field outside
                 // this legacy chunk vocabulary remains UNKNOWN on both sides;
                 // do not treat it as absent or claim physical preservation.
