@@ -348,7 +348,7 @@ class MetadataSaveService(
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            android.util.Log.d("MichiSave", "prepare_failure=${error.javaClass.simpleName}:${error.message}")
+            android.util.Log.d("MichiSave", "prepare_failure=${error.javaClass.simpleName}")
             val pending = (journal.inspect() as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
             if (pending != null && pending.sourceId == sourceId &&
                 pending.trackId == trackId && pending.uri == uriString &&
