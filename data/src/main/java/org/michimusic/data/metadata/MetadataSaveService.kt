@@ -31,11 +31,14 @@ import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 
 /** ME-13: the single Save facade. All source changes are reserved by Journal V1. */
-class MetadataSaveService(
+class MetadataSaveService internal constructor(
     private val context: Context,
     private val trackDao: TrackDao,
     private val database: MichiDatabase,
+    private val checkpoints: MetadataSaveCheckpointHook,
 ) {
+    constructor(context: Context, trackDao: TrackDao, database: MichiDatabase) :
+        this(context, trackDao, database, NoMetadataSaveCheckpoint)
     sealed interface Eligibility {
         data object Eligible : Eligibility
         /** A durable journal obligation still owns this or another source. */
@@ -88,6 +91,27 @@ class MetadataSaveService(
         reviewInput: MetadataReview.Ready,
         ownerCurrent: () -> Boolean = { false },
         playbackClosed: () -> Boolean = { false },
+    ): Outcome {
+        val key = MetadataSaveLocks.key(sourceId, trackId, uriString)
+        val lock = MetadataSaveLocks.lock(key)
+        if (!lock.tryLock()) return Outcome.RecoveryRequired("IN_PROGRESS")
+        try {
+            return saveBody(sourceId, trackId, uriString, expectedBytes, reviewInput,
+                ownerCurrent, playbackClosed)
+        } finally {
+            lock.unlock()
+            MetadataSaveLocks.release(key, lock)
+        }
+    }
+
+    private suspend fun saveBody(
+        sourceId: String,
+        trackId: String,
+        uriString: String,
+        expectedBytes: Long,
+        reviewInput: MetadataReview.Ready,
+        ownerCurrent: () -> Boolean,
+        playbackClosed: () -> Boolean,
     ): Outcome = withContext(Dispatchers.IO) {
         val canonicalTarget = reviewInput.proposed.target.copy(
             sourceId = sourceId, trackId = trackId, uri = uriString,
@@ -226,6 +250,7 @@ class MetadataSaveService(
                 entry = snapshotEntry.copy(phase = MetadataRecoveryPhase.BACKUP_DURABLE,
                     originalSha256 = sourceSha)
                 journal.advance(snapshotEntry, entry)
+                checkpoints.reach(MetadataSaveCheckpoint.AFTER_BACKUP_DURABLE)
                 val backupEntry = entry
                 candidate = journal.stage(entry)
                 val receipt = MetadataPrivateBundleStage.stage(
@@ -236,6 +261,7 @@ class MetadataSaveService(
                     stageSha256 = receipt.candidateSha256, stageBytes = receipt.candidateBytes,
                     format = observed.format.name)
                 journal.advance(backupEntry, entry)
+                checkpoints.reach(MetadataSaveCheckpoint.AFTER_STAGE_READY)
                 val manifest = MetadataCommitIntentManifest.create(
                     transactionId = entry.id, review = review,
                     provider = MetadataDocumentProvider.MEDIASTORE,
@@ -289,6 +315,9 @@ class MetadataSaveService(
                 container = entry.format, revision = revision, fields = fields,
                 explicitUserAction = true,
             )
+            checkpoints.reach(MetadataSaveCheckpoint.BEFORE_MUTATING)
+            if (!sameSource(uri, entry.originalSha256, expectedBytes))
+                return@withContext abort(entry, "El origen cambió antes de escribir")
             if (!ownerCurrent() || !playbackClosed())
                 return@withContext Outcome.Blocked("OWNER_OR_PLAYBACK_CHANGED")
             if (!owners.write(entry, review.original.target))
@@ -296,6 +325,9 @@ class MetadataSaveService(
                     "No se pudo persistir la evidencia del propietario")
             val mutating = entry.copy(phase = MetadataRecoveryPhase.MUTATING)
             journal.advance(entry, mutating, permit)
+            checkpoints.reach(MetadataSaveCheckpoint.AFTER_MUTATING_DURABLE)
+            if (!ownerCurrent() || !playbackClosed())
+                return@withContext Outcome.RecoveryRequired("OWNER_OR_PLAYBACK_CHANGED")
             val write = transport.overwriteWithPermit(mutating, candidate, permit)
             when (write) {
                 MetadataProviderMutationTransport.Result.BytesSentRequireColdReadback -> {
@@ -313,7 +345,9 @@ class MetadataSaveService(
                         "Escritura rechazada antes de abrir el origen (${write.reason})", true)
                 }
             }
+            checkpoints.reach(MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE)
 
+            checkpoints.reach(MetadataSaveCheckpoint.BEFORE_INDEX_CAS)
             val published = publication.reconcile(
                 transactionId = entry.id,
                 original = review.original,
@@ -323,6 +357,7 @@ class MetadataSaveService(
                 playbackDescriptorClosed = playbackClosed,
                 permit = permit,
             )
+            checkpoints.reach(MetadataSaveCheckpoint.AFTER_INDEX_CAS)
             android.util.Log.d("MichiSave", "publication=${publicationCode(published)}")
             val indexed = published is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly ||
                 published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||
@@ -338,6 +373,7 @@ class MetadataSaveService(
                     return@withContext Outcome.RecoveryRequired("POSTCHECK_SNAPSHOT_UNAVAILABLE")
             }
             if (indexed) {
+                checkpoints.reach(MetadataSaveCheckpoint.BEFORE_TERMINAL_CLEANUP)
                 if (!journal.completeVerified(entry.id))
                     return@withContext Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
                 return@withContext Outcome.Saved(committed, true)
