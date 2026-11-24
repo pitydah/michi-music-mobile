@@ -125,9 +125,14 @@ class ExtendedTrackMetadataRepository(
             ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
                 ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE)
         val uri = Uri.parse(filepath)
-        val sizeCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.SIZE
+        // The document family is a property of the URI, not of the Room owner.
+        // A cached local row carries lib_device_local while its filepath is a
+        // MediaStore content URI; asking it for DocumentsContract columns makes
+        // a live MediaStore item unreadable after the first save.
+        val mediaStoreDocument = uri.authority == MediaStore.AUTHORITY
+        val sizeCol = if (mediaStoreDocument) MediaStore.Audio.Media.SIZE
             else DocumentsContract.Document.COLUMN_SIZE
-        val modifiedCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.DATE_MODIFIED
+        val modifiedCol = if (mediaStoreDocument) MediaStore.Audio.Media.DATE_MODIFIED
             else DocumentsContract.Document.COLUMN_LAST_MODIFIED
         var denied = false
         var queryFailed = false
@@ -226,9 +231,14 @@ class ExtendedTrackMetadataRepository(
                 ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed,
                 MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
         val uri = Uri.parse(filepath)
-        val sizeCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.SIZE
+        // The document family is a property of the URI, not of the Room owner.
+        // A cached local row carries lib_device_local while its filepath is a
+        // MediaStore content URI; asking it for DocumentsContract columns makes
+        // a live MediaStore item unreadable after the first save.
+        val mediaStoreDocument = uri.authority == MediaStore.AUTHORITY
+        val sizeCol = if (mediaStoreDocument) MediaStore.Audio.Media.SIZE
             else DocumentsContract.Document.COLUMN_SIZE
-        val modifiedCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.DATE_MODIFIED
+        val modifiedCol = if (mediaStoreDocument) MediaStore.Audio.Media.DATE_MODIFIED
             else DocumentsContract.Document.COLUMN_LAST_MODIFIED
         var denied = false
         var queryFailed = false

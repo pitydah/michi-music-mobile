@@ -81,6 +81,7 @@ import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataBlockReason
 import org.michimusic.core.metadata.MetadataEditorDraftSession
 import org.michimusic.core.metadata.MetadataEditorSection
+import org.michimusic.mobile.ui.metadata.MetadataLibraryRefreshSignal
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataReview
@@ -303,6 +304,7 @@ internal fun MichiMetadataEditorPreviewContent(
                     provisional = emptyMap()
                     saveMessage = if (outcome.indexPublished) "Cambios guardados"
                     else "Archivo verificado; biblioteca pendiente"
+                    MetadataLibraryRefreshSignal.request()
                     onDirtyChanged(false)
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
