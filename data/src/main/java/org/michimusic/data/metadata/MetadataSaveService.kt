@@ -430,39 +430,11 @@ class MetadataSaveService(
         val root = File(context.noBackupFilesDir, "michi-metadata-editor-v1")
         val intent = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
             ?.receipt
-        val token = review.original.target.evidenceToken
-        val ownerBound = intent != null && token.isNotBlank() && runCatching {
-            org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
-                review.original.target) == intent.ownerSha256
-        }.getOrDefault(false)
-        // V2 is written with the exact owner token bound into the durable intent.
-        // A missing row still produces an actionable receipt with a zero
-        // verification preimage; the reconciler waits for the real row.
-        if (ownerBound && token.isNotBlank()) {
-            val v2 = MetadataIndexReconciliationReceipt(
-                transactionId = entry.id, sourceId = entry.sourceId,
-                trackId = entry.trackId, uri = entry.uri,
-                originalSha256 = entry.originalSha256,
-                candidateSha256 = entry.stageSha256,
-                candidateBytes = entry.stageBytes, format = entry.format,
-                ownerEvidenceToken = token,
-                previousVerifiedAt = expectedIndex?.version ?: 0L,
-                previousVerifiedSha256 = expectedIndex?.observedSourceSha256.orEmpty(),
-                previousSize = entry.expectedBytes,
-            )
-            if (v2.actionable &&
-                MetadataIndexReconciliationReceipt.write(root, v2)) return true
-        }
-        return MetadataIndexReconciliationReceipt.write(
-            root,
-            MetadataIndexReconciliationReceipt(
-                transactionId = entry.id, sourceId = entry.sourceId,
-                trackId = entry.trackId, uri = entry.uri,
-                originalSha256 = entry.originalSha256,
-                candidateSha256 = entry.stageSha256,
-                candidateBytes = entry.stageBytes, format = entry.format,
-                version = 1,
-            ),
+        // A new certified transaction has exactly one durable obligation format:
+        // an actionable V2 receipt. There is no V1 fallback.
+        return MetadataIndexObligation.write(
+            root = root, entry = entry, target = review.original.target,
+            intent = intent, expectedIndex = expectedIndex,
         )
     }
 

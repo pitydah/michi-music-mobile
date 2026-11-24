@@ -140,10 +140,10 @@ class MetadataRecoveryCoordinator internal constructor(
                 entry.id, evidence.original, expected, true,
                 request.ownerStillCurrent, request.playbackClosed, permit)
             if (published.isIndexed()) {
-                return@withContext finishIndexed(entry.id, committed)
+                return@withContext finishIndexed(entry, committed)
             }
         } else if (rowApplied(entry, evidence.stage, row)) {
-            return@withContext finishIndexed(entry.id, committed)
+            return@withContext finishIndexed(entry, committed)
         }
         if (!writeReceipt(entry, expected, token))
             return@withContext Outcome.RecoveryRequired(
@@ -152,10 +152,21 @@ class MetadataRecoveryCoordinator internal constructor(
             if (expected == null) "MISSING_ROW_OR_PREIMAGE" else "CAS_REFUSED_OR_CONFLICT")
     }
 
-    private fun finishIndexed(transactionId: String, snapshot: MetadataSnapshot): Outcome {
-        if (!journal.completeVerified(transactionId))
-            return Outcome.RecoveryRequired(transactionId, "INDEXED_CLEANUP_PENDING")
-        return Outcome.Indexed(transactionId, snapshot)
+    private fun finishIndexed(
+        entry: MetadataRecoveryJournalV1.Entry,
+        snapshot: MetadataSnapshot,
+    ): Outcome {
+        val proof = MetadataIndexAppliedReceipt(
+            transactionId = entry.id, sourceId = entry.sourceId,
+            trackId = entry.trackId, uri = entry.uri,
+            candidateSha256 = entry.stageSha256, candidateBytes = entry.stageBytes,
+        )
+        if (!MetadataIndexAppliedReceipt.write(root, proof))
+            return Outcome.RecoveryRequired(entry.id, "INDEX_APPLIED_PROOF_NOT_DURABLE")
+        if (!journal.completeVerified(entry.id))
+            return Outcome.RecoveryRequired(entry.id, "INDEXED_CLEANUP_PENDING")
+        MetadataIndexAppliedReceipt.delete(root, entry.id)
+        return Outcome.Indexed(entry.id, snapshot)
     }
 
     private fun preWriteIdentity(
@@ -236,8 +247,8 @@ class MetadataRecoveryCoordinator internal constructor(
         entry: MetadataRecoveryJournalV1.Entry,
         expected: MetadataIndexPublicationPolicy.IndexIdentity?,
         token: String,
-    ): Boolean = MetadataIndexReconciliationReceipt.write(root,
-        MetadataIndexReconciliationReceipt(
+    ): Boolean {
+        val receipt = MetadataIndexReconciliationReceipt(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
             originalSha256 = entry.originalSha256,
@@ -247,7 +258,9 @@ class MetadataRecoveryCoordinator internal constructor(
             previousVerifiedAt = expected?.version ?: 0L,
             previousVerifiedSha256 = expected?.observedSourceSha256.orEmpty(),
             previousSize = entry.expectedBytes,
-        ))
+        )
+        return receipt.actionable && MetadataIndexReconciliationReceipt.write(root, receipt)
+    }
 
     private fun MetadataFinalizedIndexPublicationCoordinator.Result.isIndexed(): Boolean = when (this) {
         is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly -> true

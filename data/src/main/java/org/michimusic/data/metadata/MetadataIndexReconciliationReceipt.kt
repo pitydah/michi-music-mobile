@@ -7,7 +7,6 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.channels.FileChannel
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
@@ -107,6 +106,15 @@ internal data class MetadataIndexReconciliationReceipt(
         }.toByteArray()
     }
 
+    /**
+     * Bounded read-only enumeration. Suspicious entries are surfaced, never
+     * followed, never deleted automatically and never promoted to candidates.
+     */
+    sealed interface Entry {
+        data class ValidCandidate(val file: File) : Entry
+        data class Suspicious(val name: String, val code: String) : Entry
+    }
+
     companion object {
         const val VERSION = 2
         const val LOCAL_SOURCE = "lib_device_local"
@@ -173,32 +181,50 @@ internal data class MetadataIndexReconciliationReceipt(
             return File(root, "index-reconciliation-$transactionId.bin")
         }
 
-        /** Bounded, symlink-free enumeration of private receipts. */
-        fun list(root: File): List<File> = try {
+        fun entries(root: File): List<Entry> = try {
             if (!root.isDirectory || Files.isSymbolicLink(root.toPath())) emptyList()
             else root.listFiles().orEmpty()
                 .asSequence()
                 .filter { NAME.matches(it.name) }
-                .filter {
-                    !Files.isSymbolicLink(it.toPath()) && it.isFile &&
-                        it.length() in 1..MAX_FILE_BYTES
+                .map { file ->
+                    when {
+                        Files.isSymbolicLink(file.toPath()) ->
+                            Entry.Suspicious(file.name, "RECEIPT_SYMLINK")
+                        !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS) ->
+                            Entry.Suspicious(file.name, "NOT_REGULAR_FILE")
+                        file.length() !in 1..MAX_FILE_BYTES ->
+                            Entry.Suspicious(file.name, "INVALID_RECEIPT_SIZE")
+                        else -> Entry.ValidCandidate(file)
+                    }
                 }
-                .sortedBy { it.name }
+                .sortedBy {
+                    when (it) {
+                        is Entry.ValidCandidate -> it.file.name
+                        is Entry.Suspicious -> it.name
+                    }
+                }
                 .take(MAX_RECEIPTS)
                 .toList()
         } catch (_: Exception) { emptyList() }
+
+        /** Backward-compatible view for callers that only accept candidates. */
+        fun list(root: File): List<File> = entries(root)
+            .filterIsInstance<Entry.ValidCandidate>()
+            .map { it.file }
 
         fun write(root: File, receipt: MetadataIndexReconciliationReceipt): Boolean = try {
             if (!root.exists()) root.mkdirs()
             val target = file(root, receipt.transactionId)
             if (Files.isSymbolicLink(target.toPath())) false else {
                 val tmp = File(root, "index-reconciliation-${UUID.randomUUID()}.tmp")
-                FileOutputStream(tmp).use { out -> out.write(receipt.encode()); out.fd.sync() }
                 try {
+                    FileOutputStream(tmp).use { out -> out.write(receipt.encode()); out.fd.sync() }
+                    // A durable obligation must not fall back to a non-atomic
+                    // replace: without ATOMIC_MOVE the receipt is not written.
                     Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING)
-                } catch (_: AtomicMoveNotSupportedException) {
-                    Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                } finally {
+                    if (Files.exists(tmp.toPath(), LinkOption.NOFOLLOW_LINKS)) tmp.delete()
                 }
                 // Directory fsync is best effort on Android; some providers reject
                 // opening a directory channel. The atomic rename above is already

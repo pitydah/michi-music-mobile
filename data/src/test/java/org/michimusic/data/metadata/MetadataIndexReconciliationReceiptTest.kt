@@ -88,6 +88,39 @@ class MetadataIndexReconciliationReceiptTest {
             val listed = MetadataIndexReconciliationReceipt.list(root)
             assertEquals(listOf(valid), listed)
             assertNotNull(MetadataIndexReconciliationReceipt.read(valid))
+            val entries = MetadataIndexReconciliationReceipt.entries(root)
+            assertEquals(listOf(
+                MetadataIndexReconciliationReceipt.Entry.ValidCandidate(valid),
+                MetadataIndexReconciliationReceipt.Entry.Suspicious(oversized.name,
+                    "INVALID_RECEIPT_SIZE"),
+                MetadataIndexReconciliationReceipt.Entry.Suspicious(symlink.name,
+                    "RECEIPT_SYMLINK"),
+            ), entries)
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun nonRegularCandidateIsReportedAndNeverFollowed() {
+        val root = Files.createTempDirectory("me13-receipt-dir").toFile()
+        try {
+            val directory = File(root, "index-reconciliation-${"e".repeat(36)}.bin")
+            assertTrue(directory.mkdir())
+            File(directory, "child").writeText("x")
+            assertEquals(listOf(
+                MetadataIndexReconciliationReceipt.Entry.Suspicious(directory.name,
+                    "NOT_REGULAR_FILE"),
+            ), MetadataIndexReconciliationReceipt.entries(root))
+            assertTrue(MetadataIndexReconciliationReceipt.list(root).isEmpty())
+            assertNull(MetadataIndexReconciliationReceipt.read(directory))
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun atomicWriteRefusesToReplaceADirectory() {
+        val root = Files.createTempDirectory("me13-receipt-atomic").toFile()
+        try {
+            val target = MetadataIndexReconciliationReceipt.file(root, v2.transactionId)
+            assertTrue(target.mkdir())
+            File(target, "child").writeText("x")
+            assertFalse(MetadataIndexReconciliationReceipt.write(root, v2))
         } finally { root.deleteRecursively() }
     }
 }

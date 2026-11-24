@@ -153,6 +153,7 @@ class MetadataIndexReconciler internal constructor(
         val receipt = MetadataIndexReconciliationReceipt.read(file)
             ?: return Outcome.CorruptReceiptKept(file.name)
         val transactionId = receipt.transactionId
+        resolveAppliedOrphan(receipt, file)?.let { return it }
         // V1 is readable but cannot authorize CAS: it has no exact owner token or
         // pre-publication row identity. The file is retained, never deleted.
         if (!receipt.actionable)
@@ -276,11 +277,11 @@ class MetadataIndexReconciler internal constructor(
     ): Outcome {
         if (!journal.isUnchanged(generation, entry))
             return Outcome.ConflictKept(entry.id)
+        if (!writeAppliedProof(entry))
+            return Outcome.RecoveryRequired(entry.id, "INDEX_APPLIED_PROOF_NOT_DURABLE")
         if (!journal.completeVerified(entry.id))
             return Outcome.RecoveryRequired(entry.id, "INDEXED_CLEANUP_PENDING")
-        return if (!Files.isSymbolicLink(receiptFile.toPath()) && receiptFile.delete())
-            Outcome.Indexed(entry.id)
-        else Outcome.RecoveryRequired(entry.id, "RECEIPT_CLEANUP_PENDING")
+        return finishReceiptCleanup(entry.id, receiptFile, Outcome.Indexed(entry.id))
     }
 
     private suspend fun finishApplied(
@@ -290,11 +291,64 @@ class MetadataIndexReconciler internal constructor(
     ): Outcome {
         if (!journal.isUnchanged(generation, entry))
             return Outcome.ConflictKept(entry.id)
+        if (!writeAppliedProof(entry))
+            return Outcome.RecoveryRequired(entry.id, "INDEX_APPLIED_PROOF_NOT_DURABLE")
         if (!journal.completeVerified(entry.id))
             return Outcome.RecoveryRequired(entry.id, "INDEXED_CLEANUP_PENDING")
-        return if (!Files.isSymbolicLink(receiptFile.toPath()) && receiptFile.delete())
-            Outcome.AlreadyAppliedAndCleaned(entry.id)
-        else Outcome.RecoveryRequired(entry.id, "RECEIPT_CLEANUP_PENDING")
+        return finishReceiptCleanup(entry.id, receiptFile,
+            Outcome.AlreadyAppliedAndCleaned(entry.id))
+    }
+
+    private fun writeAppliedProof(entry: MetadataRecoveryJournalV1.Entry): Boolean {
+        val proof = MetadataIndexAppliedReceipt(
+            transactionId = entry.id, sourceId = entry.sourceId,
+            trackId = entry.trackId, uri = entry.uri,
+            candidateSha256 = entry.stageSha256, candidateBytes = entry.stageBytes,
+        )
+        return MetadataIndexAppliedReceipt.write(journalRoot, proof)
+    }
+
+    private fun finishReceiptCleanup(
+        transactionId: String,
+        receiptFile: File,
+        success: Outcome,
+    ): Outcome {
+        if (Files.exists(receiptFile.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+            (Files.isSymbolicLink(receiptFile.toPath()) || !receiptFile.delete()))
+            return Outcome.RecoveryRequired(transactionId, "RECEIPT_CLEANUP_PENDING")
+        MetadataIndexAppliedReceipt.delete(journalRoot, transactionId)
+        return success
+    }
+
+    /**
+     * A kill after the CAS can leave the reconciliation receipt without its
+     * journal. Only an exact applied proof plus the already-applied row may
+     * resolve it; anything else stays protected.
+     */
+    private suspend fun resolveAppliedOrphan(
+        receipt: MetadataIndexReconciliationReceipt,
+        receiptFile: File,
+    ): Outcome? {
+        val proof = MetadataIndexAppliedReceipt.read(journalRoot, receipt.transactionId)
+            ?: return null
+        if (proof.sourceId != receipt.sourceId || proof.trackId != receipt.trackId ||
+            proof.uri != receipt.uri ||
+            proof.candidateSha256 != receipt.candidateSha256 ||
+            proof.candidateBytes != receipt.candidateBytes)
+            return null
+        val row = try { dao.getTrackBySource(receipt.sourceId, receipt.trackId) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { return null }
+            ?: return null
+        if (row.filepath != receipt.uri || row.size != receipt.candidateBytes ||
+            row.verifiedAt != 0L || row.verifiedSha256.isNotEmpty() ||
+            row.verifiedSize != 0L || row.verifiedAlgorithm.isNotEmpty())
+            return null
+        val pending = (journal.inspect() as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
+        if (pending != null && pending.id == receipt.transactionId &&
+            !journal.completeVerified(receipt.transactionId)) return null
+        return finishReceiptCleanup(receipt.transactionId, receiptFile,
+            Outcome.AlreadyAppliedAndCleaned(receipt.transactionId))
     }
 
     private fun permitFor(
@@ -382,7 +436,7 @@ class MetadataIndexReconciler internal constructor(
         val HEX = Regex("[a-f0-9]{64}")
     }
 
-    private class AndroidSourceGate(context: Context) : SourceGate {
+    internal class AndroidSourceGate(context: Context) : SourceGate {
         private val bytes = MetadataCurrentBytesReader(context)
         private val resolver = context.contentResolver
 
@@ -412,7 +466,7 @@ class MetadataIndexReconciler internal constructor(
         } catch (_: Exception) { null }
     }
 
-    private class CoordinatorPublisher(
+    internal class CoordinatorPublisher(
         context: Context,
         database: MichiDatabase,
     ) : Publisher {

@@ -204,6 +204,7 @@ class MetadataIndexReconcilerTest {
         assertFalse(file.exists())
         assertFalse(File(journalDir, "journal-v1.bin").exists())
         assertFalse(File(journalDir, "backup-${TX}.bin").exists())
+        assertFalse(MetadataIndexAppliedReceipt.file(journalDir, TX).exists())
 
         // A new instance after a process restart observes no remaining obligation.
         val second = reconciler(publisher = publisher).reconcileAll({ true }, { true })
@@ -274,6 +275,102 @@ class MetadataIndexReconcilerTest {
             result.outcomes)
         assertEquals(0, publisher.calls)
         assertTrue(file.exists())
+    }
+
+    @Test fun appliedProofAndExactRowResolveAnOrphanReceiptWithoutSecondCas() = runBlocking {
+        val entry = stagedJournal()
+        val file = writeReceipt(entry)
+        // Simulate a kill after the CAS and after the journal/private cleanup,
+        // but before the reconciliation receipt and applied proof were removed.
+        assertTrue(File(journalDir, "journal-v1.bin").delete())
+        assertTrue(File(journalDir, "backup-${TX}.bin").delete())
+        assertTrue(File(journalDir, "stage-${TX}.bin").delete())
+        assertTrue(File(journalDir, "intent-${TX}.bin").delete())
+        assertTrue(MetadataIndexAppliedReceipt.write(journalDir,
+            MetadataIndexAppliedReceipt(TX, sourceId, trackId, uri, candidateSha,
+                candidate.size.toLong())))
+        database.trackDao().insertAll(listOf(appliedRow(entry)))
+        val publisher = RecordingPublisher(true)
+        val result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertEquals(listOf(MetadataIndexReconciler.Outcome.AlreadyAppliedAndCleaned(TX)),
+            result.outcomes)
+        assertEquals(0, publisher.calls)
+        assertFalse(file.exists())
+        assertFalse(MetadataIndexAppliedReceipt.file(journalDir, TX).exists())
+        assertEquals("Edited",
+            database.trackDao().getTrackBySource(sourceId, trackId)!!.title)
+    }
+
+    @Test fun absentOrMismatchedAppliedProofNeverDeletesAnOrphanReceipt() = runBlocking {
+        val entry = stagedJournal()
+        val file = writeReceipt(entry)
+        assertTrue(File(journalDir, "journal-v1.bin").delete())
+        database.trackDao().insertAll(listOf(appliedRow(entry)))
+        val publisher = RecordingPublisher(true)
+        var result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertEquals(listOf(MetadataIndexReconciler.Outcome.JournalUnavailableKept(TX)),
+            result.outcomes)
+        assertTrue(file.exists())
+
+        assertTrue(MetadataIndexAppliedReceipt.write(journalDir,
+            MetadataIndexAppliedReceipt(TX, sourceId, trackId, uri, "d".repeat(64),
+                candidate.size.toLong())))
+        result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertEquals(listOf(MetadataIndexReconciler.Outcome.JournalUnavailableKept(TX)),
+            result.outcomes)
+        assertTrue(file.exists())
+        assertTrue(MetadataIndexAppliedReceipt.file(journalDir, TX).exists())
+        assertEquals(0, publisher.calls)
+    }
+
+    @Test fun failedAppliedProofKeepsTheJournalAndReceiptObligation() = runBlocking {
+        val entry = stagedJournal()
+        val file = writeReceipt(entry)
+        database.trackDao().insertAll(listOf(preWriteRow(entry)))
+        // The proof path is blocked, so the terminal proof cannot be written.
+        val blocked = MetadataIndexAppliedReceipt.file(journalDir, TX)
+        assertTrue(blocked.mkdir())
+        File(blocked, "child").writeText("x")
+        val publisher = RecordingPublisher(true)
+        val result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertEquals(listOf(MetadataIndexReconciler.Outcome.RecoveryRequired(TX,
+            "INDEX_APPLIED_PROOF_NOT_DURABLE")), result.outcomes)
+        assertEquals(1, publisher.calls)
+        assertTrue(file.exists())
+        assertTrue(File(journalDir, "journal-v1.bin").exists())
+        assertTrue(File(journalDir, "backup-${TX}.bin").exists())
+    }
+
+    @Test fun receiptDeleteFailureAfterCasLeavesProofAndNeverRepeatsTheCas() = runBlocking {
+        val entry = stagedJournal()
+        val file = writeReceipt(entry)
+        database.trackDao().insertAll(listOf(preWriteRow(entry)))
+        val publisher = object : MetadataIndexReconciler.Publisher {
+            var calls = 0
+            override suspend fun publish(
+                request: MetadataIndexReconciler.PublishRequest,
+            ): Boolean {
+                calls++
+                // Replace the reconciliation receipt with a non-empty directory so
+                // the post-CAS cleanup cannot delete it.
+                assertTrue(file.delete())
+                assertTrue(file.mkdir())
+                File(file, "child").writeText("x")
+                return true
+            }
+        }
+        val first = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertEquals(listOf(MetadataIndexReconciler.Outcome.RecoveryRequired(TX,
+            "RECEIPT_CLEANUP_PENDING")), first.outcomes)
+        assertEquals(1, publisher.calls)
+        assertFalse(File(journalDir, "journal-v1.bin").exists())
+        assertTrue(MetadataIndexAppliedReceipt.file(journalDir, TX).exists())
+
+        // The directory is not a valid candidate, so the next open has no
+        // actionable receipt and must never attempt the CAS again.
+        val second = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertTrue(second.outcomes.isEmpty())
+        assertEquals(1, publisher.calls)
     }
 
     private inner class RecordingPublisher(private val result: Boolean) :
