@@ -66,6 +66,7 @@ class MetadataRecoveryCoordinator internal constructor(
     private val owners = MetadataRecoveryOwnerStore(root)
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
+    private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
 
     suspend fun resume(request: RecoveryRequest): Outcome = withContext(Dispatchers.IO) {
         if (!request.userRequested) return@withContext Outcome.Blocked("ACTION_REQUIRED")
@@ -122,6 +123,14 @@ class MetadataRecoveryCoordinator internal constructor(
                     entry.id, "POSTCHECK_NOT_CERTIFIED")
         }
 
+        val committed = when (val read = committedSnapshots.read(
+            entry, target, intent,
+        )) {
+            is MetadataVerifiedCommittedSnapshotReader.Result.Verified -> read.snapshot
+            is MetadataVerifiedCommittedSnapshotReader.Result.Refused ->
+                return@withContext Outcome.RecoveryRequired(
+                    entry.id, "COMMITTED_SNAPSHOT_NOT_VERIFIED")
+        }
         val row = runCatching {
             database.trackDao().getTrackBySource(entry.sourceId, entry.trackId)
         }.getOrNull()
@@ -131,15 +140,15 @@ class MetadataRecoveryCoordinator internal constructor(
                 entry.id, evidence.original, expected, true,
                 request.ownerStillCurrent, request.playbackClosed, permit)
             if (published.isIndexed()) {
-                return@withContext finishIndexed(entry.id, evidence.original)
+                return@withContext finishIndexed(entry.id, committed)
             }
         } else if (rowApplied(entry, evidence.stage, row)) {
-            return@withContext finishIndexed(entry.id, evidence.original)
+            return@withContext finishIndexed(entry.id, committed)
         }
         if (!writeReceipt(entry, expected, token))
             return@withContext Outcome.RecoveryRequired(
                 entry.id, "INDEX_OBLIGATION_NOT_DURABLE")
-        Outcome.IndexPending(entry.id, evidence.original,
+        Outcome.IndexPending(entry.id, committed,
             if (expected == null) "MISSING_ROW_OR_PREIMAGE" else "CAS_REFUSED_OR_CONFLICT")
     }
 

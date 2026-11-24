@@ -168,6 +168,13 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             "The unified Save path must verify and index the exact row, got $outcome",
             outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
         )
+        val saved = outcome as MetadataSaveService.Outcome.Saved
+        assertEquals(listOf("ME13 Renombrada"), saved.snapshot.known[MetadataField.TITLE])
+        assertEquals(
+            org.michimusic.core.metadata.MetadataFieldObservation.Present(
+                listOf("ME13 Renombrada")),
+            saved.snapshot.fieldObservations[MetadataField.TITLE],
+        )
 
         val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
         val afterSha = sha(after)

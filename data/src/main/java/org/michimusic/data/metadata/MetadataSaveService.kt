@@ -58,6 +58,7 @@ class MetadataSaveService(
     private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val intents = MetadataCommitIntentStore(journal)
+    private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
     private val profile = MediaStoreMp3TextProfile.profile
 
     fun eligibility(uriString: String): Eligibility {
@@ -327,15 +328,19 @@ class MetadataSaveService(
                 published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||
                 published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleIndexed ||
                 published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleAndGenreIndexed
-            val coldSnapshot = review.proposed.copy(
-                target = review.proposed.target.copy(
-                    evidenceToken = "me13:sha256:${entry.stageSha256}",
-                ),
-            )
+            val persisted = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
+                ?.receipt ?: return@withContext Outcome.RecoveryRequired("INTENT_NOT_DURABLE")
+            val committed = when (val read = committedSnapshots.read(
+                entry, review.original.target, persisted,
+            )) {
+                is MetadataVerifiedCommittedSnapshotReader.Result.Verified -> read.snapshot
+                is MetadataVerifiedCommittedSnapshotReader.Result.Refused ->
+                    return@withContext Outcome.RecoveryRequired("POSTCHECK_SNAPSHOT_UNAVAILABLE")
+            }
             if (indexed) {
                 if (!journal.completeVerified(entry.id))
                     return@withContext Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
-                return@withContext Outcome.Saved(coldSnapshot, true)
+                return@withContext Outcome.Saved(committed, true)
             }
             val durable = writeIndexReceipt(
                 entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED), review,
@@ -344,7 +349,7 @@ class MetadataSaveService(
             if (!durable) return@withContext Outcome.RecoveryRequired(
                 "INDEX_OBLIGATION_NOT_DURABLE",
             )
-            Outcome.Saved(coldSnapshot, false)
+            Outcome.Saved(committed, false)
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (error: Exception) {

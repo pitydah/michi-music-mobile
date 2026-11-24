@@ -107,6 +107,13 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
             ))
 
         assertTrue("outcome=$outcome", outcome is MetadataRecoveryCoordinator.Outcome.Indexed)
+        val indexed = outcome as MetadataRecoveryCoordinator.Outcome.Indexed
+        assertEquals(listOf("ME13 Recuperada"), indexed.snapshot.known[MetadataField.TITLE])
+        assertEquals(
+            org.michimusic.core.metadata.MetadataFieldObservation.Present(
+                listOf("ME13 Recuperada")),
+            indexed.snapshot.fieldObservations[MetadataField.TITLE],
+        )
         val row = database.trackDao().getTrackBySource(sourceId, trackId)!!
         assertEquals("ME13 Recuperada", row.title)
         assertEquals(candidate.size.toLong(), row.size)
@@ -137,6 +144,13 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
 
         assertTrue("outcome=$outcome",
             outcome is MetadataRecoveryCoordinator.Outcome.IndexPending)
+        val pending = outcome as MetadataRecoveryCoordinator.Outcome.IndexPending
+        assertEquals(listOf("ME13 Sin Fila"), pending.snapshot.known[MetadataField.TITLE])
+        assertEquals(
+            org.michimusic.core.metadata.MetadataFieldObservation.Present(
+                listOf("ME13 Sin Fila")),
+            pending.snapshot.fieldObservations[MetadataField.TITLE],
+        )
         assertEquals("", sha(readSource(uri)).let { if (it == sha(candidate)) "" else it })
         assertEquals(MetadataRecoveryPhase.POSTCHECK_VERIFIED,
             (MetadataRecoveryJournalV1(journalRoot).inspect() as
