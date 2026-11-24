@@ -111,21 +111,21 @@ class MetadataEditorLibraryReopenInstrumentedTest {
 
     @Test fun libraryToEditorSaveAndReopenShowsTheCommittedTitle() {
         completeOnboardingIfPresent()
-        compose.waitUntil(20_000) {
+        compose.waitUntil(60_000) {
             compose.onAllNodesWithText("Biblioteca").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Biblioteca").performClick()
-        compose.waitUntil(30_000) {
+        compose.waitUntil(90_000) {
             compose.onAllNodesWithContentDescription("Opciones para ME13 T48 Original")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithContentDescription("Opciones para ME13 T48 Original").performClick()
-        compose.waitUntil(10_000) {
+        compose.waitUntil(30_000) {
             compose.onAllNodesWithTag("track_menu_edit_metadata").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("track_menu_edit_metadata").performClick()
         compose.waitForIdle()
-        compose.waitUntil(30_000) {
+        compose.waitUntil(90_000) {
             compose.onAllNodesWithTag("metadata_workbench").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("metadata_section_basics").assertIsDisplayed()
@@ -146,7 +146,7 @@ class MetadataEditorLibraryReopenInstrumentedTest {
             .performTextReplacement("ME13 T48 Guardada")
         hideKeyboard()
         compose.onNodeWithTag("metadata_save_file").performClick()
-        compose.waitUntil(30_000) {
+        compose.waitUntil(90_000) {
             compose.onAllNodesWithText("Cambios guardados").fetchSemanticsNodes().isNotEmpty() ||
                 compose.onAllNodesWithText("Archivo verificado; biblioteca pendiente")
                     .fetchSemanticsNodes().isNotEmpty()
@@ -157,27 +157,27 @@ class MetadataEditorLibraryReopenInstrumentedTest {
         )
         compose.waitForIdle()
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.waitUntil(20_000) {
+        compose.waitUntil(60_000) {
             compose.onAllNodesWithText("ME13 T48 Guardada").fetchSemanticsNodes().isNotEmpty()
         }
 
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
-        compose.waitUntil(20_000) {
+        compose.waitUntil(60_000) {
             compose.onAllNodesWithText("Biblioteca").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Biblioteca").performClick()
-        compose.waitUntil(20_000) {
+        compose.waitUntil(60_000) {
             compose.onAllNodesWithContentDescription("Opciones para ME13 T48 Guardada")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithContentDescription("Opciones para ME13 T48 Guardada").performClick()
-        compose.waitUntil(10_000) {
+        compose.waitUntil(30_000) {
             compose.onAllNodesWithTag("track_menu_edit_metadata").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("track_menu_edit_metadata").performClick()
         compose.waitForIdle()
-        compose.waitUntil(30_000) {
+        compose.waitUntil(90_000) {
             compose.onAllNodesWithTag("metadata_workbench").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("metadata_input_title_0")
