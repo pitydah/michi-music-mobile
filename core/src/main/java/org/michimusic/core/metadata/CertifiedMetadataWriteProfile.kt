@@ -127,6 +127,17 @@ object MediaStoreMp3TextProfile {
     )
 }
 
+private val flacProfileMultiValue: Set<MetadataField> = setOf(
+    MetadataField.ARTIST, MetadataField.ALBUM_ARTIST,
+    MetadataField.GENRE, MetadataField.COMPOSER,
+    MetadataField.ORCHESTRA, MetadataField.ENSEMBLE,
+    MetadataField.SOLOIST, MetadataField.INSTRUMENT,
+    MetadataField.ORIGINAL_ARTIST, MetadataField.LYRICIST,
+    MetadataField.ARRANGER, MetadataField.PERFORMER,
+    MetadataField.CONDUCTOR, MetadataField.PRODUCER,
+    MetadataField.MUSICBRAINZ_ARTIST_ID, MetadataField.MUSICBRAINZ_LABEL_ID,
+).intersect(MetadataCapabilityRegistry.flacStageFields)
+
 /**
  * FLAC / Vorbis Comment title on an app-owned local MediaStore item.
  *
@@ -144,16 +155,7 @@ object MediaStoreFlacTextProfile {
         tagRevisions = setOf(1),
         supportedFields = MetadataCapabilityRegistry.flacStageFields,
         permitsArtwork = false,
-        permitsMultiValue = setOf(
-            MetadataField.ARTIST, MetadataField.ALBUM_ARTIST,
-            MetadataField.GENRE, MetadataField.COMPOSER,
-            MetadataField.ORCHESTRA, MetadataField.ENSEMBLE,
-            MetadataField.SOLOIST, MetadataField.INSTRUMENT,
-            MetadataField.ORIGINAL_ARTIST, MetadataField.LYRICIST,
-            MetadataField.ARRANGER, MetadataField.PERFORMER,
-            MetadataField.CONDUCTOR, MetadataField.PRODUCER,
-            MetadataField.MUSICBRAINZ_ARTIST_ID, MetadataField.MUSICBRAINZ_LABEL_ID,
-        ).intersect(MetadataCapabilityRegistry.flacStageFields),
+        permitsMultiValue = flacProfileMultiValue,
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.FLAC_PICTURE_REPLACE,
@@ -162,6 +164,16 @@ object MediaStoreFlacTextProfile {
         ),
     )
 }
+
+private val m4aProfileFields: Set<MetadataField> = setOf(
+    MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+    MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+    MetadataField.COMPOSER, MetadataField.RELEASE_DATE,
+    MetadataField.COMMENT, MetadataField.LYRICS,
+    MetadataField.GROUPING,
+    MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+    MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+)
 
 /**
  * Audio-only M4A text rewrite through the pinned JAudiotagger engine.
@@ -178,15 +190,7 @@ object MediaStoreM4aTextProfile {
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
         containers = setOf(MetadataAudioContainer.MP4_M4A),
         tagRevisions = setOf(1),
-        supportedFields = setOf(
-            MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
-            MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
-            MetadataField.COMPOSER, MetadataField.RELEASE_DATE,
-            MetadataField.COMMENT, MetadataField.LYRICS,
-            MetadataField.GROUPING,
-            MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
-            MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
-        ),
+        supportedFields = m4aProfileFields,
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
@@ -212,12 +216,52 @@ object SafLocalMp3TitleProfile {
     )
 }
 
+/**
+ * FLAC text and representable multivalue on a local SAF document. Resource
+ * operations remain closed until their own persisted-grant evidence exists.
+ */
+object SafLocalFlacTextProfile {
+    const val ID = "SAF_LOCAL_FLAC_VORBIS_TEXT_V1"
+    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_FLAC_TEXT_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.FLAC),
+        tagRevisions = setOf(1),
+        supportedFields = MetadataCapabilityRegistry.flacStageFields,
+        permitsArtwork = false,
+        permitsMultiValue = flacProfileMultiValue,
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
+/**
+ * Audio-only M4A text and pairs on a local SAF document. Video and resource
+ * operations remain closed until their own persisted-grant evidence exists.
+ */
+object SafLocalM4aTextProfile {
+    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1"
+    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_M4A_AUDIO_ONLY_TEXT_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
 object MetadataWriteProfileRegistry {
     fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
         MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
         MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
         MediaStoreM4aTextProfile.ID -> MediaStoreM4aTextProfile.profile
         SafLocalMp3TitleProfile.ID -> SafLocalMp3TitleProfile.profile
+        SafLocalFlacTextProfile.ID -> SafLocalFlacTextProfile.profile
+        SafLocalM4aTextProfile.ID -> SafLocalM4aTextProfile.profile
         else -> null
     }
     fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
@@ -241,6 +285,8 @@ object MetadataWriteProfileRegistry {
             MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT -> when (container) {
                 MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
                     SafLocalMp3TitleProfile.profile
+                MetadataAudioContainer.FLAC -> SafLocalFlacTextProfile.profile
+                MetadataAudioContainer.MP4_M4A -> SafLocalM4aTextProfile.profile
                 else -> null
             }
             MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE -> null

@@ -359,6 +359,174 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
         assertArrayEquals(committed, restoredBytes)
         assertEquals(saved.committedSha256, sha(restoredBytes))
         assertTrue(journal.inspect() is MetadataRecoveryJournalV1.Inspection.Clear)
+
+        val extraDocuments = mutableListOf<Uri>()
+        try {
+            extraDocuments += saveSafAsset(
+                parent = parent,
+                assetName = "me19-sine.flac",
+                mime = "audio/flac",
+                displayName = "michi-saf-${UUID.randomUUID()}.flac",
+                format = "flac",
+                seedTitle = "ME19 FLAC Original",
+                seedArtist = "Artista FLAC",
+                seedAlbum = "Album FLAC",
+                seedGenre = "Rock",
+                changes = listOf(
+                    MetadataChange.Replace(
+                        MetadataField.COMPOSER, listOf("SAF FLAC Compositora")),
+                    MetadataChange.Replace(
+                        MetadataField.RELEASE_DATE, listOf("2025-10-01")),
+                    MetadataChange.Replace(
+                        MetadataField.TRACK_NUMBER, listOf("3")),
+                    MetadataChange.Replace(
+                        MetadataField.TRACK_TOTAL, listOf("9")),
+                    MetadataChange.Replace(
+                        MetadataField.DISC_NUMBER, listOf("1")),
+                    MetadataChange.Replace(
+                        MetadataField.DISC_TOTAL, listOf("2")),
+                ),
+            )
+            extraDocuments += saveSafAsset(
+                parent = parent,
+                assetName = "me14-audio-only.m4a",
+                mime = "audio/mp4",
+                displayName = "michi-saf-${UUID.randomUUID()}.m4a",
+                format = "m4a",
+                seedTitle = "ME14 M4A",
+                seedArtist = "Artista M4A",
+                seedAlbum = "Album M4A",
+                seedGenre = "Rock",
+                changes = listOf(
+                    MetadataChange.Replace(
+                        MetadataField.TITLE, listOf("SAF M4A Nueva")),
+                    MetadataChange.Replace(
+                        MetadataField.COMPOSER, listOf("SAF M4A Compositor")),
+                    MetadataChange.Replace(
+                        MetadataField.RELEASE_DATE, listOf("2025-10-02")),
+                    MetadataChange.Replace(
+                        MetadataField.TRACK_NUMBER, listOf("2")),
+                    MetadataChange.Replace(
+                        MetadataField.TRACK_TOTAL, listOf("7")),
+                    MetadataChange.Replace(
+                        MetadataField.DISC_NUMBER, listOf("1")),
+                    MetadataChange.Replace(
+                        MetadataField.DISC_TOTAL, listOf("3")),
+                ),
+            )
+        } finally {
+            extraDocuments.forEach {
+                runCatching {
+                    DocumentsContract.deleteDocument(context.contentResolver, it)
+                }
+            }
+        }
+    }
+
+    private suspend fun saveSafAsset(
+        parent: Uri,
+        assetName: String,
+        mime: String,
+        displayName: String,
+        format: String,
+        seedTitle: String,
+        seedArtist: String,
+        seedAlbum: String,
+        seedGenre: String,
+        changes: List<MetadataChange>,
+    ): Uri {
+        val tree = checkNotNull(treeUri)
+        val bytes = InstrumentationRegistry.getInstrumentation().context.assets
+            .open(assetName).use { it.readBytes() }
+        val uri = requireNotNull(DocumentsContract.createDocument(
+            context.contentResolver, parent, mime, displayName,
+        ))
+        try {
+            context.contentResolver.openFileDescriptor(uri, "rwt")!!.use { pfd ->
+                ParcelFileDescriptor.AutoCloseOutputStream(pfd).use {
+                    it.write(bytes); it.flush(); it.fd.sync()
+                }
+            }
+            val size = context.contentResolver.openFileDescriptor(uri, "r")!!
+                .use { it.statSize }
+            val sourceId = customRootSourceId(tree)
+            val trackId = treeTrackId(tree, DocumentsContract.getDocumentId(uri))
+            val repository = SyncedTrackRepository(trackDao = database.trackDao())
+            repository.saveLibrary(listOf(TrackDto(
+                id = trackId, title = seedTitle, artist = seedArtist,
+                album = seedAlbum, duration = 100, size = size,
+                format = format, genre = seedGenre,
+            )), sourceId)
+            repository.markDownloadedVerified(
+                sourceId = sourceId, id = trackId, filepath = uri.toString(),
+                size = size, sha256 = sha(bytes),
+                verifiedAt = 1_700_000_000_000L, algorithm = "sha256",
+            )
+            val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+            val snapshot = when (val read = reader.loadEditorColdRead(
+                sourceId, trackId, uri.toString(), size,
+            )) {
+                is MetadataEditorColdRead.Verified -> read.snapshot
+                is MetadataEditorColdRead.Partial -> read.snapshot
+                else -> error("SAF $format cold read rejected: $read")
+            }
+            val review = MetadataEditPreview.review(snapshot, changes)
+            assertTrue("SAF $format review rejected: $review",
+                review is MetadataReview.Ready)
+            val outcome = MetadataSaveService(
+                context, database.trackDao(), database,
+            ).save(
+                sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+                expectedBytes = size, reviewInput = review as MetadataReview.Ready,
+                ownerCurrent = { true }, playbackClosed = { true },
+            )
+            assertTrue("SAF $format save failed: $outcome",
+                outcome is MetadataSaveService.Outcome.Saved &&
+                    outcome.indexPublished)
+            val saved = outcome as MetadataSaveService.Outcome.Saved
+            val after = context.contentResolver.openInputStream(uri)!!
+                .use { it.readBytes() }
+            assertEquals(saved.committedSha256, sha(after))
+            assertEquals(saved.committedBytes, after.size.toLong())
+            val reopened = when (val read = reader.loadEditorColdRead(
+                sourceId, trackId, uri.toString(), after.size.toLong(),
+            )) {
+                is MetadataEditorColdRead.Verified -> read.snapshot
+                is MetadataEditorColdRead.Partial -> read.snapshot
+                else -> error("SAF $format reopen rejected: $read")
+            }
+            changes.filterIsInstance<MetadataChange.Replace>().forEach {
+                assertEquals("$format ${it.field} readback", it.values,
+                    reopened.known[it.field])
+            }
+            val evidence = database.trackDao()
+                .getCurrentExtendedTagEvidence(sourceId, trackId)
+                ?: throw AssertionError("SAF $format evidence missing")
+            changes.filterIsInstance<MetadataChange.Replace>()
+                .singleOrNull { it.field == MetadataField.COMPOSER }
+                ?.let { assertEquals(it.values.single(), evidence.composer) }
+            changes.filterIsInstance<MetadataChange.Replace>()
+                .singleOrNull { it.field == MetadataField.TRACK_TOTAL }
+                ?.let { assertEquals(it.values.single().toInt(), evidence.trackTotal) }
+            changes.filterIsInstance<MetadataChange.Replace>()
+                .singleOrNull { it.field == MetadataField.DISC_NUMBER }
+                ?.let { assertEquals(it.values.single().toInt(), evidence.discNumber) }
+            changes.filterIsInstance<MetadataChange.Replace>()
+                .singleOrNull { it.field == MetadataField.DISC_TOTAL }
+                ?.let { assertEquals(it.values.single().toInt(), evidence.discTotal) }
+            changes.filterIsInstance<MetadataChange.Replace>()
+                .singleOrNull { it.field == MetadataField.RELEASE_DATE }
+                ?.let { assertEquals(it.values.single(), evidence.date) }
+            assertTrue(MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear)
+            return uri
+        } catch (e: Throwable) {
+            runCatching {
+                DocumentsContract.deleteDocument(context.contentResolver, uri)
+            }
+            throw e
+        }
     }
 
     private fun approveTreeWithDocumentsUi(device: UiDevice) {

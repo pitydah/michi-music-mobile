@@ -152,4 +152,47 @@ class CertifiedMetadataWriteProfileTest {
             ) == null,
         )
     }
+
+    @Test fun safFlacAndM4aUseDistinctProviderEvidence() {
+        val flac = MetadataWriteProfileRegistry.forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+            MetadataAudioContainer.FLAC,
+        )
+        assertTrue(flac === SafLocalFlacTextProfile.profile)
+        assertTrue(flac !== MediaStoreFlacTextProfile.profile)
+        assertTrue(flac!!.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.COMPOSER, MetadataField.TRACK_TOTAL,
+                MetadataField.LYRICS),
+            emptySet(), false,
+        ))
+        assertTrue(flac.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.ARTIST), setOf(MetadataField.ARTIST), false,
+        ))
+        assertFalse(flac.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.SYNCED_LYRICS), emptySet(), false,
+        ))
+        assertTrue(flac.supportedResourceOperations.isEmpty())
+
+        val m4a = MetadataWriteProfileRegistry.forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+            MetadataAudioContainer.MP4_M4A,
+        )
+        assertTrue(m4a === SafLocalM4aTextProfile.profile)
+        assertTrue(m4a !== MediaStoreM4aTextProfile.profile)
+        assertTrue(m4a!!.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.TITLE, MetadataField.COMPOSER,
+                MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER),
+            emptySet(), false,
+        ))
+        assertFalse(m4a.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.MEDIA_FORMAT), emptySet(), false,
+        ))
+        assertTrue(m4a.permitsMultiValue.isEmpty())
+        assertTrue(m4a.supportedResourceOperations.isEmpty())
+    }
 }
