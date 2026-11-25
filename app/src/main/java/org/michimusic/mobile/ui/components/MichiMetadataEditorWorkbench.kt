@@ -373,6 +373,12 @@ internal fun MichiMetadataEditorPreviewContent(
                         proposedBytes = edit.proposal.proposedBytes.copyOf(),
                     ),
                 )
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> edit.copy(
+                    proposal = edit.proposal.copy(
+                        proposedBytes = edit.proposal.proposedBytes.copyOf(),
+                    ),
+                )
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> edit
                 is MetadataSelectiveAssetStage.Edit.DescribedText -> edit
             }
         }
@@ -1046,10 +1052,8 @@ internal fun MichiMetadataEditorPreviewContent(
                         pilotEligible &&
                             saveBundle is MetadataWorkbenchSaveBundlePolicy.Result.Blocked ->
                             when (saveBundle.reason) {
-                                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_ADD ->
-                                    "Añadir una carátula aún no está certificado"
-                                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_REMOVE ->
-                                    "Quitar una carátula aún no está certificado"
+                                MetadataWorkbenchSaveBundlePolicy.Reason.INVALID_ARTWORK_ADDITION ->
+                                    "La imagen no es válida para añadir"
                                 MetadataWorkbenchSaveBundlePolicy.Reason.INVALID_DESCRIBED_TEXT,
                                 MetadataWorkbenchSaveBundlePolicy.Reason.RESOURCES_NOT_INSPECTED ->
                                     "Inspecciona y corrige comentarios o letras antes de guardar"

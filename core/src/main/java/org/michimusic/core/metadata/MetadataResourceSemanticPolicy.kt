@@ -40,25 +40,45 @@ object MetadataResourceSemanticPolicy {
         if (original.format != expectedFormat || candidate.format != expectedFormat)
             return Verdict.Refused(Refusal.FORMAT_MISMATCH)
 
-        val selectedPictures = hashSetOf<Int>()
+        val expectedPictures = original.artworks.toMutableList()
         val selectedTexts = hashSetOf<MetadataDescribedTextWorkbench.Identity>()
         for (resource in intent.resources) when (resource) {
             is MetadataCommitIntentManifest.ResourceChange.PictureReplacement -> {
                 val before = original.artworks.singleOrNull { it.ordinal == resource.ordinal }
                     ?: return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
-                val after = candidate.artworks.singleOrNull { it.ordinal == resource.ordinal }
-                    ?: return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
                 if (!pictureMatches(
                         before, resource.format, resource.type, resource.description,
                         resource.beforeMime, resource.beforeBytes, resource.beforeSha256,
                     )
                 ) return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
+                val index = expectedPictures.indexOfFirst { it.ordinal == resource.ordinal }
+                if (index < 0) return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
+                expectedPictures[index] = generatedPicture(
+                    resource.ordinal, resource.format, resource.type,
+                    resource.description, resource.afterMime, resource.afterBytes,
+                    resource.afterSha256,
+                )
+            }
+            is MetadataCommitIntentManifest.ResourceChange.PictureAdd -> {
+                if (resource.ordinal != expectedPictures.size)
+                    return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
+                expectedPictures += generatedPicture(
+                    resource.ordinal, resource.format, resource.type,
+                    resource.description, resource.afterMime, resource.afterBytes,
+                    resource.afterSha256,
+                )
+            }
+            is MetadataCommitIntentManifest.ResourceChange.PictureRemove -> {
+                val before = original.artworks.singleOrNull { it.ordinal == resource.ordinal }
+                    ?: return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
                 if (!pictureMatches(
-                        after, resource.format, resource.type, resource.description,
-                        resource.afterMime, resource.afterBytes, resource.afterSha256,
+                        before, resource.format, resource.type, resource.description,
+                        resource.beforeMime, resource.beforeBytes, resource.beforeSha256,
                     )
-                ) return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
-                selectedPictures += resource.ordinal
+                ) return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
+                val index = expectedPictures.indexOfFirst { it.ordinal == resource.ordinal }
+                if (index < 0) return Verdict.Refused(Refusal.ORIGINAL_RESOURCE_MISMATCH)
+                expectedPictures.removeAt(index)
             }
             is MetadataCommitIntentManifest.ResourceChange.DescribedText -> {
                 val identity = MetadataDescribedTextWorkbench.Identity(
@@ -78,11 +98,22 @@ object MetadataResourceSemanticPolicy {
             }
         }
 
-        val oldPictures = original.artworks.filterNot { it.ordinal in selectedPictures }
-        val newPictures = candidate.artworks.filterNot { it.ordinal in selectedPictures }
-        if (oldPictures.size != newPictures.size ||
-            oldPictures.zip(newPictures).any { (before, after) -> !samePicture(before, after) }
-        ) return Verdict.Refused(Refusal.UNSELECTED_RESOURCE_CHANGED)
+        val normalized = expectedPictures.mapIndexed { index, artwork ->
+            if (artwork.ordinal == index) artwork else artwork.copy(ordinal = index)
+        }
+        if (candidate.artworks.size != normalized.size)
+            return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
+        normalized.forEachIndexed { index, expected ->
+            val actual = candidate.artworks[index]
+            if (actual.ordinal != index || sha256(actual.image) != actual.info.sha256)
+                return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
+            if (expected.image.isEmpty()) {
+                if (!infoMatches(actual, expected))
+                    return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
+            } else if (!samePicture(actual, expected)) {
+                return Verdict.Refused(Refusal.UNSELECTED_RESOURCE_CHANGED)
+            }
+        }
         val oldTexts = original.texts.filterNot { it.identity in selectedTexts }
         val newTexts = candidate.texts.filterNot { it.identity in selectedTexts }
         if (oldTexts != newTexts)
@@ -121,6 +152,17 @@ object MetadataResourceSemanticPolicy {
                     )
                 ) return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
             }
+            is MetadataCommitIntentManifest.ResourceChange.PictureAdd -> {
+                val after = candidate.artworks.singleOrNull {
+                    it.ordinal == resource.ordinal
+                } ?: return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
+                if (!pictureMatches(
+                        after, resource.format, resource.type, resource.description,
+                        resource.afterMime, resource.afterBytes, resource.afterSha256,
+                    )
+                ) return Verdict.Refused(Refusal.CANDIDATE_RESOURCE_MISMATCH)
+            }
+            is MetadataCommitIntentManifest.ResourceChange.PictureRemove -> Unit
             is MetadataCommitIntentManifest.ResourceChange.DescribedText -> {
                 val identity = MetadataDescribedTextWorkbench.Identity(
                     resource.kind, resource.language, resource.description,
@@ -134,6 +176,34 @@ object MetadataResourceSemanticPolicy {
         }
         return Verdict.ResourcesMatch(intent.resources.size)
     }
+
+    private fun generatedPicture(
+        ordinal: Int,
+        format: MetadataArtworkEvidence.Format,
+        type: Int,
+        description: String,
+        mime: String,
+        bytes: Int,
+        digest: String,
+    ): MetadataArtworkLyricsProbe.Artwork = MetadataArtworkLyricsProbe.Artwork(
+        ordinal,
+        MetadataArtworkEvidence.Picture(
+            format = format, type = type, mime = mime, bytes = bytes,
+            sha256 = digest, description = description,
+        ),
+        ByteArray(0),
+    )
+
+    private fun infoMatches(
+        actual: MetadataArtworkLyricsProbe.Artwork,
+        expected: MetadataArtworkLyricsProbe.Artwork,
+    ): Boolean = actual.info.format == expected.info.format &&
+        actual.info.type == expected.info.type &&
+        actual.info.description == expected.info.description &&
+        actual.info.mime == expected.info.mime &&
+        actual.info.bytes == expected.info.bytes &&
+        actual.info.sha256 == expected.info.sha256 &&
+        actual.image.size == expected.info.bytes
 
     private fun pictureMatches(
         artwork: MetadataArtworkLyricsProbe.Artwork,

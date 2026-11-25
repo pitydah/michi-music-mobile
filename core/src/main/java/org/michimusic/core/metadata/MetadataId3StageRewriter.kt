@@ -102,7 +102,7 @@ object MetadataId3StageRewriter {
         MetadataId3TextListCodec.decode(version, frame.payload)
             ?: throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
 
-    private val canonicalNumber = Regex("[1-9][0-9]{0,3}")
+    private val canonicalNumber = Regex("[0-9]{1,4}")
     private fun checkedNumber(values: List<String>): String? {
         if (values.isEmpty()) return null
         val value = values.singleOrNull() ?: throw Rejected(Code.INVALID_NUMBER_PAIR)
@@ -128,7 +128,7 @@ object MetadataId3StageRewriter {
         fun part(raw: String): String {
             if (!Regex("[0-9]{1,4}").matches(raw) || raw.toInt() !in 1..9999)
                 throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
-            return raw.toInt().toString()
+            return raw
         }
         return part(parts[0]) to parts.getOrNull(1)?.let(::part)
     }

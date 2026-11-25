@@ -652,7 +652,7 @@ class MetadataSaveService internal constructor(
                     MetadataRecoveryPhase.STAGE_READY,
                 )) {
                 if (journal.discardPrepared(pending.id))
-                    Outcome.Blocked("No se pudo preparar la escritura: ${error.javaClass.simpleName}")
+                    Outcome.Blocked("No se pudo preparar la escritura: ${error.message ?: error.javaClass.simpleName}")
                 else Outcome.RecoveryRequired("PREPARED_CLEANUP_FAILED")
             } else Outcome.Failed("La escritura quedó en recuperación pendiente", true)
         } finally {

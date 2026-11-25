@@ -20,10 +20,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.core.metadata.MetadataArtworkAdditionPreview
+import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
+import org.michimusic.core.metadata.MetadataResourceOperation
 import org.michimusic.core.metadata.MetadataReview
+import org.michimusic.core.metadata.MetadataSelectiveAssetStage
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.MichiDatabase
@@ -122,8 +127,76 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
             MetadataRecoveryJournalV1.Inspection.Clear)
     }
 
-    @Test fun orderedFlacArtistListReachesColdReadAndPersonEvidence() = runBlocking {
+    @Test fun addAndRemoveRealFlacPicturePreservesEncodedAudio() = runBlocking {
         val original = fixture()
+        val blue = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me19-cover-blue.png").use { it.readBytes() }
+        val uri = insert(original)
+        seedRow(original)
+        val observed = observeBytes(original)
+        assertEquals(1, observed.artworks.size)
+        val red = observed.artworks.single().image
+        val target = coldRead(uri, original.size.toLong()).target
+        val addition = (
+            MetadataArtworkAdditionPreview.review(
+                observed, blue, "image/png",
+            ) as MetadataArtworkAdditionPreview.Result.Ready
+            ).proposal
+        val addOutcome = MetadataSaveService(context, database.trackDao(), database)
+            .saveBundle(
+                sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+                expectedBytes = original.size.toLong(), targetInput = target,
+                reviewInput = null,
+                resourceEdits = listOf(
+                    MetadataSelectiveAssetStage.Edit.PictureAdd(addition),
+                ),
+                ownerCurrent = { true }, playbackClosed = { true },
+            )
+        assertTrue("FLAC picture add must publish: $addOutcome",
+            addOutcome is MetadataSaveService.Outcome.Saved &&
+                addOutcome.indexPublished)
+        val addSaved = addOutcome as MetadataSaveService.Outcome.Saved
+        val afterAdd = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertFlacAudioFramesIdentical(original, afterAdd)
+        val addedResources = observeBytes(afterAdd)
+        assertEquals(2, addedResources.artworks.size)
+        assertArrayEquals(red, addedResources.artworks[0].image)
+        assertArrayEquals(blue, addedResources.artworks[1].image)
+        assertEquals(setOf(MetadataResourceOperation.FLAC_PICTURE_ADD),
+            checkNotNull(addSaved.libraryChange).resourceOperations)
+        assertEquals(afterAdd.size.toLong(),
+            checkNotNull(addSaved.libraryChange).committedBytes)
+
+        val removeOutcome = MetadataSaveService(context, database.trackDao(), database)
+            .saveBundle(
+                sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+                expectedBytes = afterAdd.size.toLong(), targetInput = addSaved.snapshot.target,
+                reviewInput = null,
+                resourceEdits = listOf(
+                    MetadataSelectiveAssetStage.Edit.PictureRemove(
+                        0, observed.artworks.single().info.sha256,
+                    ),
+                ),
+                ownerCurrent = { true }, playbackClosed = { true },
+            )
+        assertTrue("FLAC picture remove must publish: $removeOutcome",
+            removeOutcome is MetadataSaveService.Outcome.Saved &&
+                removeOutcome.indexPublished)
+        val removed = removeOutcome as MetadataSaveService.Outcome.Saved
+        val afterRemove = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertFlacAudioFramesIdentical(original, afterRemove)
+        val removedResources = observeBytes(afterRemove)
+        assertEquals(1, removedResources.artworks.size)
+        assertArrayEquals(blue, removedResources.artworks.single().image)
+        assertEquals(setOf(MetadataResourceOperation.FLAC_PICTURE_REMOVE),
+            checkNotNull(removed.libraryChange).resourceOperations)
+        assertEquals(afterRemove.size.toLong(),
+            checkNotNull(removed.libraryChange).committedBytes)
+        assertTrue(MetadataRecoveryJournalV1(journalRoot).inspect() is
+            MetadataRecoveryJournalV1.Inspection.Clear)
+    }
+
+    @Test fun orderedFlacArtistListReachesColdReadAndPersonEvidence() = runBlocking {        val original = fixture()
         val uri = insert(original)
         seedRow(original)
         val artists = listOf("Artista Uno", "Artista Dos", "Artista Tres")
@@ -148,6 +221,14 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
             ?: throw AssertionError("person evidence must be published")
         assertEquals(artists, people.artists())
         assertTrue(people.structurallyValid())
+    }
+
+    private fun observeBytes(bytes: ByteArray): MetadataArtworkLyricsProbe.Snapshot {
+        val file = File(context.cacheDir, "me19-art-${UUID.randomUUID()}.flac")
+        return try {
+            file.writeBytes(bytes)
+            MetadataPrivateBundleStage.observeFile(file)
+        } finally { file.delete() }
     }
 
     private fun assertFlacAudioFramesIdentical(before: ByteArray, after: ByteArray) {

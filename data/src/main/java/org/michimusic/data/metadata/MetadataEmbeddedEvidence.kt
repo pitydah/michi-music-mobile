@@ -30,7 +30,7 @@ internal object MetadataEmbeddedEvidence {
         fun number(field: MetadataField): Int? {
             val values = delta.observedValues[field] ?: return null
             if (values.isEmpty()) return 0
-            if (values.size != 1 || !values[0].matches(Regex("[1-9][0-9]{0,3}")))
+            if (values.size != 1 || !values[0].matches(Regex("[0-9]{1,4}")))
                 return null
             return values[0].toIntOrNull()?.takeIf { it in 1..9999 }
         }

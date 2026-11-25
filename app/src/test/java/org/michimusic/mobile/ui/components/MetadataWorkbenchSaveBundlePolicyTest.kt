@@ -93,7 +93,7 @@ class MetadataWorkbenchSaveBundlePolicyTest {
     }
 
     @Test
-    fun artworkAddAndRemoveRemainTruthfullyBlocked() {
+    fun artworkAddAndRemoveRequireInspectedResources() {
         val add = MetadataArtLyricsUiState(
             artworkEdit = ArtworkEdit.Add(png, "image/png", 1, 1),
         )
@@ -103,7 +103,7 @@ class MetadataWorkbenchSaveBundlePolicyTest {
 
         assertEquals(
             MetadataWorkbenchSaveBundlePolicy.Result.Blocked(
-                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_ADD,
+                MetadataWorkbenchSaveBundlePolicy.Reason.RESOURCES_NOT_INSPECTED,
             ),
             MetadataWorkbenchSaveBundlePolicy.build(
                 MetadataReview.Unchanged,
@@ -113,7 +113,7 @@ class MetadataWorkbenchSaveBundlePolicyTest {
         )
         assertEquals(
             MetadataWorkbenchSaveBundlePolicy.Result.Blocked(
-                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_REMOVE,
+                MetadataWorkbenchSaveBundlePolicy.Reason.RESOURCES_NOT_INSPECTED,
             ),
             MetadataWorkbenchSaveBundlePolicy.build(
                 MetadataReview.Unchanged,
@@ -121,6 +121,47 @@ class MetadataWorkbenchSaveBundlePolicyTest {
                 provisionalCount = 0,
             ),
         )
+    }
+
+    @Test
+    fun inspectedArtworkAddAndRemoveProduceExactEdits() {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(png).joinToString("") {
+                (it.toInt() and 255).toString(16).padStart(2, '0')
+            }
+        val snapshot = MetadataArtworkLyricsProbe.Snapshot(
+            MetadataArtworkLyricsProbe.Format.ID3_V24,
+            listOf(MetadataArtworkLyricsProbe.Artwork(
+                0,
+                org.michimusic.core.metadata.MetadataArtworkEvidence.Picture(
+                    org.michimusic.core.metadata.MetadataArtworkEvidence.Format.ID3_APIC,
+                    3, "image/png", png.size, digest,
+                ),
+                png.copyOf(),
+            )),
+            emptyList(),
+        )
+        val add = MetadataArtLyricsUiState(
+            load = MetadataArtLyricsUiState.Load.Ready(snapshot),
+            artworkEdit = ArtworkEdit.Add(png.copyOf(), "image/png", 1, 1),
+        )
+        val addResult = MetadataWorkbenchSaveBundlePolicy.build(
+            MetadataReview.Unchanged, add, provisionalCount = 0,
+        ) as MetadataWorkbenchSaveBundlePolicy.Result.Ready
+        assertTrue(addResult.resourceEdits.single() is
+            MetadataSelectiveAssetStage.Edit.PictureAdd)
+
+        val remove = MetadataArtLyricsUiState(
+            load = MetadataArtLyricsUiState.Load.Ready(snapshot),
+            artworkEdit = ArtworkEdit.Remove(0, digest),
+        )
+        val removeResult = MetadataWorkbenchSaveBundlePolicy.build(
+            MetadataReview.Unchanged, remove, provisionalCount = 0,
+        ) as MetadataWorkbenchSaveBundlePolicy.Result.Ready
+        val edit = removeResult.resourceEdits.single()
+        assertTrue(edit is MetadataSelectiveAssetStage.Edit.PictureRemove)
+        assertEquals(0, (edit as MetadataSelectiveAssetStage.Edit.PictureRemove).ordinal)
+        assertEquals(digest, edit.sourceSha256)
     }
 
     @Test

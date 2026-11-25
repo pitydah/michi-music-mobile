@@ -34,6 +34,13 @@ object MetadataSelectiveAssetStage {
     class Rejected(val code: Code) : IOException(code.name)
     sealed interface Edit {
         data class Picture(val proposal: MetadataArtworkReplacementPreview.Proposal) : Edit
+        data class PictureAdd(
+            val proposal: MetadataArtworkAdditionPreview.Proposal,
+        ) : Edit
+        data class PictureRemove(
+            val ordinal: Int,
+            val sourceSha256: String,
+        ) : Edit
         data class DescribedText(val change: MetadataDescribedTextWorkbench.Change) : Edit
     }
     data class Result(
@@ -196,6 +203,36 @@ object MetadataSelectiveAssetStage {
         val n=if(version==3)intBytes(payload.size) else encodeSync(payload.size)
         return id.toByteArray(StandardCharsets.US_ASCII)+n+byteArrayOf(0,0)+payload
     }
+    private fun id3ArtworkAdditionPayload(
+        version: Int, p: MetadataArtworkAdditionPreview.Proposal,
+    ): ByteArray {
+        val encoding=if(version==3)0 else 3
+        val out=ByteArrayOutputStream()
+        out.write(encoding)
+        out.write(p.proposedMime.toByteArray(StandardCharsets.US_ASCII));out.write(0)
+        out.write(p.type)
+        out.write(p.description.toByteArray(
+            if(encoding==3)StandardCharsets.UTF_8 else StandardCharsets.ISO_8859_1))
+        out.write(0)
+        out.write(p.proposedBytes)
+        return out.toByteArray()
+    }
+    private fun flacPictureAdditionPayload(
+        p: MetadataArtworkAdditionPreview.Proposal,
+    ): ByteArray {
+        val dims=imageDimensions(p.proposedMime,p.proposedBytes)
+            ?:throw Rejected(Code.UNSUPPORTED_IMAGE)
+        val out=ByteArrayOutputStream()
+        out.write(intBytes(3))
+        val mime=p.proposedMime.toByteArray(StandardCharsets.US_ASCII)
+        out.write(intBytes(mime.size));out.write(mime)
+        val description=p.description.toByteArray(StandardCharsets.UTF_8)
+        out.write(intBytes(description.size));out.write(description)
+        out.write(intBytes(dims.width));out.write(intBytes(dims.height))
+        out.write(intBytes(dims.bits));out.write(intBytes(0))
+        out.write(intBytes(p.proposedBytes.size));out.write(p.proposedBytes)
+        return out.toByteArray()
+    }
     private fun rewriteId3(source: ByteArray, edit: Edit): ByteArray {
         val version=u(source[3]);val out=ByteArrayOutputStream()
         var at=10;var ordinal=0;var found=0
@@ -218,6 +255,17 @@ object MetadataSelectiveAssetStage {
                     if(previous.sha256!=edit.proposal.sourceSha256)throw Rejected(Code.OBSERVATION_CONFLICT)
                     id3Frame(id,id3ArtworkPayload(payload,edit.proposal),version)
                 }else null
+                is Edit.PictureAdd -> {
+                    if(id=="APIC")ordinal++
+                    null
+                }
+                is Edit.PictureRemove -> if(id=="APIC" && ordinal++==edit.ordinal) {
+                    found++
+                    val previous=MetadataArtworkEvidence.id3ApicFrame(payload, version)?.picture
+                        ?:throw Rejected(Code.UNSUPPORTED_IMAGE)
+                    if(previous.sha256!=edit.sourceSha256)throw Rejected(Code.OBSERVATION_CONFLICT)
+                    byteArrayOf()
+                }else null
                 is Edit.DescribedText -> {
                     val identity=edit.change.identity
                     if(id==identity.kind.frameId) {
@@ -237,32 +285,77 @@ object MetadataSelectiveAssetStage {
             if(replace!=null)out.write(replace) else out.write(source,at,10+len)
             at+=10+len
         }
+        if(edit is Edit.PictureAdd) {
+            val p=edit.proposal
+            if(ordinal!=p.ordinal)throw Rejected(Code.OBSERVATION_CONFLICT)
+            out.write(id3Frame("APIC", id3ArtworkAdditionPayload(version,p), version))
+            found=1
+        }
         if(found!=1)throw Rejected(if(found==0)Code.MISSING_TARGET else Code.AMBIGUOUS_TARGET)
         val body=out.toByteArray()
         if(body.size+10>MAX_TAG)throw Rejected(Code.METADATA_BUDGET)
         return source.copyOfRange(0,6)+encodeSync(body.size)+body
     }
     private fun rewriteFlac(source: ByteArray, edit: Edit): ByteArray {
-        val op=(edit as? Edit.Picture)?.proposal ?:throw Rejected(Code.UNSUPPORTED_FORMAT)
-        val out=ByteArrayOutputStream();out.write(source,0,4)
-        var at=4;var ordinal=0;var found=0
+        data class Block(val type: Int, val payload: ByteArray)
+        val blocks=mutableListOf<Block>()
+        var at=4
         while(at<source.size) {
+            if(at+4>source.size)throw Rejected(Code.MALFORMED_METADATA)
             val type=u(source[at]) and 127
             val length=(u(source[at+1]) shl 16) or (u(source[at+2]) shl 8) or u(source[at+3])
             val next=at+4+length
-            if(type==6 && ordinal++==op.index) {
-                found++
-                val payload=source.copyOfRange(at+4,next)
-                if(MetadataArtworkEvidence.flacPicture(payload)?.sha256!=op.sourceSha256)
-                    throw Rejected(Code.OBSERVATION_CONFLICT)
-                val new=flacPicturePayload(payload,op)
-                if(new.size>0xffffff)throw Rejected(Code.METADATA_BUDGET)
-                out.write(source[at].toInt());out.write(byteArrayOf((new.size ushr 16).toByte(),
-                    (new.size ushr 8).toByte(),new.size.toByte()));out.write(new)
-            } else out.write(source,at,next-at)
+            if(next>source.size)throw Rejected(Code.MALFORMED_METADATA)
+            blocks+=Block(type,source.copyOfRange(at+4,next))
             at=next
         }
-        if(found!=1)throw Rejected(if(found==0)Code.MISSING_TARGET else Code.AMBIGUOUS_TARGET)
+        fun pictureIndex(ordinal: Int): Int {
+            var seen=0
+            blocks.forEachIndexed { index, block ->
+                if(block.type==6) {
+                    if(seen==ordinal)return index
+                    seen++
+                }
+            }
+            return -1
+        }
+        when(edit) {
+            is Edit.Picture -> {
+                val index=pictureIndex(edit.proposal.index)
+                if(index<0)throw Rejected(Code.MISSING_TARGET)
+                val old=blocks[index]
+                val picture=MetadataArtworkEvidence.flacPicture(old.payload)
+                    ?:throw Rejected(Code.UNSUPPORTED_IMAGE)
+                if(picture.sha256!=edit.proposal.sourceSha256)
+                    throw Rejected(Code.OBSERVATION_CONFLICT)
+                blocks[index]=Block(6,flacPicturePayload(old.payload,edit.proposal))
+            }
+            is Edit.PictureAdd -> {
+                val p=edit.proposal
+                if(blocks.count {it.type==6}!=p.ordinal)
+                    throw Rejected(Code.OBSERVATION_CONFLICT)
+                blocks+=Block(6,flacPictureAdditionPayload(p))
+            }
+            is Edit.PictureRemove -> {
+                val index=pictureIndex(edit.ordinal)
+                if(index<0)throw Rejected(Code.MISSING_TARGET)
+                val old=blocks[index]
+                val picture=MetadataArtworkEvidence.flacPicture(old.payload)
+                    ?:throw Rejected(Code.UNSUPPORTED_IMAGE)
+                if(picture.sha256!=edit.sourceSha256)
+                    throw Rejected(Code.OBSERVATION_CONFLICT)
+                blocks.removeAt(index)
+            }
+            is Edit.DescribedText -> throw Rejected(Code.UNSUPPORTED_FORMAT)
+        }
+        val out=ByteArrayOutputStream();out.write(source,0,4)
+        blocks.forEachIndexed { index, block ->
+            if(block.payload.size>0xffffff)throw Rejected(Code.METADATA_BUDGET)
+            out.write(block.type or if(index==blocks.lastIndex)0x80 else 0)
+            out.write(byteArrayOf((block.payload.size ushr 16).toByte(),
+                (block.payload.size ushr 8).toByte(),block.payload.size.toByte()))
+            out.write(block.payload)
+        }
         val data=out.toByteArray()
         if(data.size>MAX_TAG)throw Rejected(Code.METADATA_BUDGET)
         return data
@@ -282,6 +375,26 @@ object MetadataSelectiveAssetStage {
                     as? MetadataArtworkReplacementPreview.Result.Ready)?.proposal?.proposedSha256==p.proposedSha256))
                 throw Rejected(Code.INVALID_REPLACEMENT)
             "PICTURE:${p.index}"
+        }
+        is Edit.PictureAdd -> {
+            val p=edit.proposal
+            if(p.ordinal!=original.artworks.size ||
+                original.artworks.size>=MetadataArtworkAdditionPreview.MAX_ART ||
+                p.proposedBytes.size !in 16..MAX_IMAGE || p.proposedSize!=p.proposedBytes.size ||
+                sha(p.proposedBytes)!=p.proposedSha256 ||
+                (MetadataArtworkAdditionPreview.review(
+                    original,p.proposedBytes,p.proposedMime,p.type,p.description,
+                ) as? MetadataArtworkAdditionPreview.Result.Ready)
+                    ?.proposal?.proposedSha256!=p.proposedSha256)
+                throw Rejected(Code.INVALID_REPLACEMENT)
+            "PICTURE_ADD:${p.ordinal}"
+        }
+        is Edit.PictureRemove -> {
+            val selected=original.artworks.singleOrNull {it.ordinal==edit.ordinal}
+                ?:throw Rejected(Code.MISSING_TARGET)
+            if(selected.info.sha256!=edit.sourceSha256)
+                throw Rejected(Code.OBSERVATION_CONFLICT)
+            "PICTURE_REMOVE:${edit.ordinal}"
         }
         is Edit.DescribedText -> {
             if(original.format==MetadataArtworkLyricsProbe.Format.FLAC)throw Rejected(Code.UNSUPPORTED_FORMAT)
@@ -307,6 +420,33 @@ object MetadataSelectiveAssetStage {
                         (b.ordinal==p.index && (a.info.sha256!=p.proposedSha256 ||
                             a.info.mime!=p.proposedMime || !a.image.contentEquals(p.proposedBytes))) ||
                         (b.ordinal!=p.index && (b.info!=a.info || !b.image.contentEquals(a.image))))
+                        throw Rejected(Code.STAGE_READBACK_FAILED)
+                }
+            }
+            is Edit.PictureAdd -> {
+                val p=edit.proposal
+                if(before.texts!=after.texts || after.artworks.size!=before.artworks.size+1)
+                    throw Rejected(Code.STAGE_READBACK_FAILED)
+                before.artworks.zip(after.artworks).forEach { (b,a) ->
+                    if(b.ordinal!=a.ordinal || b.info!=a.info || !b.image.contentEquals(a.image))
+                        throw Rejected(Code.STAGE_READBACK_FAILED)
+                }
+                val added=after.artworks.last()
+                if(added.ordinal!=p.ordinal || added.info.sha256!=p.proposedSha256 ||
+                    added.info.mime!=p.proposedMime || added.info.bytes!=p.proposedSize ||
+                    added.info.type!=p.type || added.info.description!=p.description ||
+                    !added.image.contentEquals(p.proposedBytes))
+                    throw Rejected(Code.STAGE_READBACK_FAILED)
+            }
+            is Edit.PictureRemove -> {
+                if(before.texts!=after.texts || after.artworks.size!=before.artworks.size-1)
+                    throw Rejected(Code.STAGE_READBACK_FAILED)
+                val expected=before.artworks.filterNot {it.ordinal==edit.ordinal}
+                if(expected.size!=after.artworks.size)
+                    throw Rejected(Code.STAGE_READBACK_FAILED)
+                expected.forEachIndexed { index,e ->
+                    val a=after.artworks[index]
+                    if(a.ordinal!=index || e.info!=a.info || !e.image.contentEquals(a.image))
                         throw Rejected(Code.STAGE_READBACK_FAILED)
                 }
             }

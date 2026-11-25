@@ -99,6 +99,36 @@ class MetadataCommitIntentStoreTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun writesAndReadsArtworkAddAndRemoveReceipt() = runBlocking {
+        val root=fresh()
+        try {
+            val journal=MetadataRecoveryJournalV1(root)
+            journal.exclusive {
+                val store=MetadataCommitIntentStore(journal)
+                val receipt=resourceReceipt().copy(resources=listOf(
+                    MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+                        format=MetadataArtworkEvidence.Format.ID3_APIC,
+                        ordinal=1, type=3, description="Nueva",
+                        afterMime="image/png", afterBytes=48,
+                        afterSha256="f".repeat(64),
+                    ),
+                    MetadataCommitIntentManifest.ResourceChange.PictureRemove(
+                        format=MetadataArtworkEvidence.Format.ID3_APIC,
+                        ordinal=0, type=3, description="Cover",
+                        beforeMime="image/jpeg", beforeBytes=32,
+                        beforeSha256="d".repeat(64),
+                    ),
+                ))
+                assertTrue(MetadataCommitIntentManifest.valid(receipt))
+                store.write(entry(),receipt)
+                assertEquals(
+                    MetadataCommitIntentStore.Inspection.Present(receipt),
+                    store.inspect(entry()),
+                )
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun readsLegacyV1AsScalarOnly() = runBlocking {
         val root=fresh()
         try {

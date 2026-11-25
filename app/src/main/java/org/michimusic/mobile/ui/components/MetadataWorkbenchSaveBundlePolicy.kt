@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.components
 
+import org.michimusic.core.metadata.MetadataArtworkAdditionPreview
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSelectiveAssetStage
@@ -10,8 +11,7 @@ internal object MetadataWorkbenchSaveBundlePolicy {
         INVALID_SCALAR_REVIEW,
         RESOURCES_NOT_INSPECTED,
         INVALID_DESCRIBED_TEXT,
-        UNSUPPORTED_ARTWORK_ADD,
-        UNSUPPORTED_ARTWORK_REMOVE,
+        INVALID_ARTWORK_ADDITION,
         INCOMPLETE_ARTWORK_REPLACEMENT,
         TOO_MANY_RESOURCES,
         NO_EFFECTIVE_CHANGES,
@@ -42,10 +42,29 @@ internal object MetadataWorkbenchSaveBundlePolicy {
                     if (artLyrics.artwork != null)
                         return Result.Blocked(Reason.INCOMPLETE_ARTWORK_REPLACEMENT)
                 }
-                is ArtworkEdit.Add ->
-                    return Result.Blocked(Reason.UNSUPPORTED_ARTWORK_ADD)
-                is ArtworkEdit.Remove ->
-                    return Result.Blocked(Reason.UNSUPPORTED_ARTWORK_REMOVE)
+                is ArtworkEdit.Add -> {
+                    val snapshot = artLyrics.inspected
+                        ?: return Result.Blocked(Reason.RESOURCES_NOT_INSPECTED)
+                    val proposal = (
+                        MetadataArtworkAdditionPreview.review(
+                            snapshot, artwork.bytes, artwork.mime,
+                        ) as? MetadataArtworkAdditionPreview.Result.Ready
+                        )?.proposal
+                        ?: return Result.Blocked(Reason.INVALID_ARTWORK_ADDITION)
+                    add(MetadataSelectiveAssetStage.Edit.PictureAdd(proposal))
+                }
+                is ArtworkEdit.Remove -> {
+                    val snapshot = artLyrics.inspected
+                        ?: return Result.Blocked(Reason.RESOURCES_NOT_INSPECTED)
+                    val selected = snapshot.artworks.singleOrNull {
+                        it.ordinal == artwork.ordinal
+                    } ?: return Result.Blocked(Reason.INCOMPLETE_ARTWORK_REPLACEMENT)
+                    if (selected.info.sha256 != artwork.sourceSha256)
+                        return Result.Blocked(Reason.INCOMPLETE_ARTWORK_REPLACEMENT)
+                    add(MetadataSelectiveAssetStage.Edit.PictureRemove(
+                        artwork.ordinal, artwork.sourceSha256,
+                    ))
+                }
                 is ArtworkEdit.Replace -> {
                     val proposal = artLyrics.artwork
                         ?: return Result.Blocked(Reason.INCOMPLETE_ARTWORK_REPLACEMENT)

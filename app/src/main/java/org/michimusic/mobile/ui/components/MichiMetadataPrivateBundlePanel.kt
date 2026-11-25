@@ -138,6 +138,9 @@ internal fun MichiMetadataPrivateBundlePanel(
                     when (asset) {
                         is MetadataSelectiveAssetStage.Edit.Picture -> asset.copy(
                             proposal = asset.proposal.copy(proposedBytes = asset.proposal.proposedBytes.copyOf()))
+                        is MetadataSelectiveAssetStage.Edit.PictureAdd -> asset.copy(
+                            proposal = asset.proposal.copy(proposedBytes = asset.proposal.proposedBytes.copyOf()))
+                        is MetadataSelectiveAssetStage.Edit.PictureRemove -> asset
                         is MetadataSelectiveAssetStage.Edit.DescribedText -> asset
                     }
                 }

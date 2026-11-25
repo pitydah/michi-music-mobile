@@ -24,6 +24,8 @@ import org.junit.runner.RunWith
 import org.jaudiotagger.audio.mp4.Mp4FileReader
 import org.jaudiotagger.tag.FieldKey
 import org.michimusic.core.metadata.MetadataChange
+import org.michimusic.core.metadata.MetadataArtworkAdditionPreview
+import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataEditPreview
@@ -728,6 +730,78 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertEquals(artworkMarker.committedRevision, libraryChange.committedRevision)
         assertEquals(artworkMarker.candidateSha256, libraryChange.committedSha256)
         assertEquals(artworkMarker.candidateBytes, libraryChange.committedBytes)
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+
+        fun observe(bytes: ByteArray): MetadataArtworkLyricsProbe.Snapshot {
+            val file = File(context.cacheDir, "me-art-${UUID.randomUUID()}.mp3")
+            return try {
+                file.writeBytes(bytes)
+                MetadataPrivateBundleStage.observeFile(file)
+            } finally { file.delete() }
+        }
+
+        val secondImage = afterImage + byteArrayOf(7)
+        val addition = (
+            MetadataArtworkAdditionPreview.review(
+                resources, secondImage, "image/png",
+            ) as MetadataArtworkAdditionPreview.Result.Ready
+            ).proposal
+        val addOutcome = MetadataSaveService(context, database.trackDao(), database)
+            .saveBundle(
+                sourceId = sourceId, trackId = artworkTrackId,
+                uriString = uri.toString(), expectedBytes = after.size.toLong(),
+                targetInput = saved.snapshot.target, reviewInput = null,
+                resourceEdits = listOf(
+                    MetadataSelectiveAssetStage.Edit.PictureAdd(addition),
+                ),
+                ownerCurrent = { true }, playbackClosed = { true },
+            )
+        assertTrue("APIC add must publish: $addOutcome",
+            addOutcome is MetadataSaveService.Outcome.Saved &&
+                addOutcome.indexPublished)
+        val added = addOutcome as MetadataSaveService.Outcome.Saved
+        val afterAdd = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val addResources = observe(afterAdd)
+        assertEquals(2, addResources.artworks.size)
+        assertArrayEquals(afterImage, addResources.artworks[0].image)
+        assertArrayEquals(secondImage, addResources.artworks[1].image)
+        assertArrayEquals(audioPayload,
+            afterAdd.copyOfRange(afterAdd.size - audioPayload.size, afterAdd.size))
+        val addChange = checkNotNull(added.libraryChange)
+        assertTrue(addChange.changedFields.isEmpty())
+        assertEquals(setOf(MetadataResourceOperation.ID3_APIC_ADD),
+            addChange.resourceOperations)
+        assertEquals(afterAdd.size.toLong(), addChange.committedBytes)
+
+        val removeOutcome = MetadataSaveService(context, database.trackDao(), database)
+            .saveBundle(
+                sourceId = sourceId, trackId = artworkTrackId,
+                uriString = uri.toString(), expectedBytes = afterAdd.size.toLong(),
+                targetInput = added.snapshot.target, reviewInput = null,
+                resourceEdits = listOf(
+                    MetadataSelectiveAssetStage.Edit.PictureRemove(0, sha(afterImage)),
+                ),
+                ownerCurrent = { true }, playbackClosed = { true },
+            )
+        assertTrue("APIC remove must publish: $removeOutcome",
+            removeOutcome is MetadataSaveService.Outcome.Saved &&
+                removeOutcome.indexPublished)
+        val removed = removeOutcome as MetadataSaveService.Outcome.Saved
+        val afterRemove = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val removeResources = observe(afterRemove)
+        assertEquals(1, removeResources.artworks.size)
+        assertArrayEquals(secondImage, removeResources.artworks.single().image)
+        assertArrayEquals(audioPayload,
+            afterRemove.copyOfRange(afterRemove.size - audioPayload.size, afterRemove.size))
+        val removeChange = checkNotNull(removed.libraryChange)
+        assertTrue(removeChange.changedFields.isEmpty())
+        assertEquals(setOf(MetadataResourceOperation.ID3_APIC_REMOVE),
+            removeChange.resourceOperations)
+        assertEquals(afterRemove.size.toLong(), removeChange.committedBytes)
         assertTrue(
             MetadataRecoveryJournalV1(
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),

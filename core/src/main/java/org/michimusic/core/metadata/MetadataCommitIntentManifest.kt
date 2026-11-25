@@ -38,6 +38,26 @@ object MetadataCommitIntentManifest {
             val afterSha256: String,
         ) : ResourceChange
 
+        data class PictureAdd(
+            val format: MetadataArtworkEvidence.Format,
+            val ordinal: Int,
+            val type: Int,
+            val description: String,
+            val afterMime: String,
+            val afterBytes: Int,
+            val afterSha256: String,
+        ) : ResourceChange
+
+        data class PictureRemove(
+            val format: MetadataArtworkEvidence.Format,
+            val ordinal: Int,
+            val type: Int,
+            val description: String,
+            val beforeMime: String,
+            val beforeBytes: Int,
+            val beforeSha256: String,
+        ) : ResourceChange
+
         data class DescribedText(
             val kind: MetadataId3DescribedTagCodec.Kind,
             val language: String,
@@ -171,6 +191,39 @@ object MetadataCommitIntentManifest {
                         proposal.proposedSha256,
                     )
                 }
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> {
+                    val proposal = edit.proposal
+                    require(proposal.ordinal == resources.artworks.size) {
+                        "RESOURCE_PICTURE_ADD_NOT_APPEND"
+                    }
+                    require(proposal.proposedBytes.size == proposal.proposedSize)
+                    require(digestBytes(proposal.proposedBytes) == proposal.proposedSha256)
+                    ResourceChange.PictureAdd(
+                        when (resources.format) {
+                            MetadataArtworkLyricsProbe.Format.ID3_V23,
+                            MetadataArtworkLyricsProbe.Format.ID3_V24 ->
+                                MetadataArtworkEvidence.Format.ID3_APIC
+                            MetadataArtworkLyricsProbe.Format.FLAC ->
+                                MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        },
+                        proposal.ordinal, proposal.type, proposal.description,
+                        proposal.proposedMime, proposal.proposedSize,
+                        proposal.proposedSha256,
+                    )
+                }
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> {
+                    val before = resources.artworks.singleOrNull {
+                        it.ordinal == edit.ordinal
+                    } ?: throw IllegalArgumentException("RESOURCE_PICTURE_NOT_OBSERVED")
+                    require(before.info.sha256 == edit.sourceSha256)
+                    require(before.info.bytes == before.image.size)
+                    require(digestBytes(before.image) == before.info.sha256)
+                    ResourceChange.PictureRemove(
+                        before.info.format, before.ordinal, before.info.type,
+                        before.info.description, before.info.mime, before.info.bytes,
+                        before.info.sha256,
+                    )
+                }
                 is MetadataSelectiveAssetStage.Edit.DescribedText -> {
                     require(resources.format != MetadataArtworkLyricsProbe.Format.FLAC)
                     val operation = edit.change
@@ -218,6 +271,10 @@ object MetadataCommitIntentManifest {
         is ResourceChange.PictureReplacement -> "0:${change.format}:${change.ordinal}"
         is ResourceChange.DescribedText ->
             "1:${change.kind}:${change.language}:${change.description}"
+        is ResourceChange.PictureAdd ->
+            "2:${change.format}:${change.ordinal}:${change.afterSha256}"
+        is ResourceChange.PictureRemove ->
+            "3:${change.format}:${change.ordinal}:${change.beforeSha256}"
     }
 
     /** Strict structural checks also apply to decoded untrusted bytes. */
@@ -294,6 +351,38 @@ object MetadataCommitIntentManifest {
                         sha.matches(resource.beforeSha256) &&
                         sha.matches(resource.afterSha256) &&
                         resource.beforeSha256 != resource.afterSha256
+                }
+                is ResourceChange.PictureAdd -> {
+                    val expected = when (r.container) {
+                        MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                            MetadataArtworkEvidence.Format.ID3_APIC
+                        MetadataAudioContainer.FLAC ->
+                            MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        else -> null
+                    }
+                    expected == resource.format && resource.ordinal in 0..5 &&
+                        resource.type in 0..20 &&
+                        resource.description.length <= 2048 &&
+                        resource.description.none { it.isISOControl() } &&
+                        resource.afterMime in setOf("image/jpeg", "image/png") &&
+                        resource.afterBytes in 16..MetadataArtworkReplacementPreview.MAX_IMAGE_BYTES &&
+                        sha.matches(resource.afterSha256)
+                }
+                is ResourceChange.PictureRemove -> {
+                    val expected = when (r.container) {
+                        MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                            MetadataArtworkEvidence.Format.ID3_APIC
+                        MetadataAudioContainer.FLAC ->
+                            MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        else -> null
+                    }
+                    expected == resource.format && resource.ordinal in 0..5 &&
+                        resource.type in 0..20 &&
+                        resource.description.length <= 2048 &&
+                        resource.description.none { it.isISOControl() } &&
+                        resource.beforeMime in setOf("image/jpeg", "image/png") &&
+                        resource.beforeBytes in 4..MetadataArtworkReplacementPreview.MAX_IMAGE_BYTES &&
+                        sha.matches(resource.beforeSha256)
                 }
                 is ResourceChange.DescribedText ->
                     r.container in setOf(

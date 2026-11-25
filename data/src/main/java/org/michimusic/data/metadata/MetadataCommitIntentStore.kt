@@ -33,7 +33,7 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
     }
     private companion object {
         const val MAGIC = 0x4d45314e // ME1N
-        const val VERSION = 2
+        const val VERSION = 3
         const val MAX_BYTES = 12 * 1024
     }
 
@@ -124,6 +124,26 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                         out.writeUTF(resource.beforeSha256)
                         out.writeUTF(resource.afterSha256)
                     }
+                    is MetadataCommitIntentManifest.ResourceChange.PictureAdd -> {
+                        out.writeByte(3)
+                        out.writeInt(resource.ordinal)
+                        out.writeUTF(resource.format.name)
+                        out.writeInt(resource.type)
+                        out.writeUTF(resource.description)
+                        out.writeUTF(resource.afterMime)
+                        out.writeInt(resource.afterBytes)
+                        out.writeUTF(resource.afterSha256)
+                    }
+                    is MetadataCommitIntentManifest.ResourceChange.PictureRemove -> {
+                        out.writeByte(4)
+                        out.writeInt(resource.ordinal)
+                        out.writeUTF(resource.format.name)
+                        out.writeInt(resource.type)
+                        out.writeUTF(resource.description)
+                        out.writeUTF(resource.beforeMime)
+                        out.writeInt(resource.beforeBytes)
+                        out.writeUTF(resource.beforeSha256)
+                    }
                 }
             }
         }.toByteArray()
@@ -190,6 +210,30 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                         beforeSha256 = decoded.readUTF(),
                         afterSha256 = decoded.readUTF(),
                     )
+                    3 -> {
+                        require(version >= 3)
+                        MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+                            ordinal = decoded.readInt(),
+                            format = MetadataArtworkEvidence.Format.valueOf(decoded.readUTF()),
+                            type = decoded.readInt(),
+                            description = decoded.readUTF(),
+                            afterMime = decoded.readUTF(),
+                            afterBytes = decoded.readInt(),
+                            afterSha256 = decoded.readUTF(),
+                        )
+                    }
+                    4 -> {
+                        require(version >= 3)
+                        MetadataCommitIntentManifest.ResourceChange.PictureRemove(
+                            ordinal = decoded.readInt(),
+                            format = MetadataArtworkEvidence.Format.valueOf(decoded.readUTF()),
+                            type = decoded.readInt(),
+                            description = decoded.readUTF(),
+                            beforeMime = decoded.readUTF(),
+                            beforeBytes = decoded.readInt(),
+                            beforeSha256 = decoded.readUTF(),
+                        )
+                    }
                     else -> error("INTENT_RESOURCE_KIND")
                 }
             }

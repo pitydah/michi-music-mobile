@@ -9,7 +9,7 @@ package org.michimusic.core.metadata
 object MetadataFieldValuePolicy {
     enum class Failure { NUMBER_OUT_OF_RANGE, INVALID_BPM, INVALID_ISRC,
         INVALID_MUSICBRAINZ_ID, INVALID_DISCOGS_ID }
-    private val number=Regex("[1-9][0-9]{0,3}")
+    private val number=Regex("[0-9]{1,4}")
     private val bpm=Regex("[0-9]{1,4}(\\.[0-9]{1,3})?")
     private val isrc=Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
     private val discogs=Regex("[1-9][0-9]{0,11}")

@@ -37,7 +37,11 @@ enum class MetadataResourceOperation {
     ID3_APIC_REPLACE,
     FLAC_PICTURE_REPLACE,
     ID3_DESCRIBED_TEXT_REPLACE,
-    ID3_DESCRIBED_TEXT_CLEAR;
+    ID3_DESCRIBED_TEXT_CLEAR,
+    ID3_APIC_ADD,
+    ID3_APIC_REMOVE,
+    FLAC_PICTURE_ADD,
+    FLAC_PICTURE_REMOVE;
 
     companion object {
         fun of(change: MetadataCommitIntentManifest.ResourceChange): MetadataResourceOperation =
@@ -46,6 +50,16 @@ enum class MetadataResourceOperation {
                     when (change.format) {
                         MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REPLACE
                         MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REPLACE
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.PictureAdd ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_ADD
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_ADD
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.PictureRemove ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REMOVE
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REMOVE
                     }
                 is MetadataCommitIntentManifest.ResourceChange.DescribedText ->
                     if (change.afterCount == 0) ID3_DESCRIBED_TEXT_CLEAR
@@ -105,6 +119,8 @@ object MediaStoreMp3TextProfile {
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.ID3_APIC_REPLACE,
+            MetadataResourceOperation.ID3_APIC_ADD,
+            MetadataResourceOperation.ID3_APIC_REMOVE,
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
         ),
@@ -141,6 +157,8 @@ object MediaStoreFlacTextProfile {
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+            MetadataResourceOperation.FLAC_PICTURE_ADD,
+            MetadataResourceOperation.FLAC_PICTURE_REMOVE,
         ),
     )
 }

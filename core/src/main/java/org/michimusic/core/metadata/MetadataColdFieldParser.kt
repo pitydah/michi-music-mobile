@@ -283,9 +283,10 @@ object MetadataColdFieldParser {
                     val bad = MetadataFieldObservation.Unverifiable(MetadataObservationIssue.INVALID_FIELD)
                     observations[numberField] = bad; observations[totalField] = bad
                 } else {
-                    observations[numberField] = MetadataFieldObservation.Present(listOf(first.toString()))
+                    observations[numberField] = MetadataFieldObservation.Present(
+                        listOf(pieces[0]))
                     observations[totalField] = if (total != null)
-                        MetadataFieldObservation.Present(listOf(total.toString()))
+                        MetadataFieldObservation.Present(listOf(pieces[1]))
                     else MetadataFieldObservation.VerifiedAbsent
                 }
             } else if (current !is MetadataFieldObservation.VerifiedAbsent) {
@@ -480,7 +481,7 @@ object MetadataColdFieldParser {
                     val bad = MetadataFieldObservation.Unverifiable(MetadataObservationIssue.INVALID_FIELD)
                     observations[num] = bad; observations[total] = bad
                 } else {
-                    observations[num] = MetadataFieldObservation.Present(listOf(n.toString()))
+                    observations[num] = MetadataFieldObservation.Present(listOf(parts[0]))
                     val separate = observations[total]
                     if (embeddedTotal != null) {
                         if (separate is MetadataFieldObservation.Present &&
@@ -488,7 +489,8 @@ object MetadataColdFieldParser {
                             observations[total] = MetadataFieldObservation.Conflicted(
                                 MetadataObservationIssue.AMBIGUOUS_ALIAS)
                         } else if (separate == MetadataFieldObservation.VerifiedAbsent) {
-                            observations[total] = MetadataFieldObservation.Present(listOf(embeddedTotal.toString()))
+                            observations[total] = MetadataFieldObservation.Present(
+                                listOf(parts[1]))
                         }
                     }
                 }

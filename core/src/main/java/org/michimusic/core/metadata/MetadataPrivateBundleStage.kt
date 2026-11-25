@@ -221,8 +221,14 @@ object MetadataPrivateBundleStage {
         if(req.fields!=null && req.assets.any { it is MetadataSelectiveAssetStage.Edit.DescribedText } &&
             req.fields.diffs.any { it.field in setOf(MetadataField.COMMENT,MetadataField.LYRICS) })
             throw Rejected(Reason.CONFLICTING_TEXT_FIELDS)
-        val pictureKeys=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.Picture>()
-            .map { it.proposal.index }
+        val pictureKeys=req.assets.mapNotNull {
+            when(it) {
+                is MetadataSelectiveAssetStage.Edit.Picture -> it.proposal.index
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> it.proposal.ordinal
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> it.ordinal
+                is MetadataSelectiveAssetStage.Edit.DescribedText -> null
+            }
+        }
         val textKeys=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.DescribedText>()
             .map { it.change.identity }
         if(pictureKeys.distinct().size!=pictureKeys.size || textKeys.distinct().size!=textKeys.size)
@@ -237,6 +243,24 @@ object MetadataPrivateBundleStage {
                     checked.proposal.proposedSha256!=p.proposedSha256)
                     throw Rejected(Reason.INVALID_ASSET)
                 names+="PICTURE:${p.index}"
+            }
+            is MetadataSelectiveAssetStage.Edit.PictureAdd -> {
+                val p=op.proposal
+                val checked=MetadataArtworkAdditionPreview.review(
+                    observed,p.proposedBytes,p.proposedMime,p.type,p.description,
+                ) as? MetadataArtworkAdditionPreview.Result.Ready
+                    ?:throw Rejected(Reason.INVALID_ASSET)
+                if(checked.proposal.ordinal!=p.ordinal ||
+                    checked.proposal.proposedSha256!=p.proposedSha256)
+                    throw Rejected(Reason.INVALID_ASSET)
+                names+="PICTURE_ADD:${p.ordinal}"
+            }
+            is MetadataSelectiveAssetStage.Edit.PictureRemove -> {
+                val selected=observed.artworks.singleOrNull {it.ordinal==op.ordinal}
+                    ?:throw Rejected(Reason.INVALID_ASSET)
+                if(selected.info.sha256!=op.sourceSha256)
+                    throw Rejected(Reason.INVALID_ASSET)
+                names+="PICTURE_REMOVE:${op.ordinal}"
             }
             is MetadataSelectiveAssetStage.Edit.DescribedText -> {
                 names+="${op.change.identity.kind.frameId}:${op.change.identity.language}:${op.change.identity.description}"
@@ -300,17 +324,60 @@ object MetadataPrivateBundleStage {
             checkCancelled()
             if(shaFile(source,checkCancelled)!=req.originalDigest)throw Rejected(Reason.SOURCE_CHANGED)
             val end=observe(output).first
-            if(end.format!=initial.first.format || end.artworks.size!=initial.first.artworks.size)
+            if(end.format!=initial.first.format)
                 throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
             // Check the full expected net result; no operation may alter an unselected asset.
-            val imageEdits=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.Picture>()
-                .associateBy { it.proposal.index }
-            initial.first.artworks.zip(end.artworks).forEach { (before,after) ->
-                val proposed=imageEdits[before.ordinal]?.proposal
-                if(before.ordinal!=after.ordinal || before.info.type!=after.info.type ||
-                    (proposed==null && (before.info!=after.info || !before.image.contentEquals(after.image))) ||
-                    (proposed!=null && (after.info.sha256!=proposed.proposedSha256 ||
-                        after.info.mime!=proposed.proposedMime || !after.image.contentEquals(proposed.proposedBytes))))
+            val pictureFormat=if(initial.first.format==MetadataArtworkLyricsProbe.Format.FLAC)
+                MetadataArtworkEvidence.Format.FLAC_PICTURE
+                else MetadataArtworkEvidence.Format.ID3_APIC
+            val expectedPictures=initial.first.artworks.toMutableList()
+            for(asset in req.assets) when(asset) {
+                is MetadataSelectiveAssetStage.Edit.Picture -> {
+                    val p=asset.proposal
+                    val index=expectedPictures.indexOfFirst {it.ordinal==p.index}
+                    if(index<0)throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    val before=expectedPictures[index].info
+                    expectedPictures[index]=MetadataArtworkLyricsProbe.Artwork(
+                        p.index,
+                        MetadataArtworkEvidence.Picture(
+                            pictureFormat, before.type, p.proposedMime, p.proposedSize,
+                            p.proposedSha256, description=before.description,
+                        ),
+                        p.proposedBytes,
+                    )
+                }
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> {
+                    val p=asset.proposal
+                    if(p.ordinal!=expectedPictures.size)
+                        throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    expectedPictures+=MetadataArtworkLyricsProbe.Artwork(
+                        p.ordinal,
+                        MetadataArtworkEvidence.Picture(
+                            pictureFormat, p.type, p.proposedMime, p.proposedSize,
+                            p.proposedSha256, description=p.description,
+                        ),
+                        p.proposedBytes,
+                    )
+                }
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> {
+                    val index=expectedPictures.indexOfFirst {it.ordinal==asset.ordinal}
+                    if(index<0)throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    expectedPictures.removeAt(index)
+                }
+                is MetadataSelectiveAssetStage.Edit.DescribedText -> Unit
+            }
+            val normalized=expectedPictures.mapIndexed { index,artwork ->
+                if(artwork.ordinal==index)artwork else artwork.copy(ordinal=index)
+            }
+            if(end.artworks.size!=normalized.size)
+                throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+            normalized.forEachIndexed { index,expected ->
+                val actual=end.artworks[index]
+                if(actual.ordinal!=index || actual.info.type!=expected.info.type ||
+                    actual.info.mime!=expected.info.mime ||
+                    actual.info.description!=expected.info.description ||
+                    actual.info.sha256!=expected.info.sha256 ||
+                    !actual.image.contentEquals(expected.image))
                     throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
             }
             if(req.fields?.diffs?.any {it.field in setOf(MetadataField.COMMENT,MetadataField.LYRICS)} != true) {
