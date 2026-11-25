@@ -12,3 +12,9 @@
 JVM breakdown: core 1023, data 749, player 234, michi-link-client 205, aircat-transfer 414, app Normal 2443, app F-Droid 2443.
 
 No SKIP is counted as PASS. The five data skips are opt-in synthetic-restart/kill/media-store tests.
+
+## ME-FINAL incremental
+
+- `MetadataTrackDaoCasPortTest` (including durable-preimage authority) PASS, log 0003.
+- T48 with preimage-authoritative CAS PASS, focused `am instrument`, 8.7 s.
+- Full data/app/JVM suites from ME-14 remain the last complete run; final HEAD needs one more full pass/CI.
