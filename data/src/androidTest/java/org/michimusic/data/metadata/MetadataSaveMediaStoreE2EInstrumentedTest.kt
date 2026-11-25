@@ -23,8 +23,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
+import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
 import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSelectiveAssetStage
@@ -615,6 +617,144 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         )
     }
 
+    @Test fun replaceCommentAndClearLyricsCommitExactResourcesAndPublishRoom() = runBlocking {
+        val resolver = context.contentResolver
+        val commentIdentity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT, "spa", "principal",
+        )
+        val lyricsIdentity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.LYRICS, "spa", "letra",
+        )
+        val before = id3v24WithDescribedText(
+            title = "Texto descrito",
+            artist = "Synthetic Artist",
+            album = "Synthetic Album",
+            genre = "Rock",
+            commentLanguage = commentIdentity.language,
+            commentDescription = commentIdentity.description,
+            comment = "Comentario original",
+            lyricsLanguage = lyricsIdentity.language,
+            lyricsDescription = lyricsIdentity.description,
+            lyrics = "Letra que se eliminará",
+            audio = audioPayload,
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-text-${UUID.randomUUID()}.mp3")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable described-text item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(before)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val textTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = textTrackId,
+                    title = "Texto descrito",
+                    artist = "Synthetic Artist",
+                    album = "Synthetic Album",
+                    size = observedSize,
+                    format = "mp3",
+                    genre = "Rock",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, textTrackId, uri.toString(), observedSize, sha(before),
+            1_700_000_000_000L, "sha256",
+        )
+        val originalRevision = database.trackDao()
+            .getTrackBySource(sourceId, textTrackId)!!.metadataRevision
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, textTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected described text: $read")
+        }
+        val outcome = MetadataSaveService(context, database.trackDao(), database).saveBundle(
+            sourceId = sourceId,
+            trackId = textTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            targetInput = original.target,
+            reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Replace(
+                        commentIdentity, "Comentario corregido",
+                    ),
+                ),
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Clear(lyricsIdentity),
+                ),
+            ),
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+
+        assertTrue(
+            "Exact COMM replacement and USLT clear must commit and publish, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val physical = File(context.cacheDir, "me-text-after-${UUID.randomUUID()}.mp3")
+        val resources = try {
+            physical.writeBytes(after)
+            MetadataPrivateBundleStage.observeFile(physical)
+        } finally {
+            physical.delete()
+        }
+        assertEquals(
+            listOf(
+                MetadataDescribedTextWorkbench.Item(
+                    commentIdentity, "Comentario corregido",
+                ),
+            ),
+            resources.texts,
+        )
+        assertArrayEquals(audioPayload, after.copyOfRange(after.size - audioPayload.size, after.size))
+        val row = database.trackDao().getTrackBySource(sourceId, textTrackId)!!
+        assertEquals("Texto descrito", row.title)
+        assertEquals(after.size.toLong(), row.size)
+        assertTrue(row.metadataRevision > originalRevision)
+        database.openHelper.writableDatabase.query(
+            "SELECT originalRevision,committedRevision,candidateSha256,candidateBytes " +
+                "FROM metadata_applied_transaction WHERE sourceId=? AND trackId=?",
+            arrayOf(sourceId, textTrackId),
+        ).use { cursor ->
+            assertTrue("Exact described-text marker is missing", cursor.moveToFirst())
+            assertEquals(originalRevision, cursor.getLong(0))
+            assertEquals(row.metadataRevision, cursor.getLong(1))
+            assertEquals(sha(after), cursor.getString(2))
+            assertEquals(after.size.toLong(), cursor.getLong(3))
+            assertTrue("There must be exactly one described-text marker", !cursor.moveToNext())
+        }
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
     private fun sha(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -651,6 +791,40 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             byteArrayOf(0, 3, 0) + image
         val body = text("TIT2", title) + text("TPE1", artist) +
             text("TALB", album) + text("TCON", genre) + frame("APIC", apic)
+        return "ID3".toByteArray(Charsets.US_ASCII) + byteArrayOf(4, 0, 0) +
+            sync(body.size) + body + audio
+    }
+
+    private fun id3v24WithDescribedText(
+        title: String,
+        artist: String,
+        album: String,
+        genre: String,
+        commentLanguage: String,
+        commentDescription: String,
+        comment: String,
+        lyricsLanguage: String,
+        lyricsDescription: String,
+        lyrics: String,
+        audio: ByteArray,
+    ): ByteArray {
+        fun sync(n: Int) = byteArrayOf(
+            ((n ushr 21) and 127).toByte(), ((n ushr 14) and 127).toByte(),
+            ((n ushr 7) and 127).toByte(), (n and 127).toByte(),
+        )
+        fun frame(id: String, payload: ByteArray) =
+            id.toByteArray(Charsets.US_ASCII) + sync(payload.size) +
+                byteArrayOf(0, 0) + payload
+        fun text(id: String, value: String) =
+            frame(id, byteArrayOf(3) + value.toByteArray(Charsets.UTF_8))
+        fun described(language: String, description: String, value: String) =
+            byteArrayOf(3) + language.toByteArray(Charsets.US_ASCII) +
+                description.toByteArray(Charsets.UTF_8) + byteArrayOf(0) +
+                value.toByteArray(Charsets.UTF_8)
+        val body = text("TIT2", title) + text("TPE1", artist) +
+            text("TALB", album) + text("TCON", genre) +
+            frame("COMM", described(commentLanguage, commentDescription, comment)) +
+            frame("USLT", described(lyricsLanguage, lyricsDescription, lyrics))
         return "ID3".toByteArray(Charsets.US_ASCII) + byteArrayOf(4, 0, 0) +
             sync(body.size) + body + audio
     }

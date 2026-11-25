@@ -35,7 +35,7 @@ class CertifiedMetadataWriteProfileTest {
         assertTrue(profile.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO)
     }
 
-    @Test fun mp3ProfileAuthorizesOnlyTheExactE2eCertifiedResourceOperation() {
+    @Test fun mp3ProfileAuthorizesOnlyTheExactE2eCertifiedResourceOperations() {
         assertTrue(
             MetadataResourceOperation.ID3_APIC_REPLACE in
                 profile.supportedResourceOperations,
@@ -44,11 +44,11 @@ class CertifiedMetadataWriteProfileTest {
             MetadataResourceOperation.FLAC_PICTURE_REPLACE in
                 profile.supportedResourceOperations,
         )
-        assertFalse(
+        assertTrue(
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE in
                 profile.supportedResourceOperations,
         )
-        assertFalse(
+        assertTrue(
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR in
                 profile.supportedResourceOperations,
         )

@@ -120,4 +120,64 @@ class MetadataCandidateSemanticPolicyTest {
         MetadataCandidateSemanticPolicy.Verdict.Refused(
             MetadataCandidateSemanticPolicy.Refusal.CANDIDATE_INTENT_MISMATCH, MetadataField.TITLE),
         check(candidate = report(title = MetadataFieldObservation.Present(listOf("A different")))))
+
+    @Test fun describedTextResourceCoversItsScalarProjectionOnly() {
+        val before = "Comentario original"
+        val after = "Comentario corregido"
+        val describedIntent = MetadataCommitIntentManifest.Receipt(
+            transactionId = "11234567-1234-4abc-8abc-123456789abc",
+            ownerSha256 = MetadataPrivateSessionIdentity.digest(target),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.ID3_V24,
+            originalBytes = 1024,
+            originalSha256 = "c".repeat(64),
+            candidateBytes = 1032,
+            candidateSha256 = "d".repeat(64),
+            changes = emptyList(),
+            resources = listOf(
+                MetadataCommitIntentManifest.ResourceChange.DescribedText(
+                    kind = MetadataId3DescribedTagCodec.Kind.COMMENT,
+                    language = "spa",
+                    description = "principal",
+                    beforeCount = 1,
+                    afterCount = 1,
+                    beforeSha256 = MetadataCommitIntentManifest.valuesDigest(listOf(before)),
+                    afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf(after)),
+                ),
+            ),
+        )
+        val original = report(
+            format = MetadataPhysicalContainer.ID3_V24,
+            overrides = mapOf(
+                MetadataField.COMMENT to MetadataFieldObservation.Present(listOf(before)),
+            ),
+        )
+        val candidate = report(
+            format = MetadataPhysicalContainer.ID3_V24,
+            overrides = mapOf(
+                MetadataField.COMMENT to MetadataFieldObservation.Present(listOf(after)),
+            ),
+        )
+
+        assertTrue(
+            MetadataCandidateSemanticPolicy.compare(describedIntent, original, candidate) is
+                MetadataCandidateSemanticPolicy.Verdict.ObservedFieldsMatch,
+        )
+        assertEquals(
+            MetadataCandidateSemanticPolicy.Verdict.Refused(
+                MetadataCandidateSemanticPolicy.Refusal.UNEDITED_FIELD_CHANGED,
+                MetadataField.ARTIST,
+            ),
+            MetadataCandidateSemanticPolicy.compare(
+                describedIntent,
+                original,
+                candidate.copy(
+                    observations = candidate.observations + (
+                        MetadataField.ARTIST to
+                            MetadataFieldObservation.Present(listOf("Cambio ajeno"))
+                        ),
+                ),
+            ),
+        )
+    }
 }

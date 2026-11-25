@@ -72,8 +72,8 @@ enum class SaveBlock {
  * cold reread and audio payload equality.
  */
 object MediaStoreMp3TextProfile {
-    const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_APIC_V2"
-    const val EVIDENCE_ID = "ME16_MEDIASTORE_MP3_ID3_TEXT_APIC_V2"
+    const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_RESOURCES_V3"
+    const val EVIDENCE_ID = "ME16_MEDIASTORE_MP3_ID3_RESOURCES_V3"
 
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
@@ -89,6 +89,8 @@ object MediaStoreMp3TextProfile {
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.ID3_APIC_REPLACE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
         ),
     )
 }

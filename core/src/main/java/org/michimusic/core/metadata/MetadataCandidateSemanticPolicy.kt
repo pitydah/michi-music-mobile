@@ -78,6 +78,14 @@ object MetadataCandidateSemanticPolicy {
                     return Verdict.Refused(Refusal.CANDIDATE_INTENT_MISMATCH, change.field)
             }
             val editedFields = intent.changes.mapTo(hashSetOf()) { it.field }
+            intent.resources.filterIsInstance<
+                MetadataCommitIntentManifest.ResourceChange.DescribedText
+            >().forEach { resource ->
+                editedFields += when (resource.kind) {
+                    MetadataId3DescribedTagCodec.Kind.COMMENT -> MetadataField.COMMENT
+                    MetadataId3DescribedTagCodec.Kind.LYRICS -> MetadataField.LYRICS
+                }
+            }
             // Include all fields known to the reader AND any extra observation
             // supplied by either decoder. An omitted observation is unknown.
             val unedited = (MetadataReadFieldCatalog.primary + original.observations.keys +
