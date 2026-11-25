@@ -487,6 +487,134 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         )
     }
 
+    @Test fun replaceExistingFlacPictureCommitsExactResourceAndPublishesRoom() = runBlocking {
+        val resolver = context.contentResolver
+        val beforeImage = png(3)
+        val afterImage = png(4)
+        val flacAudio = ByteArray(4096) { ((it * 61) % 251).toByte() }
+        val before = flacWithPicture(
+            comments = listOf(
+                "TITLE=FLAC Artwork",
+                "ARTIST=Synthetic FLAC Artist",
+                "ALBUM=Synthetic FLAC Album",
+                "GENRE=Rock",
+            ),
+            image = beforeImage,
+            audio = flacAudio,
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-flac-art-${UUID.randomUUID()}.flac")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/flac")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable FLAC artwork item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(before)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val pictureTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = pictureTrackId,
+                    title = "FLAC Artwork",
+                    artist = "Synthetic FLAC Artist",
+                    album = "Synthetic FLAC Album",
+                    size = observedSize,
+                    format = "flac",
+                    genre = "Rock",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, pictureTrackId, uri.toString(), observedSize, sha(before),
+            1_700_000_000_000L, "sha256",
+        )
+        val originalRevision = database.trackDao()
+            .getTrackBySource(sourceId, pictureTrackId)!!.metadataRevision
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, pictureTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected FLAC artwork: $read")
+        }
+        val privateSource = File(context.cacheDir, "me-flac-art-${UUID.randomUUID()}.flac")
+        val observedResources = try {
+            privateSource.writeBytes(before)
+            MetadataPrivateBundleStage.observeFile(privateSource)
+        } finally {
+            privateSource.delete()
+        }
+        val proposal = (
+            MetadataArtworkReplacementPreview.review(
+                observedResources, 0, afterImage, "image/png",
+            ) as MetadataArtworkReplacementPreview.Result.Ready
+            ).proposal
+        val outcome = MetadataSaveService(context, database.trackDao(), database).saveBundle(
+            sourceId = sourceId,
+            trackId = pictureTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            targetInput = original.target,
+            reviewInput = null,
+            resourceEdits = listOf(MetadataSelectiveAssetStage.Edit.Picture(proposal)),
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+
+        assertTrue(
+            "Exact FLAC PICTURE replacement must commit and publish, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val physical = File(context.cacheDir, "me-flac-art-after-${UUID.randomUUID()}.flac")
+        val resources = try {
+            physical.writeBytes(after)
+            MetadataPrivateBundleStage.observeFile(physical)
+        } finally {
+            physical.delete()
+        }
+        assertArrayEquals(afterImage, resources.artworks.single().image)
+        assertArrayEquals(flacAudio, after.copyOfRange(after.size - flacAudio.size, after.size))
+        val row = database.trackDao().getTrackBySource(sourceId, pictureTrackId)!!
+        assertEquals("FLAC Artwork", row.title)
+        assertEquals(after.size.toLong(), row.size)
+        assertTrue(row.metadataRevision > originalRevision)
+        database.openHelper.writableDatabase.query(
+            "SELECT originalRevision,committedRevision,candidateSha256,candidateBytes " +
+                "FROM metadata_applied_transaction WHERE sourceId=? AND trackId=?",
+            arrayOf(sourceId, pictureTrackId),
+        ).use { cursor ->
+            assertTrue("Exact FLAC applied marker is missing", cursor.moveToFirst())
+            assertEquals(originalRevision, cursor.getLong(0))
+            assertEquals(row.metadataRevision, cursor.getLong(1))
+            assertEquals(sha(after), cursor.getString(2))
+            assertEquals(after.size.toLong(), cursor.getLong(3))
+            assertTrue("There must be exactly one FLAC marker", !cursor.moveToNext())
+        }
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
     private fun sha(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -561,6 +689,35 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             block(0, false, streamInfo) +
             block(4, true, vorbis) +
             audio
+    }
+
+    private fun flacWithPicture(
+        comments: List<String>,
+        image: ByteArray,
+        audio: ByteArray,
+    ): ByteArray {
+        fun be(value: Int) = byteArrayOf(
+            (value ushr 24).toByte(), (value ushr 16).toByte(),
+            (value ushr 8).toByte(), value.toByte(),
+        )
+        fun block(kind: Int, last: Boolean, payload: ByteArray) =
+            byteArrayOf(
+                (kind or if (last) 0x80 else 0).toByte(),
+                (payload.size ushr 16).toByte(),
+                (payload.size ushr 8).toByte(),
+                payload.size.toByte(),
+            ) + payload
+        val base = flac(comments, ByteArray(0))
+        val commentEnd = base.size
+        val commentHeader = base[42].toInt() and 0x7f
+        check(commentHeader == 4)
+        base[42] = commentHeader.toByte()
+        val mime = "image/png".toByteArray(Charsets.US_ASCII)
+        val description = "Front cover".toByteArray(Charsets.UTF_8)
+        val picture = be(3) + be(mime.size) + mime +
+            be(description.size) + description +
+            be(16) + be(20) + be(24) + be(0) + be(image.size) + image
+        return base.copyOf(commentEnd) + block(6, true, picture) + audio
     }
 
 

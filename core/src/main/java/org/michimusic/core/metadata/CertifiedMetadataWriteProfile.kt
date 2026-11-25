@@ -101,8 +101,8 @@ object MediaStoreMp3TextProfile {
  * path has independent evidence for each operation.
  */
 object MediaStoreFlacTextProfile {
-    const val ID = "MS_LOCAL_FLAC_VORBIS_TEXT_V1"
-    const val EVIDENCE_ID = "ME15_MEDIASTORE_FLAC_VORBIS_TEXT_V1"
+    const val ID = "MS_LOCAL_FLAC_VORBIS_TEXT_PICTURE_V2"
+    const val EVIDENCE_ID = "ME16_MEDIASTORE_FLAC_TEXT_PICTURE_V2"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
@@ -112,6 +112,9 @@ object MediaStoreFlacTextProfile {
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+        ),
     )
 }
 

@@ -54,7 +54,7 @@ class CertifiedMetadataWriteProfileTest {
         )
     }
 
-    @Test fun flacProfileAuthorizesOnlyProductionE2eCertifiedTitle() {
+    @Test fun flacProfileAuthorizesOnlyProductionE2eCertifiedTitleAndPictureReplacement() {
         val flac = MediaStoreFlacTextProfile.profile
         assertTrue(flac.supports(
             MetadataAudioContainer.FLAC, 1,
@@ -66,5 +66,13 @@ class CertifiedMetadataWriteProfileTest {
         ))
         assertFalse(flac.permitsArtwork)
         assertTrue(flac.permitsMultiValue.isEmpty())
+        assertTrue(
+            MetadataResourceOperation.FLAC_PICTURE_REPLACE in
+                flac.supportedResourceOperations,
+        )
+        assertFalse(
+            MetadataResourceOperation.ID3_APIC_REPLACE in
+                flac.supportedResourceOperations,
+        )
     }
 }
