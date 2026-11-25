@@ -34,6 +34,7 @@ import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.MetadataAppliedTransaction
 import org.michimusic.data.cache.MichiDatabase
 
 /**
@@ -150,6 +151,25 @@ class MetadataIndexReconcilerTest {
         verifiedSize = 0L, verifiedSha256 = "", verifiedAt = 0L, verifiedAlgorithm = "",
     )
 
+    private suspend fun insertAppliedMarker(
+        entry: MetadataRecoveryJournalV1.Entry,
+        candidateDigest: String = entry.stageSha256,
+    ) {
+        database.trackDao().insertAppliedMetadataTransaction(
+            MetadataAppliedTransaction(
+                transactionId = entry.id,
+                sourceId = entry.sourceId,
+                trackId = entry.trackId,
+                uri = entry.uri,
+                originalRevision = 0L,
+                committedRevision = 1L,
+                candidateSha256 = candidateDigest,
+                candidateBytes = entry.stageBytes,
+                appliedAt = 99L,
+            ),
+        )
+    }
+
     @Test fun corruptReceiptIsRetainedAndNeverPublished() = runBlocking {
         val entry = stagedJournal()
         val file = writeReceipt(entry)
@@ -192,10 +212,11 @@ class MetadataIndexReconcilerTest {
             database.trackDao().getTrackBySource(sourceId, trackId)!!.title)
     }
 
-    @Test fun alreadyAppliedRowIsCleanedWithoutSecondCasAndSurvivesRestart() = runBlocking {
+    @Test fun exactAppliedMarkerCleansWithoutSecondCasAndSurvivesRestart() = runBlocking {
         val entry = stagedJournal()
         val file = writeReceipt(entry)
         database.trackDao().insertAll(listOf(appliedRow(entry)))
+        insertAppliedMarker(entry)
         val publisher = RecordingPublisher(true)
         val first = reconciler(publisher = publisher).reconcileAll({ true }, { true })
         assertEquals(listOf(MetadataIndexReconciler.Outcome.AlreadyAppliedAndCleaned(TX)),
@@ -213,6 +234,23 @@ class MetadataIndexReconcilerTest {
         assertEquals(0, publisher.calls)
         assertEquals("Edited",
             database.trackDao().getTrackBySource(sourceId, trackId)!!.title)
+    }
+
+    @Test fun valueEqualAppliedRowWithoutExactMarkerIsNeverCommitAuthority() = runBlocking {
+        val entry = stagedJournal()
+        val file = writeReceipt(entry)
+        database.trackDao().insertAll(listOf(appliedRow(entry)))
+        val publisher = RecordingPublisher(true)
+
+        val result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+
+        assertEquals(
+            listOf(MetadataIndexReconciler.Outcome.ConflictKept(TX)),
+            result.outcomes,
+        )
+        assertEquals(0, publisher.calls)
+        assertTrue(file.exists())
+        assertTrue(File(journalDir, "journal-v1.bin").exists())
     }
 
     @Test fun preWriteRowPublishesOnceAndRepeatedOpensDoNothing() = runBlocking {
@@ -277,7 +315,7 @@ class MetadataIndexReconcilerTest {
         assertTrue(file.exists())
     }
 
-    @Test fun appliedProofAndExactRowResolveAnOrphanReceiptWithoutSecondCas() = runBlocking {
+    @Test fun exactMarkerResolvesAnOrphanReceiptWithoutSecondCas() = runBlocking {
         val entry = stagedJournal()
         val file = writeReceipt(entry)
         // Simulate a kill after the CAS and after the journal/private cleanup,
@@ -286,10 +324,8 @@ class MetadataIndexReconcilerTest {
         assertTrue(File(journalDir, "backup-${TX}.bin").delete())
         assertTrue(File(journalDir, "stage-${TX}.bin").delete())
         assertTrue(File(journalDir, "intent-${TX}.bin").delete())
-        assertTrue(MetadataIndexAppliedReceipt.write(journalDir,
-            MetadataIndexAppliedReceipt(TX, sourceId, trackId, uri, candidateSha,
-                candidate.size.toLong())))
         database.trackDao().insertAll(listOf(appliedRow(entry)))
+        insertAppliedMarker(entry)
         val publisher = RecordingPublisher(true)
         val result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
         assertEquals(listOf(MetadataIndexReconciler.Outcome.AlreadyAppliedAndCleaned(TX)),
@@ -301,7 +337,7 @@ class MetadataIndexReconcilerTest {
             database.trackDao().getTrackBySource(sourceId, trackId)!!.title)
     }
 
-    @Test fun absentOrMismatchedAppliedProofNeverDeletesAnOrphanReceipt() = runBlocking {
+    @Test fun absentOrMismatchedAppliedMarkerNeverDeletesAnOrphanReceipt() = runBlocking {
         val entry = stagedJournal()
         val file = writeReceipt(entry)
         assertTrue(File(journalDir, "journal-v1.bin").delete())
@@ -312,14 +348,11 @@ class MetadataIndexReconcilerTest {
             result.outcomes)
         assertTrue(file.exists())
 
-        assertTrue(MetadataIndexAppliedReceipt.write(journalDir,
-            MetadataIndexAppliedReceipt(TX, sourceId, trackId, uri, "d".repeat(64),
-                candidate.size.toLong())))
+        insertAppliedMarker(entry, candidateDigest = "d".repeat(64))
         result = reconciler(publisher = publisher).reconcileAll({ true }, { true })
         assertEquals(listOf(MetadataIndexReconciler.Outcome.JournalUnavailableKept(TX)),
             result.outcomes)
         assertTrue(file.exists())
-        assertTrue(MetadataIndexAppliedReceipt.file(journalDir, TX).exists())
         assertEquals(0, publisher.calls)
     }
 

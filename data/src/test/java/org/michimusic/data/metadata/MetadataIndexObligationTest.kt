@@ -14,7 +14,7 @@ import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataTarget
 
-/** ME-13 C1: a new certified obligation is V2-only and identity-bound. */
+/** A new certified obligation is V3-only, revision-aware and identity-bound. */
 class MetadataIndexObligationTest {
     private val tx = "a999a999-1234-4abc-8abc-999a999a9999"
     private val sourceId = "lib_device_local"
@@ -40,13 +40,14 @@ class MetadataIndexObligationTest {
     private val root: File
         get() = Files.createTempDirectory("me13-obligation-").toFile()
 
-    @Test fun identityBoundObligationIsActionableV2() {
+    @Test fun identityBoundObligationIsActionableV3() {
         val dir = root
         try {
             assertTrue(MetadataIndexObligation.write(dir, entry, target, intent, null))
             val receipt = MetadataIndexReconciliationReceipt.read(dir, tx)!!
             assertTrue(receipt.actionable)
-            assertEquals(2, receipt.version)
+            assertEquals(3, receipt.version)
+            assertEquals(0L, receipt.previousMetadataRevision)
             assertEquals(entry.expectedBytes, receipt.previousSize)
             assertEquals(tx, receipt.transactionId)
             assertEquals(target.evidenceToken, receipt.ownerEvidenceToken)

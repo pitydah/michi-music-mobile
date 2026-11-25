@@ -8,6 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         CachedTrack::class,
+        MetadataRevisionClock::class,
+        MetadataAppliedTransaction::class,
         EmbeddedTagEvidence::class,
         MetadataPersonEvidence::class,
         CachedAlbum::class,
@@ -30,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApprovedSyncPlanEntity::class,
         LibraryExclusionEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -53,6 +55,100 @@ abstract class MichiDatabase : RoomDatabase() {
 
     companion object {
         const val DEFAULT_DEVICE_LIBRARY_ID = "lib_device_local"
+
+        private fun createMetadataRevisionInfrastructure(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `metadata_revision_clock` (
+                    `sourceId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    PRIMARY KEY(`sourceId`, `trackId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `metadata_applied_transaction` (
+                    `transactionId` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `uri` TEXT NOT NULL,
+                    `originalRevision` INTEGER NOT NULL,
+                    `committedRevision` INTEGER NOT NULL,
+                    `candidateSha256` TEXT NOT NULL,
+                    `candidateBytes` INTEGER NOT NULL,
+                    `appliedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`transactionId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_insert`
+                AFTER INSERT ON `cached_tracks`
+                BEGIN
+                    INSERT INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                    VALUES(NEW.`sourceId`,NEW.`id`,1)
+                    ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
+                    SET `revision`=`revision`+1;
+                    UPDATE `cached_tracks`
+                    SET `metadataRevision`=(
+                        SELECT `revision` FROM `metadata_revision_clock`
+                        WHERE `sourceId`=NEW.`sourceId` AND `trackId`=NEW.`id`
+                    )
+                    WHERE `sourceId`=NEW.`sourceId` AND `id`=NEW.`id`;
+                END
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_update`
+                AFTER UPDATE ON `cached_tracks`
+                WHEN NEW.`metadataRevision`=OLD.`metadataRevision`
+                BEGIN
+                    INSERT INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                    VALUES(NEW.`sourceId`,NEW.`id`,1)
+                    ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
+                    SET `revision`=`revision`+1;
+                    UPDATE `cached_tracks`
+                    SET `metadataRevision`=(
+                        SELECT `revision` FROM `metadata_revision_clock`
+                        WHERE `sourceId`=NEW.`sourceId` AND `trackId`=NEW.`id`
+                    )
+                    WHERE `sourceId`=NEW.`sourceId` AND `id`=NEW.`id`;
+                END
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_delete`
+                AFTER DELETE ON `cached_tracks`
+                BEGIN
+                    INSERT INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                    VALUES(OLD.`sourceId`,OLD.`id`,1)
+                    ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
+                    SET `revision`=`revision`+1;
+                END
+            """.trimIndent())
+        }
+
+        val METADATA_REVISION_CALLBACK = object : Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                createMetadataRevisionInfrastructure(db)
+            }
+
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                createMetadataRevisionInfrastructure(db)
+            }
+        }
+
+        val MIGRATION_13_14 = Migration(13, 14) { db ->
+            db.execSQL(
+                "ALTER TABLE `cached_tracks` ADD COLUMN " +
+                    "`metadataRevision` INTEGER NOT NULL DEFAULT 0",
+            )
+            createMetadataRevisionInfrastructure(db)
+            db.execSQL("""
+                INSERT OR IGNORE INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                SELECT `sourceId`,`id`,1 FROM `cached_tracks`
+            """.trimIndent())
+            db.execSQL("""
+                UPDATE `cached_tracks` SET `metadataRevision`=1
+                WHERE `metadataRevision`=0
+            """.trimIndent())
+        }
 
         /** Additive metadata sidecar; never split historical scalar names. */
         val MIGRATION_12_13 = Migration(12, 13) { db ->

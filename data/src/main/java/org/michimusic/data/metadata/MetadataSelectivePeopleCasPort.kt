@@ -9,6 +9,7 @@ import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataStructuredPeopleRefreshPolicy
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.MetadataPersonEvidence
+import org.michimusic.data.cache.MetadataTrackTransactionResult
 import org.michimusic.data.cache.TrackDao
 
 /**
@@ -59,38 +60,17 @@ internal class MetadataSelectivePeopleCasPort(
             prepared.albumArtists.size, prepared.albumArtistsPacked,
         )
         if (!evidence.structurallyValid()) return false
-        val hashed = expected.version > 0 &&
-            expected.observedSourceSha256.matches(Regex("[0-9a-f]{64}"))
-        val unhashed = expected.version == 0L && expected.observedSourceSha256.isEmpty()
-        if (!hashed && !unhashed) return false
+        val request = metadataTrackTransactionRequest(
+            indexed, expected, next, delta,
+        ) ?: return false
         return database.withTransaction {
-            // A stale owner, URI, scalar, size, or verified hash must reject the
-            // whole transaction. Do NOT use @Insert(REPLACE) on CachedTrack.
-            val success = if (hashed) dao.commitMetadataAfterVerifiedWrite(
-                sourceId = indexed.sourceId, trackId = indexed.id, filepath = indexed.filepath,
-                previousSize = indexed.size, previousVerifiedAt = expected.version,
-                previousSha256 = expected.observedSourceSha256,
-                previousTitle = indexed.title, previousArtist = indexed.artist,
-                previousAlbum = indexed.album, previousAlbumArtist = indexed.albumArtist,
-                previousGenre = indexed.genre, previousTrackNumber = indexed.trackNumber,
-                previousYear = indexed.year, newSize = delta.candidateBytes,
-                newTitle = next.title, newArtist = next.artist,
-                newAlbum = next.album, newAlbumArtist = next.albumArtist,
-                newGenre = next.genre, newTrackNumber = next.trackNumber, newYear = next.year,
-            ) else dao.commitMetadataAfterVerifiedWriteUnhashed(
-                sourceId = indexed.sourceId, trackId = indexed.id, filepath = indexed.filepath,
-                previousSize = indexed.size, previousTitle = indexed.title,
-                previousArtist = indexed.artist, previousAlbum = indexed.album,
-                previousAlbumArtist = indexed.albumArtist, previousGenre = indexed.genre,
-                previousTrackNumber = indexed.trackNumber, previousYear = indexed.year,
-                newSize = delta.candidateBytes, newTitle = next.title,
-                newArtist = next.artist, newAlbum = next.album,
-                newAlbumArtist = next.albumArtist, newGenre = next.genre,
-                newTrackNumber = next.trackNumber, newYear = next.year,
-            )
-            if (!success) false else {
+            when (dao.applyMetadataTransaction(request)) {
+                is MetadataTrackTransactionResult.Applied,
+                is MetadataTrackTransactionResult.AlreadyApplied -> {
                 database.metadataPersonEvidenceDao().upsert(evidence)
                 true
+                }
+                MetadataTrackTransactionResult.Conflict -> false
             }
         }
     }

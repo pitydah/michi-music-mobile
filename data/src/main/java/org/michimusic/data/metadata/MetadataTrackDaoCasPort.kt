@@ -7,6 +7,8 @@ import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataUnverifiedIndexRowPolicy
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.MetadataTrackTransactionRequest
+import org.michimusic.data.cache.MetadataTrackTransactionResult
 import org.michimusic.data.cache.TrackDao
 
 /**
@@ -31,9 +33,9 @@ internal class MetadataTrackDaoCasPort(
         val row=dao.getTrackBySource(targetSource,targetTrack) ?: return null
         return when {
             supportedRow(row) -> MetadataIndexPublicationPolicy.IndexIdentity(row.sourceId,
-                row.id,row.filepath,row.verifiedAt,row.verifiedSha256)
+                row.id,row.filepath,row.verifiedAt,row.verifiedSha256,row.metadataRevision)
             missingHistoricProof(row) -> MetadataIndexPublicationPolicy.IndexIdentity(row.sourceId,
-                row.id,row.filepath,0L,"")
+                row.id,row.filepath,0L,"",row.metadataRevision)
             else -> null
         }
     }
@@ -61,7 +63,8 @@ internal class MetadataTrackDaoCasPort(
             !hex.matches(delta.sourceSha256) || delta.candidateBytes !in 12..(1024L*1024*1024))
             return false
         val row=dao.getTrackBySource(expected.sourceId,expected.trackId) ?: return false
-        if (row.filepath != expected.uri) return false
+        if (row.filepath != expected.uri || row.metadataRevision != expected.metadataRevision)
+            return false
         val candidate=MetadataTrackIndexProjection.propose(row,delta) ?: return false
         val durable = preimageStore?.let { store ->
             val probe = MetadataRecoveryJournalV1.Entry(
@@ -80,7 +83,8 @@ internal class MetadataTrackDaoCasPort(
         }
         if (durable != null) {
             if (durable.sourceId != expected.sourceId || durable.trackId != expected.trackId ||
-                durable.uri != expected.uri || durable.size <= 0L) return false
+                durable.uri != expected.uri || durable.size <= 0L ||
+                durable.metadataRevision != expected.metadataRevision) return false
             val verified = durable.verifiedAt > 0L &&
                 durable.verifiedSha256 == expected.observedSourceSha256 &&
                 durable.verifiedSize == durable.size &&
@@ -91,64 +95,59 @@ internal class MetadataTrackDaoCasPort(
             if (unhashed) {
                 if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty())
                     return false
-                return dao.commitMetadataAfterVerifiedWriteUnhashed(
-                    sourceId = durable.sourceId, trackId = durable.trackId,
-                    filepath = durable.uri, previousSize = durable.size,
-                    previousTitle = durable.title, previousArtist = durable.artist,
-                    previousAlbum = durable.album, previousAlbumArtist = durable.albumArtist,
-                    previousGenre = durable.genre, previousTrackNumber = durable.trackNumber,
-                    previousYear = durable.year, newSize = delta.candidateBytes,
-                    newTitle = candidate.title, newArtist = candidate.artist,
-                    newAlbum = candidate.album, newAlbumArtist = candidate.albumArtist,
-                    newGenre = candidate.genre, newTrackNumber = candidate.trackNumber,
-                    newYear = candidate.year,
-                )
+                return apply(durable, candidate, delta)
             }
             if (durable.verifiedAt != expected.version ||
                 durable.verifiedSha256 != expected.observedSourceSha256) return false
-            return dao.commitMetadataAfterVerifiedWrite(
-                sourceId = durable.sourceId, trackId = durable.trackId,
-                filepath = durable.uri, previousSize = durable.size,
-                previousVerifiedAt = durable.verifiedAt,
-                previousSha256 = durable.verifiedSha256,
-                previousTitle = durable.title, previousArtist = durable.artist,
-                previousAlbum = durable.album, previousAlbumArtist = durable.albumArtist,
-                previousGenre = durable.genre, previousTrackNumber = durable.trackNumber,
-                previousYear = durable.year, newSize = delta.candidateBytes,
-                newTitle = candidate.title, newArtist = candidate.artist,
-                newAlbum = candidate.album, newAlbumArtist = candidate.albumArtist,
-                newGenre = candidate.genre, newTrackNumber = candidate.trackNumber,
-                newYear = candidate.year,
-            )
+            return apply(durable, candidate, delta)
         }
         if (missingHistoricProof(row)) {
             if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty()) return false
-            return dao.commitMetadataAfterVerifiedWriteUnhashed(
-                sourceId=row.sourceId,trackId=row.id,filepath=row.filepath,
-                previousSize=row.size,previousTitle=row.title,previousArtist=row.artist,
-                previousAlbum=row.album,previousAlbumArtist=row.albumArtist,
-                previousGenre=row.genre,previousTrackNumber=row.trackNumber,
-                previousYear=row.year,newSize=delta.candidateBytes,
-                newTitle=candidate.title,newArtist=candidate.artist,
-                newAlbum=candidate.album,newAlbumArtist=candidate.albumArtist,
-                newGenre=candidate.genre,newTrackNumber=candidate.trackNumber,
-                newYear=candidate.year,
-            )
+            return apply(row.asMetadataPreimage(), candidate, delta)
         }
         if (!supportedRow(row) || row.verifiedAt != expected.version ||
             row.verifiedSha256 != expected.observedSourceSha256) return false
-        return dao.commitMetadataAfterVerifiedWrite(
-            sourceId=row.sourceId,trackId=row.id,filepath=row.filepath,
-            previousSize=row.size,previousVerifiedAt=row.verifiedAt,
-            previousSha256=row.verifiedSha256,
-            previousTitle=row.title,previousArtist=row.artist,previousAlbum=row.album,
-            previousAlbumArtist=row.albumArtist,previousGenre=row.genre,
-            previousTrackNumber=row.trackNumber,previousYear=row.year,
-            newSize=delta.candidateBytes,newTitle=candidate.title,
-            newArtist=candidate.artist,newAlbum=candidate.album,
-            newAlbumArtist=candidate.albumArtist,newGenre=candidate.genre,
-            newTrackNumber=candidate.trackNumber,newYear=candidate.year,
+        return apply(row.asMetadataPreimage(), candidate, delta)
+    }
+
+    private suspend fun apply(
+        previous: MetadataIndexPreimage.Existing,
+        candidate: MetadataTrackIndexProjection.Fields,
+        delta: MetadataSourceIndexDelta.Delta,
+    ): Boolean {
+        val request = MetadataTrackTransactionRequest(
+            transactionId = delta.transactionId,
+            sourceId = previous.sourceId,
+            trackId = previous.trackId,
+            filepath = previous.uri,
+            previousRevision = previous.metadataRevision,
+            previousSize = previous.size,
+            previousVerifiedAt = previous.verifiedAt,
+            previousSha256 = previous.verifiedSha256,
+            previousTitle = previous.title,
+            previousArtist = previous.artist,
+            previousAlbum = previous.album,
+            previousAlbumArtist = previous.albumArtist,
+            previousGenre = previous.genre,
+            previousTrackNumber = previous.trackNumber,
+            previousYear = previous.year,
+            newSize = delta.candidateBytes,
+            newTitle = candidate.title,
+            newArtist = candidate.artist,
+            newAlbum = candidate.album,
+            newAlbumArtist = candidate.albumArtist,
+            newGenre = candidate.genre,
+            newTrackNumber = candidate.trackNumber,
+            newYear = candidate.year,
+            candidateSha256 = delta.sourceSha256,
+            candidateBytes = delta.candidateBytes,
+            appliedAt = System.currentTimeMillis().coerceAtLeast(1L),
         )
+        return when (dao.applyMetadataTransaction(request)) {
+            is MetadataTrackTransactionResult.Applied,
+            is MetadataTrackTransactionResult.AlreadyApplied -> true
+            MetadataTrackTransactionResult.Conflict -> false
+        }
     }
 }
 

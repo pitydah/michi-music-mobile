@@ -29,6 +29,7 @@ internal sealed interface MetadataIndexPreimage {
         val title: String, val artist: String, val album: String,
         val albumArtist: String, val genre: String,
         val trackNumber: Int, val year: Int,
+        val metadataRevision: Long = 0,
     ) : MetadataIndexPreimage
 }
 
@@ -38,6 +39,7 @@ internal fun CachedTrack.asMetadataPreimage() = MetadataIndexPreimage.Existing(
     verifiedSize = verifiedSize, verifiedAlgorithm = verifiedAlgorithm,
     title = title, artist = artist, album = album, albumArtist = albumArtist,
     genre = genre, trackNumber = trackNumber, year = year,
+    metadataRevision = metadataRevision,
 )
 
 internal class MetadataIndexPreimageStore(private val root: File) {
@@ -116,6 +118,7 @@ internal class MetadataIndexPreimageStore(private val root: File) {
                     out.writeUTF(preimage.album); out.writeUTF(preimage.albumArtist)
                     out.writeUTF(preimage.genre); out.writeInt(preimage.trackNumber)
                     out.writeInt(preimage.year)
+                    out.writeLong(preimage.metadataRevision)
                 }
             }
         }
@@ -134,7 +137,9 @@ internal class MetadataIndexPreimageStore(private val root: File) {
             val digest = MessageDigest.getInstance("SHA-256").digest(data)
             if (!digest.contentEquals(bytes.copyOfRange(bytes.size - 32, bytes.size))) null
             else DataInputStream(ByteArrayInputStream(data)).use { input ->
-                if (input.readInt() != MAGIC || input.readInt() != VERSION) return null
+                if (input.readInt() != MAGIC) return null
+                val version = input.readInt()
+                if (version !in 1..VERSION) return null
                 if (input.readUTF() != entry.id || input.readUTF() != entry.sourceId ||
                     input.readUTF() != entry.trackId || input.readUTF() != entry.uri) return null
                 when (input.readByte().toInt()) {
@@ -148,6 +153,7 @@ internal class MetadataIndexPreimageStore(private val root: File) {
                         album = input.readUTF(), albumArtist = input.readUTF(),
                         genre = input.readUTF(), trackNumber = input.readInt(),
                         year = input.readInt(),
+                        metadataRevision = if (version >= 2) input.readLong() else 0L,
                     )
                     else -> null
                 }
@@ -162,7 +168,7 @@ internal class MetadataIndexPreimageStore(private val root: File) {
 
     private companion object {
         const val MAGIC = 0x4D453134
-        const val VERSION = 1
+        const val VERSION = 2
         const val MAX_FILE = 64L * 1024L
     }
 }

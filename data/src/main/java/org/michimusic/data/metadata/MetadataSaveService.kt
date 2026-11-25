@@ -191,6 +191,7 @@ class MetadataSaveService internal constructor(
             sourceId = entry.sourceId, trackId = entry.trackId, uri = entry.uri,
             version = row?.verifiedAt ?: 0L,
             observedSourceSha256 = row?.verifiedSha256.orEmpty(),
+            metadataRevision = row?.metadataRevision ?: 0L,
         )
         val permit = permitFor(entry, intent)
             ?: return Outcome.Blocked("PERMIT_NOT_BINDABLE")

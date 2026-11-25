@@ -12,7 +12,6 @@ import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
@@ -235,6 +234,9 @@ class MetadataIndexReconciler internal constructor(
             catch (_: Exception) { false }
         if (!exact) return Outcome.RecoveryRequired(transactionId, "SOURCE_NOT_CANDIDATE")
 
+        if (appliedMarkerMatches(receipt))
+            return finishApplied(entry, file, durable.generation)
+
         val row = try { dao.getTrackBySource(receipt.sourceId, receipt.trackId) }
             catch (cancel: CancellationException) { throw cancel }
             catch (_: Exception) { return Outcome.WaitingForIndexedRow(transactionId) }
@@ -247,26 +249,19 @@ class MetadataIndexReconciler internal constructor(
             } catch (cancel: CancellationException) { throw cancel }
               catch (_: Exception) { false }
             if (applied) return finishAfterIndexed(entry, file, durable.generation)
-            // The CAS refused. Reclassify the exact live row before deciding.
+            // The CAS refused. Only the exact durable transaction marker can
+            // prove that this transaction committed before an interrupted cleanup.
+            if (appliedMarkerMatches(receipt))
+                return finishApplied(entry, file, durable.generation)
             val after = try { dao.getTrackBySource(receipt.sourceId, receipt.trackId) }
                 catch (cancel: CancellationException) { throw cancel }
                 catch (_: Exception) { null }
                 ?: return Outcome.WaitingForIndexedRow(transactionId)
-            if (matchesApplied(after, receipt, intent, sourceGate.parseSource(entry)
-                    ?: return Outcome.RecoveryRequired(transactionId, "SOURCE_PARSE_UNAVAILABLE")))
-                return finishApplied(entry, file, durable.generation)
             if (matchesPreWriteIdentity(after, receipt, expectedIndex))
                 return Outcome.RecoveryRequired(transactionId, "CAS_REFUSED")
             return Outcome.ConflictKept(transactionId)
         }
 
-        val parsed = sourceGate.parseSource(entry)
-            ?: return Outcome.RecoveryRequired(transactionId, "SOURCE_PARSE_UNAVAILABLE")
-        if (matchesApplied(row, receipt, intent, parsed)) {
-            if (!journal.isUnchanged(durable.generation, entry))
-                return Outcome.ConflictKept(transactionId)
-            return finishApplied(entry, file, durable.generation)
-        }
         return Outcome.ConflictKept(transactionId)
     }
 
@@ -322,28 +317,14 @@ class MetadataIndexReconciler internal constructor(
 
     /**
      * A kill after the CAS can leave the reconciliation receipt without its
-     * journal. Only an exact applied proof plus the already-applied row may
-     * resolve it; anything else stays protected.
+     * journal. Only the exact Room transaction marker may resolve it; row values
+     * and filesystem receipts are not commit authority.
      */
     private suspend fun resolveAppliedOrphan(
         receipt: MetadataIndexReconciliationReceipt,
         receiptFile: File,
     ): Outcome? {
-        val proof = MetadataIndexAppliedReceipt.read(journalRoot, receipt.transactionId)
-            ?: return null
-        if (proof.sourceId != receipt.sourceId || proof.trackId != receipt.trackId ||
-            proof.uri != receipt.uri ||
-            proof.candidateSha256 != receipt.candidateSha256 ||
-            proof.candidateBytes != receipt.candidateBytes)
-            return null
-        val row = try { dao.getTrackBySource(receipt.sourceId, receipt.trackId) }
-            catch (cancel: CancellationException) { throw cancel }
-            catch (_: Exception) { return null }
-            ?: return null
-        if (row.filepath != receipt.uri || row.size != receipt.candidateBytes ||
-            row.verifiedAt != 0L || row.verifiedSha256.isNotEmpty() ||
-            row.verifiedSize != 0L || row.verifiedAlgorithm.isNotEmpty())
-            return null
+        if (!receipt.actionable || !appliedMarkerMatches(receipt)) return null
         val pending = (journal.inspect() as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
         if (pending != null && pending.id == receipt.transactionId &&
             !journal.completeVerified(receipt.transactionId)) return null
@@ -360,17 +341,20 @@ class MetadataIndexReconciler internal constructor(
         val revision = when (container) {
             MetadataAudioContainer.ID3_V23 -> 3
             MetadataAudioContainer.ID3_V24 -> 4
+            MetadataAudioContainer.FLAC -> 1
             else -> return null
         }
         if (intent.container != container) return null
         val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
+        val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+            .forContainer(container) ?: return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
             originalSha256 = entry.originalSha256,
             candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-            profileId = MediaStoreMp3TextProfile.ID,
-            evidenceId = MediaStoreMp3TextProfile.EVIDENCE_ID,
+            profileId = profile.id,
+            evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision, fields = fields,
             explicitUserAction = true,
         ).takeIf { it.matches(entry) }
@@ -382,7 +366,8 @@ class MetadataIndexReconciler internal constructor(
         expected: MetadataIndexPublicationPolicy.IndexIdentity,
     ): Boolean {
         if (row.sourceId != receipt.sourceId || row.id != receipt.trackId ||
-            row.filepath != receipt.uri || row.size != receipt.previousSize)
+            row.filepath != receipt.uri || row.size != receipt.previousSize ||
+            row.metadataRevision != expected.metadataRevision)
             return false
         if (expected.version > 0L)
             return row.verifiedAt == expected.version &&
@@ -393,44 +378,21 @@ class MetadataIndexReconciler internal constructor(
             row.verifiedSize == 0L && row.verifiedAlgorithm.isEmpty()
     }
 
-    private fun matchesApplied(
-        row: CachedTrack,
+    private suspend fun appliedMarkerMatches(
         receipt: MetadataIndexReconciliationReceipt,
-        intent: MetadataCommitIntentManifest.Receipt,
-        parsed: MetadataFieldReadReport,
     ): Boolean {
-        if (row.sourceId != receipt.sourceId || row.id != receipt.trackId ||
-            row.filepath != receipt.uri || row.size != receipt.candidateBytes)
-            return false
-        if (row.verifiedAt != 0L || row.verifiedSha256.isNotEmpty() ||
-            row.verifiedSize != 0L || row.verifiedAlgorithm.isNotEmpty())
-            return false
-        return intent.changes.all { change ->
-            val after = when (val observation = parsed.observation(change.field)) {
-                is MetadataFieldObservation.Present -> observation.values
-                MetadataFieldObservation.VerifiedAbsent -> emptyList()
-                else -> return false
-            }
-            rowValues(row, change.field) == after
-        }
+        val marker = try { dao.getAppliedMetadataTransaction(receipt.transactionId) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { return false }
+            ?: return false
+        return marker.sourceId == receipt.sourceId &&
+            marker.trackId == receipt.trackId &&
+            marker.uri == receipt.uri &&
+            marker.originalRevision == receipt.previousMetadataRevision &&
+            marker.committedRevision > marker.originalRevision &&
+            marker.candidateSha256 == receipt.candidateSha256 &&
+            marker.candidateBytes == receipt.candidateBytes
     }
-
-    private fun rowValues(row: CachedTrack, field: MetadataField): List<String>? =
-        when (field) {
-            MetadataField.TITLE -> row.title.asValues()
-            MetadataField.ARTIST -> row.artist.asValues()
-            MetadataField.ALBUM -> row.album.asValues()
-            MetadataField.ALBUM_ARTIST -> row.albumArtist.asValues()
-            MetadataField.GENRE -> row.genre.asValues()
-            MetadataField.TRACK_NUMBER ->
-                if (row.trackNumber == 0) emptyList()
-                else listOf(row.trackNumber.toString())
-            MetadataField.RELEASE_DATE -> if (row.year == 0) emptyList()
-                else listOf(row.year.toString())
-            else -> null
-        }
-
-    private fun String.asValues(): List<String> = if (isBlank()) emptyList() else listOf(this)
 
     private companion object {
         val HEX = Regex("[a-f0-9]{64}")

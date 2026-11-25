@@ -5,18 +5,13 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
-import org.michimusic.core.metadata.MetadataField
-import org.michimusic.core.metadata.MetadataFieldObservation
-import org.michimusic.core.metadata.MetadataFieldReadReport
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
 import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
-import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.MichiDatabase
 
 /**
@@ -141,9 +136,6 @@ class MetadataRecoveryCoordinator internal constructor(
             is MetadataIndexPreimageStore.Result.Refused ->
                 return@withContext Outcome.RecoveryRequired(entry.id, stored.code)
         }
-        val row = runCatching {
-            database.trackDao().getTrackBySource(entry.sourceId, entry.trackId)
-        }.getOrNull()
         val expected = preWriteIdentity(entry, preimage)
         if (expected != null) {
             val published = publication.reconcile(
@@ -152,7 +144,8 @@ class MetadataRecoveryCoordinator internal constructor(
             if (published.isIndexed()) {
                 return@withContext finishIndexed(entry, committed)
             }
-        } else if (rowApplied(entry, evidence.stage, row)) {
+        }
+        if (appliedMarkerMatches(entry, preimage)) {
             return@withContext finishIndexed(entry, committed)
         }
         if (!writeReceipt(entry, expected, token))
@@ -200,37 +193,25 @@ class MetadataRecoveryCoordinator internal constructor(
             sourceId = preimage.sourceId, trackId = preimage.trackId, uri = preimage.uri,
             version = preimage.verifiedAt,
             observedSourceSha256 = preimage.verifiedSha256,
+            metadataRevision = preimage.metadataRevision,
         )
     }
 
-    private fun rowApplied(
+    private suspend fun appliedMarkerMatches(
         entry: MetadataRecoveryJournalV1.Entry,
-        stage: MetadataFieldReadReport,
-        row: CachedTrack?,
+        preimage: MetadataIndexPreimage,
     ): Boolean {
-        if (row == null || row.filepath != entry.uri || row.size != entry.stageBytes)
-            return false
-        if (row.verifiedAt != 0L || row.verifiedSha256.isNotEmpty() ||
-            row.verifiedSize != 0L || row.verifiedAlgorithm.isNotEmpty())
-            return false
-        val changes = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
-            ?.receipt?.changes ?: return false
-        return changes.all { change ->
-            val values = when (val observation = stage.observations[change.field]) {
-                is MetadataFieldObservation.Present -> observation.values
-                MetadataFieldObservation.VerifiedAbsent -> emptyList()
-                else -> return false
-            }
-            rowValue(row, change.field) == values.firstOrNull().orEmpty()
-        }
-    }
-
-    private fun rowValue(row: CachedTrack, field: MetadataField): String? = when (field) {
-        MetadataField.TITLE -> row.title
-        MetadataField.ARTIST -> row.artist
-        MetadataField.ALBUM -> row.album
-        MetadataField.GENRE -> row.genre
-        else -> null
+        val existing = preimage as? MetadataIndexPreimage.Existing ?: return false
+        val marker = runCatching {
+            database.trackDao().getAppliedMetadataTransaction(entry.id)
+        }.getOrNull() ?: return false
+        return marker.sourceId == entry.sourceId &&
+            marker.trackId == entry.trackId &&
+            marker.uri == entry.uri &&
+            marker.originalRevision == existing.metadataRevision &&
+            marker.committedRevision > marker.originalRevision &&
+            marker.candidateSha256 == entry.stageSha256 &&
+            marker.candidateBytes == entry.stageBytes
     }
 
     private fun permitFor(
@@ -242,16 +223,19 @@ class MetadataRecoveryCoordinator internal constructor(
         val revision = when (container) {
             MetadataAudioContainer.ID3_V23 -> 3
             MetadataAudioContainer.ID3_V24 -> 4
+            MetadataAudioContainer.FLAC -> 1
             else -> return null
         }
         if (intent.container != container) return null
+        val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+            .forContainer(container) ?: return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
             originalSha256 = entry.originalSha256,
             candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-            profileId = MediaStoreMp3TextProfile.ID,
-            evidenceId = MediaStoreMp3TextProfile.EVIDENCE_ID,
+            profileId = profile.id,
+            evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
             explicitUserAction = true,
@@ -273,6 +257,7 @@ class MetadataRecoveryCoordinator internal constructor(
             previousVerifiedAt = expected?.version ?: 0L,
             previousVerifiedSha256 = expected?.observedSourceSha256.orEmpty(),
             previousSize = entry.expectedBytes,
+            previousMetadataRevision = expected?.metadataRevision ?: 0L,
         )
         return receipt.actionable && MetadataIndexReconciliationReceipt.write(root, receipt)
     }

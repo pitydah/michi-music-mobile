@@ -39,6 +39,7 @@ internal object MetadataIndexObligation {
             previousVerifiedAt = expectedIndex?.version ?: 0L,
             previousVerifiedSha256 = expectedIndex?.observedSourceSha256.orEmpty(),
             previousSize = entry.expectedBytes,
+            previousMetadataRevision = expectedIndex?.metadataRevision ?: 0L,
         )
         return receipt.actionable && MetadataIndexReconciliationReceipt.write(root, receipt)
     }

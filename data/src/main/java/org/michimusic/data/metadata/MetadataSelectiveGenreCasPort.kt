@@ -8,6 +8,7 @@ import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataStructuredGenreRefreshPolicy
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.EmbeddedTagEvidence
+import org.michimusic.data.cache.MetadataTrackTransactionResult
 import org.michimusic.data.cache.TrackDao
 
 /**
@@ -54,25 +55,14 @@ internal class MetadataSelectiveGenreCasPort(
         if (stampBefore != stampAfter) return false
         val evidence = evidenceFromDelta(existing, delta, policy,
             stampAfter.modifiedAtProviderUnits) ?: return false
-        // Only known, strict row proof variants are supported by the two
-        // pre-existing atomic scalar CAS operations.
-        val hashed = expected.version > 0L &&
-            expected.observedSourceSha256.matches(Regex("[0-9a-f]{64}"))
-        val unverified = expected.version == 0L && expected.observedSourceSha256.isEmpty()
-        if (!hashed && !unverified) return false
-        return dao.commitMetadataAfterVerifiedWriteWithGenreEvidence(
-            sourceId=existing.sourceId,trackId=existing.id,filepath=existing.filepath,
-            previousSize=existing.size,previousVerifiedAt=expected.version,
-            previousSha256=expected.observedSourceSha256,
-            previousTitle=existing.title,previousArtist=existing.artist,
-            previousAlbum=existing.album,previousAlbumArtist=existing.albumArtist,
-            previousGenre=existing.genre,previousTrackNumber=existing.trackNumber,
-            previousYear=existing.year,
-            newSize=delta.candidateBytes,newTitle=projected.title,
-            newArtist=projected.artist,newAlbum=projected.album,
-            newAlbumArtist=projected.albumArtist,newGenre=projected.genre,
-            newTrackNumber=projected.trackNumber,newYear=projected.year,
-            genreEvidence=evidence)
+        val request = metadataTrackTransactionRequest(
+            existing, expected, projected, delta,
+        ) ?: return false
+        return when (dao.applyMetadataTransactionWithGenreEvidence(request, evidence)) {
+            is MetadataTrackTransactionResult.Applied,
+            is MetadataTrackTransactionResult.AlreadyApplied -> true
+            MetadataTrackTransactionResult.Conflict -> false
+        }
     }
 
     private fun evidenceFromDelta(row: CachedTrack, delta: MetadataSourceIndexDelta.Delta,

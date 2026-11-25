@@ -21,7 +21,7 @@ class MetadataIndexReconciliationReceiptTest {
         format = "ID3_V24",
         version = 1,
     )
-    private val v2 = MetadataIndexReconciliationReceipt(
+    private val v3 = MetadataIndexReconciliationReceipt(
         transactionId = "5f50aa5f-d5c2-4bc2-8884-77d93bfc9e68",
         sourceId = "lib_device_local",
         trackId = "local_192",
@@ -34,14 +34,16 @@ class MetadataIndexReconciliationReceiptTest {
         previousVerifiedAt = 77L,
         previousVerifiedSha256 = "a".repeat(64),
         previousSize = 5000L,
+        previousMetadataRevision = 12L,
     )
 
-    @Test fun v2RoundTripKeepsExactIdentityAndRowPreimage() {
-        val decoded = MetadataIndexReconciliationReceipt.decode(v2.encode())!!
-        assertEquals(v2, decoded)
+    @Test fun v3RoundTripKeepsExactIdentityAndRowPreimage() {
+        val decoded = MetadataIndexReconciliationReceipt.decode(v3.encode())!!
+        assertEquals(v3, decoded)
         assertTrue(decoded.actionable)
         assertEquals(77L, decoded.expectedIndex()!!.version)
         assertEquals("a".repeat(64), decoded.expectedIndex()!!.observedSourceSha256)
+        assertEquals(12L, decoded.expectedIndex()!!.metadataRevision)
     }
 
     @Test fun v1IsReadableButNeverActionable() {
@@ -52,15 +54,24 @@ class MetadataIndexReconciliationReceiptTest {
     }
 
     @Test fun unhashedPreimageIsActionableOnlyWithEmptyVerification() {
-        val unhashed = v2.copy(previousVerifiedAt = 0L, previousVerifiedSha256 = "")
+        val unhashed = v3.copy(previousVerifiedAt = 0L, previousVerifiedSha256 = "")
         assertTrue(unhashed.actionable)
         assertEquals(0L, unhashed.expectedIndex()!!.version)
-        assertFalse(v2.copy(previousVerifiedAt = 0L).actionable)
-        assertFalse(v2.copy(previousVerifiedSha256 = "").actionable)
+        assertFalse(v3.copy(previousVerifiedAt = 0L).actionable)
+        assertFalse(v3.copy(previousVerifiedSha256 = "").actionable)
+    }
+
+    @Test fun v2IsReadableWithConservativeRevisionButNeverActionable() {
+        val legacy = v3.copy(version = 2, previousMetadataRevision = 0L)
+        val decoded = MetadataIndexReconciliationReceipt.decode(legacy.encode())!!
+        assertEquals(legacy, decoded)
+        assertEquals(0L, decoded.previousMetadataRevision)
+        assertFalse(decoded.actionable)
+        assertNull(decoded.expectedIndex())
     }
 
     @Test fun tamperedBytesAreRejected() {
-        val bytes = v2.encode().also {
+        val bytes = v3.encode().also {
             it[it.lastIndex - 2] = (it[it.lastIndex - 2] + 1).toByte()
         }
         assertNull(MetadataIndexReconciliationReceipt.decode(bytes))
@@ -69,9 +80,9 @@ class MetadataIndexReconciliationReceiptTest {
     @Test fun fileWriteIsAtomicAndReadable() {
         val root = Files.createTempDirectory("me13-receipt").toFile()
         try {
-            assertEquals(true, MetadataIndexReconciliationReceipt.write(root, v2))
-            assertEquals(v2, MetadataIndexReconciliationReceipt.read(root, v2.transactionId))
-            val target = MetadataIndexReconciliationReceipt.file(root, v2.transactionId)
+            assertEquals(true, MetadataIndexReconciliationReceipt.write(root, v3))
+            assertEquals(v3, MetadataIndexReconciliationReceipt.read(root, v3.transactionId))
+            val target = MetadataIndexReconciliationReceipt.file(root, v3.transactionId)
             assertEquals(true, target.isFile)
         } finally { root.deleteRecursively() }
     }
@@ -79,8 +90,8 @@ class MetadataIndexReconciliationReceiptTest {
     @Test fun boundedListingSkipsSymlinksAndOversizedFiles() {
         val root = Files.createTempDirectory("me13-receipt-list").toFile()
         try {
-            assertEquals(true, MetadataIndexReconciliationReceipt.write(root, v2))
-            val valid = MetadataIndexReconciliationReceipt.file(root, v2.transactionId)
+            assertEquals(true, MetadataIndexReconciliationReceipt.write(root, v3))
+            val valid = MetadataIndexReconciliationReceipt.file(root, v3.transactionId)
             val oversized = File(root, "index-reconciliation-${"c".repeat(36)}.bin")
             oversized.writeBytes(ByteArray((MetadataIndexReconciliationReceipt.MAX_FILE_BYTES + 1).toInt()))
             val symlink = File(root, "index-reconciliation-${"d".repeat(36)}.bin")
@@ -117,10 +128,10 @@ class MetadataIndexReconciliationReceiptTest {
     @Test fun atomicWriteRefusesToReplaceADirectory() {
         val root = Files.createTempDirectory("me13-receipt-atomic").toFile()
         try {
-            val target = MetadataIndexReconciliationReceipt.file(root, v2.transactionId)
+            val target = MetadataIndexReconciliationReceipt.file(root, v3.transactionId)
             assertTrue(target.mkdir())
             File(target, "child").writeText("x")
-            assertFalse(MetadataIndexReconciliationReceipt.write(root, v2))
+            assertFalse(MetadataIndexReconciliationReceipt.write(root, v3))
         } finally { root.deleteRecursively() }
     }
 }
