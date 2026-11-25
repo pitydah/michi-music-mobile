@@ -8,6 +8,7 @@ import android.provider.MediaStore
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -240,9 +241,162 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         Unit
     }
 
+    @Test fun saveFlacTitleRewritesMediaStorePreservesAudioAndPublishesRoom() = runBlocking {
+        val resolver = context.contentResolver
+        val flacAudio = ByteArray(4096) { ((it * 47) % 251).toByte() }
+        val flacOriginal = flac(
+            comments = listOf(
+                "TITLE=FLAC Original",
+                "ARTIST=Synthetic FLAC Artist",
+                "ALBUM=Synthetic FLAC Album",
+                "GENRE=Rock",
+                "X-CUSTOM=preserve-me",
+            ),
+            audio = flacAudio,
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-final-${UUID.randomUUID()}.flac")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/flac")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create the disposable FLAC MediaStore item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(flacOriginal)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val mediaId = uri.lastPathSegment!!.substringAfterLast('/')
+        val flacTrackId = "local_$mediaId"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        val originalSha = sha(flacOriginal)
+        SyncedTrackRepository(trackDao = database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = flacTrackId,
+                    title = "FLAC Original",
+                    artist = "Synthetic FLAC Artist",
+                    album = "Synthetic FLAC Album",
+                    size = observedSize,
+                    format = "flac",
+                    genre = "Rock",
+                ),
+            ),
+            sourceId = sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId = sourceId,
+            id = flacTrackId,
+            filepath = uri.toString(),
+            size = observedSize,
+            sha256 = originalSha,
+            verifiedAt = 1_700_000_000_000L,
+            algorithm = "sha256",
+        )
+        val reader = ExtendedTrackMetadataRepository(
+            trackDao = database.trackDao(),
+            context = context,
+        )
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, flacTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected the synthetic FLAC: $read")
+        }
+        assertEquals(listOf("FLAC Original"), original.known[MetadataField.TITLE])
+        val review = MetadataEditPreview.review(
+            original,
+            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf("FLAC Renombrada"))),
+        )
+        assertTrue("Review must accept the FLAC title edit: $review", review is MetadataReview.Ready)
+
+        val outcome = MetadataSaveService(context, database.trackDao(), database).save(
+            sourceId = sourceId,
+            trackId = flacTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            reviewInput = review as MetadataReview.Ready,
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+
+        assertTrue(
+            "The unified Save path must verify and index FLAC, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertArrayEquals(flacAudio, after.copyOfRange(after.size - flacAudio.size, after.size))
+        assertTrue(String(after, Charsets.ISO_8859_1).contains("X-CUSTOM=preserve-me"))
+        val row = database.trackDao().getTrackBySource(sourceId, flacTrackId)!!
+        assertEquals("FLAC Renombrada", row.title)
+        assertEquals(after.size.toLong(), row.size)
+        val reopened = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, flacTrackId, uri.toString(), after.size.toLong(),
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening the saved FLAC failed: $read")
+        }
+        assertEquals(listOf("FLAC Renombrada"), reopened.known[MetadataField.TITLE])
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                java.io.File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
     private fun sha(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
+
+    private fun flac(comments: List<String>, audio: ByteArray): ByteArray {
+        fun littleEndian32(out: ByteArrayOutputStream, value: Int) {
+            repeat(4) { out.write(value ushr (8 * it) and 0xff) }
+        }
+        fun block(kind: Int, last: Boolean, payload: ByteArray): ByteArray =
+            ByteArrayOutputStream().apply {
+                write(kind or if (last) 0x80 else 0)
+                write(payload.size ushr 16 and 0xff)
+                write(payload.size ushr 8 and 0xff)
+                write(payload.size and 0xff)
+                write(payload)
+            }.toByteArray()
+        val streamInfo = ByteArray(34).apply {
+            this[0] = 0x10
+            this[2] = 0x10
+            this[10] = 0x0a
+            this[11] = 0xc4.toByte()
+            this[12] = 0x40
+        }
+        val vendor = "Michi E2E".toByteArray(Charsets.UTF_8)
+        val vorbis = ByteArrayOutputStream().apply {
+            littleEndian32(this, vendor.size)
+            write(vendor)
+            littleEndian32(this, comments.size)
+            comments.forEach { comment ->
+                val encoded = comment.toByteArray(Charsets.UTF_8)
+                littleEndian32(this, encoded.size)
+                write(encoded)
+            }
+        }.toByteArray()
+        return "fLaC".toByteArray(Charsets.US_ASCII) +
+            block(0, false, streamInfo) +
+            block(4, true, vorbis) +
+            audio
+    }
 
 
     /** Minimal valid ID3v2.3 tag with four scalar frames plus synthetic audio. */

@@ -34,4 +34,18 @@ class CertifiedMetadataWriteProfileTest {
         assertTrue(profile.capabilityEvidenceId == MediaStoreMp3TextProfile.EVIDENCE_ID)
         assertTrue(profile.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO)
     }
+
+    @Test fun flacProfileAuthorizesOnlyProductionE2eCertifiedTitle() {
+        val flac = MediaStoreFlacTextProfile.profile
+        assertTrue(flac.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.TITLE), emptySet(), false,
+        ))
+        assertFalse(flac.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.COMPOSER), emptySet(), false,
+        ))
+        assertFalse(flac.permitsArtwork)
+        assertTrue(flac.permitsMultiValue.isEmpty())
+    }
 }

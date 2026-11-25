@@ -82,13 +82,22 @@ object MetadataPrivateBundleStage {
             Region(bytes,at)
         } else throw Rejected(Reason.FORMAT_UNSUPPORTED)
     }
-    internal fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
+    private fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
         val region=metadataRegion(file)
         val result=MetadataArtworkLyricsProbe.inspect(region.metadata)
             as? MetadataArtworkLyricsProbe.Result.Ready
             ?:throw Rejected(Reason.FORMAT_UNSUPPORTED)
         return result.snapshot to region.audioOffset
     }
+    /**
+     * Structurally observes the bounded metadata region of a local private file.
+     *
+     * This exposes neither the audio offset nor staging internals. Callers use
+     * the returned snapshot to select a format capability before constructing a
+     * candidate; this method never writes the source.
+     */
+    fun observeFile(file: File): MetadataArtworkLyricsProbe.Snapshot =
+        observe(file).first
     private fun same(a: MetadataArtworkLyricsProbe.Snapshot,b: MetadataArtworkLyricsProbe.Snapshot):Boolean =
         a.format==b.format && a.texts==b.texts && a.artworks.size==b.artworks.size &&
             a.artworks.zip(b.artworks).all { (x,y) ->

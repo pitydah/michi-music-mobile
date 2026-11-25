@@ -65,7 +65,13 @@ object MediaStoreMp3TextProfile {
     )
 }
 
-/** FLAC / Vorbis Comment scalar profile on the local MediaStore provider. */
+/**
+ * FLAC / Vorbis Comment title on an app-owned local MediaStore item.
+ *
+ * Keep this deliberately narrow: broader scalar staging exists, but production
+ * authorization expands only after the complete provider/readback/Room/recovery
+ * path has independent evidence for each operation.
+ */
 object MediaStoreFlacTextProfile {
     const val ID = "MS_LOCAL_FLAC_VORBIS_TEXT_V1"
     const val EVIDENCE_ID = "ME15_MEDIASTORE_FLAC_VORBIS_TEXT_V1"
@@ -74,18 +80,7 @@ object MediaStoreFlacTextProfile {
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
         containers = setOf(MetadataAudioContainer.FLAC),
         tagRevisions = setOf(1),
-        supportedFields = setOf(
-            MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
-            MetadataField.ALBUM_ARTIST, MetadataField.GENRE, MetadataField.COMPOSER,
-            MetadataField.RELEASE_DATE, MetadataField.TRACK_NUMBER,
-            MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER,
-            MetadataField.DISC_TOTAL, MetadataField.LABEL,
-            MetadataField.CATALOG_NUMBER, MetadataField.ISRC, MetadataField.BPM,
-            MetadataField.MUSICAL_KEY, MetadataField.COMMENT,
-            MetadataField.COPYRIGHT, MetadataField.LYRICIST,
-            MetadataField.PRODUCER, MetadataField.PERFORMER,
-            MetadataField.CONDUCTOR, MetadataField.LYRICS,
-        ),
+        supportedFields = setOf(MetadataField.TITLE),
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,

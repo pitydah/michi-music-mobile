@@ -23,6 +23,23 @@ class MetadataPrivateBundleStageTest {
     private fun fixture()=tag(frame("TIT2",byteArrayOf(3)+"Original".toByteArray()),
         frame("APIC",apic(png())),frame("COMM",comment("eng","","Keep")),
         frame("COMM",comment("spa","Notas","Antes")),frame("PRIV",byteArrayOf(5,2,1)))
+    private fun flacFixture():ByteArray {
+        val streamInfo=byteArrayOf(0,0,0,34)+ByteArray(34)
+        val vendor="michi-test".toByteArray()
+        val title="TITLE=Original".toByteArray()
+        val comments=ByteArrayOutputStream().apply {
+            write(byteArrayOf(vendor.size.toByte(),0,0,0));write(vendor)
+            write(byteArrayOf(1,0,0,0))
+            write(byteArrayOf(title.size.toByte(),0,0,0));write(title)
+        }.toByteArray()
+        val block=byteArrayOf(
+            (0x84).toByte(),
+            (comments.size ushr 16).toByte(),
+            (comments.size ushr 8).toByte(),
+            comments.size.toByte(),
+        )+comments
+        return "fLaC".toByteArray()+streamInfo+block+audio
+    }
     private fun sha(b:ByteArray)=MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { (it.toInt() and 255).toString(16).padStart(2,'0') }
     private fun observed(bytes:ByteArray):MetadataArtworkLyricsProbe.Snapshot {
         val n=((bytes[6].toInt() and 127) shl 21) or ((bytes[7].toInt() and 127) shl 14) or
@@ -51,6 +68,17 @@ class MetadataPrivateBundleStageTest {
     private fun run(src:File,dst:File,s:MetadataArtworkLyricsProbe.Snapshot,fields:MetadataReview.Ready?=null,
         edits:List<MetadataSelectiveAssetStage.Edit>):MetadataPrivateBundleStage.Receipt =
         MetadataPrivateBundleStage.stage(src,dst,MetadataPrivateBundleStage.Request(sha(src.readBytes()),s,fields,edits))
+    @Test fun publicFileObservationRecognizesFlacByStructure(){
+        val dir=Files.createTempDirectory("me-final-flac-observe-")
+        try {
+            val source=dir.resolve("opaque.bin").toFile().apply { writeBytes(flacFixture()) }
+            val observed=MetadataPrivateBundleStage.observeFile(source)
+            assertEquals(MetadataArtworkLyricsProbe.Format.FLAC,observed.format)
+        } finally {
+            Files.list(dir).use { it.forEach(Files::deleteIfExists) }
+            Files.delete(dir)
+        }
+    }
     @Test fun bundledTitleCoverAndSpanishCommentMakeOneCandidate(){
         withSource { src,dst,s ->
             val original=src.readBytes()

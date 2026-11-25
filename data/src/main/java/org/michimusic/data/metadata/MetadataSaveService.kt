@@ -16,7 +16,6 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
@@ -71,7 +70,6 @@ class MetadataSaveService internal constructor(
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val intents = MetadataCommitIntentStore(journal)
     private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
-    private val profile = MediaStoreMp3TextProfile.profile
     private fun profileFor(format: org.michimusic.core.metadata.MetadataAudioContainer) =
         org.michimusic.core.metadata.MetadataWriteProfileRegistry.forContainer(format)
 
@@ -321,10 +319,6 @@ class MetadataSaveService internal constructor(
         }
         if (expectedBytes <= 0L) return@withContext Outcome.Blocked("Tamaño de origen no válido")
         if (review.diffs.isEmpty()) return@withContext Outcome.Blocked("No hay cambios efectivos")
-        if (review.diffs.any { it.field !in profile.supportedFields })
-            return@withContext Outcome.Blocked("Este campo no está en el perfil certificado")
-        if (review.diffs.any { it.after.size > 1 })
-            return@withContext Outcome.Blocked("Varios valores no admitidos en este perfil")
         val exactPrepared = (journal.inspect() as?
             MetadataRecoveryJournalV1.Inspection.Pending)?.entry?.let { prepared ->
             prepared.phase == MetadataRecoveryPhase.STAGE_READY &&
@@ -349,7 +343,7 @@ class MetadataSaveService internal constructor(
             if (sourceCopy.length() != expectedBytes)
                 return@withContext Outcome.Blocked("El archivo cambió de tamaño")
             val observed = observeTag(sourceCopy)
-                ?: return@withContext Outcome.Blocked("El origen no tiene un ID3 compatible")
+                ?: return@withContext Outcome.Blocked("El contenedor de metadatos no es compatible")
             val container = observed.format.toContainer()
             val revision = when (observed.format) {
                 MetadataArtworkLyricsProbe.Format.ID3_V23 -> 3
@@ -713,23 +707,8 @@ class MetadataSaveService internal constructor(
             else -> org.michimusic.core.metadata.MetadataAudioContainer.UNKNOWN
         }
 
-    private fun observeTag(file: File): MetadataArtworkLyricsProbe.Snapshot? = runCatching {
-        val header = ByteArray(10)
-        FileInputStream(file).use { it.read(header) }
-        if (!header.copyOfRange(0, 3).contentEquals("ID3".toByteArray())) return null
-        val length = MetadataArtworkLyricsProbe.id3DeclaredLength(header) ?: return null
-        val tag = ByteArray(length)
-        FileInputStream(file).use { input ->
-            var off = 0
-            while (off < tag.size) {
-                val n = input.read(tag, off, tag.size - off)
-                if (n < 0) break
-                off += n
-            }
-            if (off != tag.size) return null
-        }
-        (MetadataArtworkLyricsProbe.inspect(tag) as? MetadataArtworkLyricsProbe.Result.Ready)?.snapshot
-    }.getOrNull()
+    private fun observeTag(file: File): MetadataArtworkLyricsProbe.Snapshot? =
+        runCatching { MetadataPrivateBundleStage.observeFile(file) }.getOrNull()
 
     private fun sameSource(uri: Uri, sha: String, bytes: Long): Boolean {
         if (longQuery(uri, OpenableColumns.SIZE) != bytes) return false

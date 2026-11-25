@@ -1,11 +1,11 @@
 package org.michimusic.data.metadata
 
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
 import org.michimusic.core.metadata.MetadataTarget
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 
 /**
  * ME-13 S5: an exact, transaction-bound authorization to restore the journal
@@ -26,6 +26,8 @@ internal data class MetadataRestorePermit(
     val originalBytes: Long,
     val candidateSha256: String,
     val stageBytes: Long,
+    val profileId: String,
+    val evidenceId: String,
     val container: String,
     val revision: Int,
     val ownerEvidenceToken: String,
@@ -38,12 +40,11 @@ internal data class MetadataRestorePermit(
             sourceId == target.sourceId && trackId == target.trackId && uri == target.uri &&
             ownerEvidenceToken.isNotBlank() &&
             ownerEvidenceToken == target.evidenceToken &&
-            profileId == MediaStoreMp3TextProfile.ID &&
-            evidenceId == MediaStoreMp3TextProfile.EVIDENCE_ID &&
-            container in setOf(
-                MetadataAudioContainer.ID3_V23.name, MetadataAudioContainer.ID3_V24.name) &&
-            (container == MetadataAudioContainer.ID3_V23.name && revision == 3 ||
-                container == MetadataAudioContainer.ID3_V24.name && revision == 4) &&
+            MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
+                profile.capabilityEvidenceId == evidenceId &&
+                    profile.containers.any { it.name == container } &&
+                    revision in profile.tagRevisions
+            } == true &&
             originalBytes in 12..MAX_BYTES && stageBytes in 12..MAX_BYTES &&
             originalSha256.matches(HEX) && candidateSha256.matches(HEX) &&
             (originalBytes != stageBytes || originalSha256 != candidateSha256)
@@ -55,9 +56,6 @@ internal data class MetadataRestorePermit(
             originalSha256 == entry.originalSha256 && originalBytes == entry.expectedBytes &&
             candidateSha256 == entry.stageSha256 && stageBytes == entry.stageBytes &&
             container == entry.format && uri.startsWith("content://media/")
-
-    private val profileId: String get() = MediaStoreMp3TextProfile.ID
-    private val evidenceId: String get() = MediaStoreMp3TextProfile.EVIDENCE_ID
 
     companion object {
         const val LOCAL_SOURCE = "lib_device_local"
@@ -92,8 +90,8 @@ internal data class MetadataRestorePermit(
             if (!explicitUserAction || !MetadataCommitIntentManifest.valid(intent)) return null
             if (intent.provider != MetadataDocumentProvider.MEDIASTORE) return null
             if (intent.transactionId != entry.id) return null
-            if (intent.container !in setOf(
-                    MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24)) return null
+            val profile = MetadataWriteProfileRegistry.forContainer(intent.container)
+                ?: return null
             if (entry.format != intent.container.name) return null
             if (intent.originalBytes != entry.expectedBytes ||
                 intent.originalSha256 != entry.originalSha256 ||
@@ -107,6 +105,7 @@ internal data class MetadataRestorePermit(
             val revision = when (intent.container) {
                 MetadataAudioContainer.ID3_V23 -> 3
                 MetadataAudioContainer.ID3_V24 -> 4
+                MetadataAudioContainer.FLAC -> 1
                 else -> return null
             }
             return MetadataRestorePermit(
@@ -114,6 +113,7 @@ internal data class MetadataRestorePermit(
                 trackId = entry.trackId, uri = entry.uri,
                 originalSha256 = entry.originalSha256, originalBytes = entry.expectedBytes,
                 candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
+                profileId = profile.id, evidenceId = profile.capabilityEvidenceId,
                 container = entry.format, revision = revision,
                 ownerEvidenceToken = target.evidenceToken,
                 explicitUserAction = true,

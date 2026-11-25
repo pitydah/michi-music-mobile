@@ -30,6 +30,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowContentResolver
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MediaStoreFlacTextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
@@ -223,6 +224,30 @@ class MetadataSourceRestoreCoordinatorTest {
         val foreignTarget = target.copy(trackId = "other")
         val forged = MetadataRestorePermit.fromDurable(entry, intent, foreignTarget, true)
         assertEquals(null, forged)
+    }
+
+    @Test fun flacRestorePermitIsBoundToTheExactDurableProfile() {
+        val flacIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX, review = review,
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.FLAC,
+            originalBytes = original.size.toLong(), originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
+        )
+        val entry = MetadataRecoveryJournalV1.Entry(
+            TX, MetadataRecoveryPhase.STAGE_READY, sourceId, trackId, uri,
+            original.size.toLong(), 777L, originalSha256 = originalSha,
+            stageSha256 = candidateSha, stageBytes = candidate.size.toLong(),
+            format = MetadataAudioContainer.FLAC.name,
+            ownerEvidenceToken = token,
+        )
+
+        val permit = MetadataRestorePermit.fromDurable(entry, flacIntent, target, true)
+
+        assertTrue(permit != null)
+        assertEquals(MediaStoreFlacTextProfile.ID, permit!!.profileId)
+        assertEquals(MediaStoreFlacTextProfile.EVIDENCE_ID, permit.evidenceId)
+        assertEquals(1, permit.revision)
     }
 
     private fun writePermit(entry: MetadataRecoveryJournalV1.Entry) = MetadataWritePermit(
