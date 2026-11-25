@@ -140,6 +140,30 @@ class MetadataSaveRacesInstrumentedTest {
             MetadataRecoveryJournalV1.Inspection.Clear)
     }
 
+    @Test fun freshSaveCrossesEveryDestructiveCheckpointExactlyOnce() = runBlocking {
+        val fixture = prepare()
+        val reached = mutableListOf<MetadataSaveCheckpoint>()
+        val outcome = service(MetadataSaveCheckpointHook { reached += it }).save(
+            sourceId, trackId, fixture.uri.toString(), fixture.original.size.toLong(),
+            fixture.review, ownerCurrent = { true }, playbackClosed = { true },
+        )
+
+        assertTrue("outcome=$outcome", outcome is MetadataSaveService.Outcome.Saved)
+        assertEquals(
+            listOf(
+                MetadataSaveCheckpoint.AFTER_BACKUP_DURABLE,
+                MetadataSaveCheckpoint.AFTER_STAGE_READY,
+                MetadataSaveCheckpoint.BEFORE_MUTATING,
+                MetadataSaveCheckpoint.AFTER_MUTATING_DURABLE,
+                MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE,
+                MetadataSaveCheckpoint.BEFORE_INDEX_CAS,
+                MetadataSaveCheckpoint.AFTER_INDEX_CAS,
+                MetadataSaveCheckpoint.BEFORE_TERMINAL_CLEANUP,
+            ),
+            reached,
+        )
+    }
+
     private fun service(
         hook: MetadataSaveCheckpointHook = NoMetadataSaveCheckpoint,
     ) = MetadataSaveService(context, database.trackDao(), database, hook)

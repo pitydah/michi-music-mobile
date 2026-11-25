@@ -244,6 +244,7 @@ class MetadataSaveService internal constructor(
                 return Outcome.RecoveryRequired("POSTCHECK_SNAPSHOT_UNAVAILABLE")
         }
         if (indexed) {
+            checkpoints.reach(MetadataSaveCheckpoint.BEFORE_TERMINAL_CLEANUP)
             if (!journal.completeVerified(entry.id))
                 return Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
             return Outcome.Saved(committed.snapshot, true,
@@ -494,100 +495,16 @@ class MetadataSaveService internal constructor(
             }
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes del consentimiento")
-
-            val expectedRow = try { trackDao.getTrackBySource(sourceId, trackId) }
-                catch (_: Exception) {
-                    return@withContext Outcome.RecoveryRequired("PREIMAGE_UNAVAILABLE")
-                }
-            val preimage = expectedRow?.asMetadataPreimage() ?: MetadataIndexPreimage.NoRow
-            if (!preimages.write(entry, preimage))
-                return@withContext Outcome.RecoveryRequired("PREIMAGE_NOT_DURABLE")
-            val expectedIndex = MetadataIndexPublicationPolicy.IndexIdentity(
-                sourceId = sourceId, trackId = trackId, uri = uriString,
-                version = expectedRow?.verifiedAt ?: 0L,
-                observedSourceSha256 = expectedRow?.verifiedSha256.orEmpty(),
-            )
-            val permit = MetadataWritePermit(
-                transactionId = entry.id, sourceId = entry.sourceId, trackId = entry.trackId,
-                uri = entry.uri, originalSha256 = entry.originalSha256,
-                candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-                profileId = activeProfile.id, evidenceId = activeProfile.capabilityEvidenceId,
-                container = entry.format, revision = revision, fields = fields,
-                explicitUserAction = true,
-            )
-            checkpoints.reach(MetadataSaveCheckpoint.BEFORE_MUTATING)
-            if (!sameSource(uri, entry.originalSha256, expectedBytes))
-                return@withContext abort(entry, "El origen cambió antes de escribir")
-            if (!ownerCurrent() || !playbackClosed())
-                return@withContext Outcome.Blocked("OWNER_OR_PLAYBACK_CHANGED")
-            if (!owners.write(entry, review.original.target))
-                return@withContext Outcome.Blocked(
-                    "No se pudo persistir la evidencia del propietario")
-            val mutating = entry.copy(phase = MetadataRecoveryPhase.MUTATING)
-            journal.advance(entry, mutating, permit)
-            checkpoints.reach(MetadataSaveCheckpoint.AFTER_MUTATING_DURABLE)
-            if (!ownerCurrent() || !playbackClosed())
-                return@withContext Outcome.RecoveryRequired("OWNER_OR_PLAYBACK_CHANGED")
-            val write = transport.overwriteWithPermit(mutating, candidate, permit)
-            when (write) {
-                MetadataProviderMutationTransport.Result.BytesSentRequireColdReadback -> {
-                    journal.advance(mutating,
-                        mutating.copy(phase = MetadataRecoveryPhase.MUTATION_UNKNOWN))
-                }
-                MetadataProviderMutationTransport.Result.UnknownAfterOpeningSource -> {
-                    journal.advance(mutating,
-                        mutating.copy(phase = MetadataRecoveryPhase.MUTATION_UNKNOWN))
-                    return@withContext Outcome.Failed(
-                        "La escritura abrió el origen y quedó en recuperación pendiente", true)
-                }
-                is MetadataProviderMutationTransport.Result.Refused -> {
-                    return@withContext Outcome.Failed(
-                        "Escritura rechazada antes de abrir el origen (${write.reason})", true)
-                }
-            }
-            checkpoints.reach(MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE)
-
-            checkpoints.reach(MetadataSaveCheckpoint.BEFORE_INDEX_CAS)
-            val published = publication.reconcile(
-                transactionId = entry.id,
-                original = review.original,
-                expectedIndex = expectedIndex,
-                explicitUserAction = true,
-                ownerStillCurrent = ownerCurrent,
-                playbackDescriptorClosed = playbackClosed,
-                permit = permit,
-            )
-            checkpoints.reach(MetadataSaveCheckpoint.AFTER_INDEX_CAS)
-            android.util.Log.d("MichiSave", "publication=${publicationCode(published)}")
-            val indexed = published is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly ||
-                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||
-                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleIndexed ||
-                published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleAndGenreIndexed
             val persisted = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
                 ?.receipt ?: return@withContext Outcome.RecoveryRequired("INTENT_NOT_DURABLE")
-            val committed = when (val read = committedSnapshots.read(
-                entry, review.original.target, persisted,
-            )) {
-                is MetadataVerifiedCommittedSnapshotReader.Result.Verified -> read
-                is MetadataVerifiedCommittedSnapshotReader.Result.Refused ->
-                    return@withContext Outcome.RecoveryRequired("POSTCHECK_SNAPSHOT_UNAVAILABLE")
-            }
-            if (indexed) {
-                checkpoints.reach(MetadataSaveCheckpoint.BEFORE_TERMINAL_CLEANUP)
-                if (!journal.completeVerified(entry.id))
-                    return@withContext Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
-                return@withContext Outcome.Saved(committed.snapshot, true,
-                    committed.physicalBytes, committed.physicalSha256)
-            }
-            val durable = writeIndexReceipt(
-                entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED),
-                review.original.target, expectedIndex,
+            return@withContext commitPrepared(
+                entry = entry,
+                intent = persisted,
+                target = review.original.target,
+                original = review.original,
+                ownerCurrent = ownerCurrent,
+                playbackClosed = playbackClosed,
             )
-            if (!durable) return@withContext Outcome.RecoveryRequired(
-                "INDEX_OBLIGATION_NOT_DURABLE",
-            )
-            Outcome.Saved(committed.snapshot, false,
-                committed.physicalBytes, committed.physicalSha256)
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (error: Exception) {
