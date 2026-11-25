@@ -55,11 +55,9 @@ internal class MetadataRecoveryOwnerStore(private val root: File) {
         return File(root, "owner-$transactionId.bin")
     }
 
-    /** Best-effort directory fsync; its failure never turns a missing owner into success. */
-    private fun fsyncDirectory() {
-        try { FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) } }
-        catch (_: Exception) { /* owner receipt remains the only durability proof */ }
-    }
+    private fun fsyncDirectory(): Boolean =
+        MetadataDurableFile.syncDirectory(root) ==
+            MetadataDurableFile.DirectorySyncResult.FORCED
 
     fun write(entry: MetadataRecoveryJournalV1.Entry, target: MetadataTarget): Boolean {
         if (entry.sourceId != target.sourceId || entry.trackId != target.trackId ||
@@ -91,8 +89,10 @@ internal class MetadataRecoveryOwnerStore(private val root: File) {
                 channel.force(true)
             }
             Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            fsyncDirectory()
-            true
+            if (!fsyncDirectory()) {
+                runCatching { Files.deleteIfExists(destination.toPath()) }
+                false
+            } else true
         } catch (_: Exception) {
             false
         } finally {

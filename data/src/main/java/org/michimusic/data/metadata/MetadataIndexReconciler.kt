@@ -63,7 +63,7 @@ class MetadataIndexReconciler internal constructor(
         data class CorruptReceiptKept(val fileName: String) : Outcome
     }
 
-    data class Report(val outcomes: List<Outcome>) {
+    data class Report(val outcomes: List<Outcome>, val busy: Boolean = false) {
         val changedIndex: Boolean
             get() = outcomes.any {
                 it is Outcome.Indexed || it is Outcome.AlreadyAppliedAndCleaned
@@ -98,6 +98,15 @@ class MetadataIndexReconciler internal constructor(
     suspend fun reconcileAll(
         ownerStillCurrent: () -> Boolean,
         playbackDescriptorClosed: () -> Boolean,
+    ): Report = MetadataSaveLocks.tryRun(
+        onBusy = { Report(emptyList(), busy = true) },
+    ) {
+        reconcileAllUnlocked(ownerStillCurrent, playbackDescriptorClosed)
+    }
+
+    private suspend fun reconcileAllUnlocked(
+        ownerStillCurrent: () -> Boolean,
+        playbackDescriptorClosed: () -> Boolean,
     ): Report = withContext(Dispatchers.IO) {
         if (!ownerStillCurrent() || !playbackDescriptorClosed())
             return@withContext Report(emptyList())
@@ -108,6 +117,19 @@ class MetadataIndexReconciler internal constructor(
     }
 
     suspend fun reconcileForTrack(
+        sourceId: String,
+        trackId: String,
+        ownerStillCurrent: () -> Boolean,
+        playbackDescriptorClosed: () -> Boolean,
+    ): Report = MetadataSaveLocks.tryRun(
+        onBusy = { Report(emptyList(), busy = true) },
+    ) {
+        reconcileForTrackUnlocked(
+            sourceId, trackId, ownerStillCurrent, playbackDescriptorClosed,
+        )
+    }
+
+    private suspend fun reconcileForTrackUnlocked(
         sourceId: String,
         trackId: String,
         ownerStillCurrent: () -> Boolean,
@@ -124,6 +146,16 @@ class MetadataIndexReconciler internal constructor(
     }
 
     suspend fun reconcile(
+        transactionId: String,
+        ownerStillCurrent: () -> Boolean,
+        playbackDescriptorClosed: () -> Boolean,
+    ): Outcome? = MetadataSaveLocks.tryRun(
+        onBusy = { null },
+    ) {
+        reconcileUnlocked(transactionId, ownerStillCurrent, playbackDescriptorClosed)
+    }
+
+    private suspend fun reconcileUnlocked(
         transactionId: String,
         ownerStillCurrent: () -> Boolean,
         playbackDescriptorClosed: () -> Boolean,

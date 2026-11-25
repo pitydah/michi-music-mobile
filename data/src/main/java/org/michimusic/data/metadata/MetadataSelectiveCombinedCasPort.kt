@@ -24,6 +24,7 @@ import org.michimusic.data.cache.TrackDao
 internal class MetadataSelectiveCombinedCasPort(
     context: Context,
     private val database: MichiDatabase,
+    private val preimages: MetadataIndexPreimageStore? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val dao: TrackDao = database.trackDao()
     private val scalar = MetadataTrackDaoCasPort(dao)
@@ -51,6 +52,8 @@ internal class MetadataSelectiveCombinedCasPort(
             as? MetadataStructuredCombinedRefreshPolicy.Result.Prepared ?: return false
         val indexed = dao.getTrackBySource(expected.sourceId, expected.trackId) ?: return false
         if (indexed.filepath != expected.uri) return false
+        val durable = preimages?.durableFor(expected, scopedPermit) ?: return false
+        if (indexed.asMetadataPreimage() != durable) return false
         val scalarDelta = delta.copy(observedValues = delta.observedValues + mapOf(
             MetadataField.GENRE to listOf(prepared.genre),
             MetadataField.ARTIST to listOfNotNull(prepared.artist.takeIf(String::isNotEmpty)),
@@ -81,13 +84,15 @@ internal class MetadataSelectiveCombinedCasPort(
             genre.title != projected.title || genre.album != projected.album ||
             genre.trackNumber != projected.trackNumber) return false
         val request = metadataTrackTransactionRequest(
-            indexed, expected, projected, delta,
+            durable, expected, projected, delta,
         ) ?: return false
         return database.withTransaction {
             when (dao.applyMetadataTransaction(request)) {
-                is MetadataTrackTransactionResult.Applied,
-                is MetadataTrackTransactionResult.AlreadyApplied -> Unit
-                MetadataTrackTransactionResult.Conflict -> return@withTransaction false
+                is MetadataTrackTransactionResult.Applied -> Unit
+                is MetadataTrackTransactionResult.AlreadyApplied ->
+                    return@withTransaction true
+                MetadataTrackTransactionResult.Conflict ->
+                    return@withTransaction false
             }
             // The same transaction invalidated stale evidence. Restore BOTH new
             // verified observations atomically; any exception rolls back all 3.

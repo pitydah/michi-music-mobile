@@ -56,10 +56,11 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                 channel.force(true)
             }
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            // Directory fsync is best effort on Android. This never authorizes a
-            // source write; any missing record on restart is a hard refusal.
-            try { FileChannel.open(parent, StandardOpenOption.READ).use { it.force(true) } }
-            catch (_: Exception) { /* fail closed on missing record at next inspection */ }
+            if (MetadataDurableFile.syncDirectory(file.parentFile) !=
+                MetadataDurableFile.DirectorySyncResult.FORCED) {
+                runCatching { Files.deleteIfExists(file.toPath()) }
+                throw IllegalStateException("INTENT_NOT_DURABLE")
+            }
         } finally { tmp.delete() }
     }
 

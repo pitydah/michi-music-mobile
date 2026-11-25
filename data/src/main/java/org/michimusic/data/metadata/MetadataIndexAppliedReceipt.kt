@@ -121,12 +121,14 @@ internal data class MetadataIndexAppliedReceipt(
                 } finally {
                     if (Files.exists(tmp.toPath(), LinkOption.NOFOLLOW_LINKS)) tmp.delete()
                 }
-                try {
-                    FileChannel.open(root.toPath(), StandardOpenOption.READ)
-                        .use { it.force(true) }
-                } catch (_: Exception) { /* rename already committed */ }
-                Files.isRegularFile(target.toPath(), LinkOption.NOFOLLOW_LINKS) &&
-                    !Files.isSymbolicLink(target.toPath())
+                if (MetadataDurableFile.syncDirectory(root) !=
+                    MetadataDurableFile.DirectorySyncResult.FORCED) {
+                    runCatching { Files.deleteIfExists(target.toPath()) }
+                    false
+                } else {
+                    Files.isRegularFile(target.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                        !Files.isSymbolicLink(target.toPath())
+                }
             }
         } catch (_: Exception) { false }
 

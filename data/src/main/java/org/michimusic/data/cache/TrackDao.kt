@@ -489,9 +489,11 @@ interface TrackDao {
         evidence: EmbeddedTagEvidence,
     ): MetadataTrackTransactionResult {
         val result = applyMetadataTransaction(request)
-        if (result is MetadataTrackTransactionResult.Applied ||
-            result is MetadataTrackTransactionResult.AlreadyApplied
-        ) putTagEvidence(listOf(evidence))
+        // Replaying an already-committed transaction must not republish the
+        // evidence captured by that older revision. Marker and evidence were
+        // written atomically when the transaction first applied.
+        if (result is MetadataTrackTransactionResult.Applied)
+            putTagEvidence(listOf(evidence))
         return result
     }
 

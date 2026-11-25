@@ -20,6 +20,7 @@ import org.michimusic.data.cache.TrackDao
  */
 internal class MetadataSelectiveGenreCasPort(
     context: Context, private val dao: TrackDao,
+    private val preimages: MetadataIndexPreimageStore? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val scalar = MetadataTrackDaoCasPort(dao)
     private val stamps = MetadataExactSourceStampReader(context)
@@ -44,6 +45,8 @@ internal class MetadataSelectiveGenreCasPort(
             as? MetadataStructuredGenreRefreshPolicy.Result.Prepared ?: return false
         val existing = dao.getTrackBySource(expected.sourceId, expected.trackId) ?: return false
         if (existing.filepath != expected.uri) return false
+        val durable = preimages?.durableFor(expected, scopedPermit) ?: return false
+        if (existing.asMetadataPreimage() != durable) return false
         // Scalar projections may use the FIRST genre for the index, but the
         // complete list is never lost: it is committed with the sidecar.
         val scalarDelta = delta.copy(observedValues = delta.observedValues +
@@ -62,7 +65,7 @@ internal class MetadataSelectiveGenreCasPort(
         val evidence = evidenceFromDelta(existing, delta, policy,
             stampAfter.modifiedAtProviderUnits) ?: return false
         val request = metadataTrackTransactionRequest(
-            existing, expected, projected, delta,
+            durable, expected, projected, delta,
         ) ?: return false
         return when (dao.applyMetadataTransactionWithGenreEvidence(request, evidence)) {
             is MetadataTrackTransactionResult.Applied,

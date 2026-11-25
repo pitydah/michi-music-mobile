@@ -461,10 +461,11 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
                 Files.move(tmp.toPath(), record.toPath(), StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING)
             }
-            // Directory fsync is not supported by every Android filesystem. Failure is
-            // deliberately NOT converted into false permission to commit to source.
-            try { FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) } }
-            catch (_: Exception) { /* prepare remains non-mutating */ }
+            if (MetadataDurableFile.syncDirectory(root) !=
+                MetadataDurableFile.DirectorySyncResult.FORCED) {
+                runCatching { Files.deleteIfExists(record.toPath()) }
+                throw IllegalStateException("JOURNAL_NOT_DURABLE")
+            }
         } finally { tmp.delete() }
     }
 

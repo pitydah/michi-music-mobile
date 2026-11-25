@@ -20,6 +20,7 @@ import org.michimusic.data.cache.TrackDao
 internal class MetadataSelectivePeopleCasPort(
     context: Context,
     private val database: MichiDatabase,
+    private val preimages: MetadataIndexPreimageStore? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val dao: TrackDao = database.trackDao()
     private val scalar = MetadataTrackDaoCasPort(dao)
@@ -50,6 +51,8 @@ internal class MetadataSelectivePeopleCasPort(
         val indexed = dao.getTrackBySource(expected.sourceId, expected.trackId)
             ?: return false
         if (indexed.filepath != expected.uri) return false
+        val durable = preimages?.durableFor(expected, scopedPermit) ?: return false
+        if (indexed.asMetadataPreimage() != durable) return false
         val scalarDelta = delta.copy(observedValues = delta.observedValues + mapOf(
             MetadataField.ARTIST to listOfNotNull(prepared.artist.takeIf { it.isNotEmpty() }),
             MetadataField.ALBUM_ARTIST to listOfNotNull(prepared.albumArtist.takeIf { it.isNotEmpty() }),
@@ -73,15 +76,15 @@ internal class MetadataSelectivePeopleCasPort(
         )
         if (!evidence.structurallyValid()) return false
         val request = metadataTrackTransactionRequest(
-            indexed, expected, next, delta,
+            durable, expected, next, delta,
         ) ?: return false
         return database.withTransaction {
             when (dao.applyMetadataTransaction(request)) {
-                is MetadataTrackTransactionResult.Applied,
-                is MetadataTrackTransactionResult.AlreadyApplied -> {
-                database.metadataPersonEvidenceDao().upsert(evidence)
-                true
+                is MetadataTrackTransactionResult.Applied -> {
+                    database.metadataPersonEvidenceDao().upsert(evidence)
+                    true
                 }
+                is MetadataTrackTransactionResult.AlreadyApplied -> true
                 MetadataTrackTransactionResult.Conflict -> false
             }
         }

@@ -8,6 +8,8 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import android.system.Os
+import android.system.OsConstants
 
 /**
  * Durable private-file boundary for the recovery journal. A successful return
@@ -15,6 +17,7 @@ import java.security.MessageDigest
  * forced where the platform permits it, not merely that a stream accepted them.
  */
 internal object MetadataDurableFile {
+    internal enum class DirectorySyncResult { FORCED, UNSUPPORTED, FAILED }
     private const val MAX_BYTES = 1024L * 1024 * 1024
     private const val CHUNK = 64 * 1024
 
@@ -57,7 +60,8 @@ internal object MetadataDurableFile {
             }
             if (target.length() != expectedBytes || sha(target) != expectedSha256)
                 return false
-            forceDirectory(parent)
+            if (syncDirectory(parent) != DirectorySyncResult.FORCED)
+                return false
             complete = true
             return true
         } catch (_: Exception) {
@@ -73,19 +77,33 @@ internal object MetadataDurableFile {
             FileChannel.open(file.toPath(), StandardOpenOption.WRITE).use {
                 it.force(true)
             }
-            forceDirectory(file.parentFile)
-            true
+            syncDirectory(file.parentFile) == DirectorySyncResult.FORCED
         }
     } catch (_: Exception) {
         false
     }
 
-    private fun forceDirectory(directory: File?) {
-        if (directory == null) return
-        runCatching {
+    internal fun syncDirectory(directory: File?): DirectorySyncResult {
+        if (directory == null) return DirectorySyncResult.FAILED
+        val androidForced = runCatching {
+            val descriptor = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
+            try {
+                Os.fsync(descriptor)
+                true
+            } finally {
+                runCatching { Os.close(descriptor) }
+            }
+        }.getOrDefault(false)
+        if (androidForced) return DirectorySyncResult.FORCED
+        return try {
             FileChannel.open(directory.toPath(), StandardOpenOption.READ).use {
                 it.force(true)
             }
+            DirectorySyncResult.FORCED
+        } catch (_: UnsupportedOperationException) {
+            DirectorySyncResult.UNSUPPORTED
+        } catch (_: Exception) {
+            DirectorySyncResult.FAILED
         }
     }
 

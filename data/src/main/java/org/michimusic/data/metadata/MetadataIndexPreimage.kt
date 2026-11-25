@@ -62,11 +62,11 @@ internal class MetadataIndexPreimageStore(private val root: File) {
             try {
                 FileOutputStream(tmp).use { out -> out.write(bytes); out.fd.sync() }
                 Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
-                try {
-                    FileChannel.open(root.toPath(), StandardOpenOption.READ)
-                        .use { it.force(true) }
-                } catch (_: Exception) { /* reported limitation, not authorization */ }
-                decode(entry, Files.readAllBytes(target.toPath())) != null
+                if (MetadataDurableFile.syncDirectory(root) !=
+                    MetadataDurableFile.DirectorySyncResult.FORCED) {
+                    runCatching { Files.deleteIfExists(target.toPath()) }
+                    false
+                } else decode(entry, Files.readAllBytes(target.toPath())) != null
             } finally { tmp.delete() }
         }
     } catch (_: Exception) { false }
@@ -82,6 +82,23 @@ internal class MetadataIndexPreimageStore(private val root: File) {
                 ?.let { Result.Read(it) }
                 ?: Result.Refused("PREIMAGE_CORRUPT")
         } catch (_: Exception) { Result.Refused("PREIMAGE_UNREADABLE") }
+    }
+
+    fun existingFor(
+        transactionId: String,
+        sourceId: String,
+        trackId: String,
+        uri: String,
+    ): MetadataIndexPreimage.Existing? {
+        val probe = MetadataRecoveryJournalV1.Entry(
+            transactionId,
+            org.michimusic.core.metadata.MetadataRecoveryPhase.CLEANUP_SAFE,
+            sourceId, trackId, uri, 0L, 0L,
+        )
+        return when (val result = read(probe)) {
+            is Result.Read -> result.preimage as? MetadataIndexPreimage.Existing
+            is Result.Refused -> null
+        }
     }
 
     fun delete(entry: MetadataRecoveryJournalV1.Entry): Boolean = try {

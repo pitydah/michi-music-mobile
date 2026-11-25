@@ -56,11 +56,11 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         return MetadataIndexCasCoordinator(port)
     }
     private val genreIndex=MetadataIndexCasCoordinator(
-        MetadataSelectiveGenreCasPort(context,dao))
+        MetadataSelectiveGenreCasPort(context,dao,preimages))
     private val peopleIndex=MetadataIndexCasCoordinator(
-        MetadataSelectivePeopleCasPort(context,database))
+        MetadataSelectivePeopleCasPort(context,database,preimages))
     private val combinedIndex=MetadataIndexCasCoordinator(
-        MetadataSelectiveCombinedCasPort(context,database))
+        MetadataSelectiveCombinedCasPort(context,database,preimages))
     private val resolver=context.contentResolver
 
     enum class Reason {

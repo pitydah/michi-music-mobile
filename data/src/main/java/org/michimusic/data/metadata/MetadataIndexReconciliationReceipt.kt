@@ -246,14 +246,14 @@ internal data class MetadataIndexReconciliationReceipt(
                 } finally {
                     if (Files.exists(tmp.toPath(), LinkOption.NOFOLLOW_LINKS)) tmp.delete()
                 }
-                // Directory fsync is best effort on Android; some providers reject
-                // opening a directory channel. The atomic rename above is already
-                // durable, so only that failure must keep the obligation.
-                try {
-                    FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) }
-                } catch (_: Exception) { /* best effort, never lose the receipt */ }
-                Files.isRegularFile(target.toPath(), LinkOption.NOFOLLOW_LINKS) &&
-                    !Files.isSymbolicLink(target.toPath())
+                if (MetadataDurableFile.syncDirectory(root) !=
+                    MetadataDurableFile.DirectorySyncResult.FORCED) {
+                    runCatching { Files.deleteIfExists(target.toPath()) }
+                    false
+                } else {
+                    Files.isRegularFile(target.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                        !Files.isSymbolicLink(target.toPath())
+                }
             }
         } catch (_: Exception) { false }
 

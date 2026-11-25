@@ -509,6 +509,23 @@ class MetadataIndexReconcilerTest {
         }.toByteArray()
     }
 
+    @Test fun reconcileAllAndReconcileAreBusyAndSideEffectFreeUnderSaveLease() = runBlocking {
+        val publisher = MetadataIndexReconciler.Publisher {
+            error("publisher must not run while the lease is held")
+        }
+        MetadataSaveLocks.tryRun(onBusy = { error("outer lock must be acquired") }) {
+            val report = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+            assertTrue(report.busy)
+            assertTrue(report.outcomes.isEmpty())
+            assertFalse(report.changedIndex)
+            assertEquals(null, reconciler(publisher = publisher)
+                .reconcile(TX, { true }, { true }))
+        }
+        val after = reconciler(publisher = publisher).reconcileAll({ true }, { true })
+        assertFalse(after.busy)
+        assertTrue(after.outcomes.isEmpty())
+    }
+
     private fun sha(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes).joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
 
