@@ -57,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -130,14 +131,20 @@ internal fun MichiMetadataEditorPreviewContent(
     pilotEligibilityOverride: MetadataSaveService.Eligibility? = null,
 ) {
     val target = snapshot.target
+    var committedBase by remember(target.sourceId, target.trackId, target.uri) {
+        mutableStateOf(snapshot)
+    }
+    var committedSize by remember(target.sourceId, target.trackId, target.uri) {
+        mutableLongStateOf(expectedFileBytes)
+    }
     val narrowTopBar = LocalConfiguration.current.screenWidthDp < 360 ||
         (LocalDensity.current.fontScale > 1.5f &&
             LocalConfiguration.current.screenWidthDp < 480)
     val highContrast = LocalVisualPreferences.current.highContrast
     val accent = if (highContrast) PureWhite else PrimaryPinkContainer
     val outline = if (highContrast) MaterialTheme.colorScheme.outline else AeroHairline
-    var draft by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
-        mutableStateOf(MetadataEditorDraftSession.start(snapshot))
+    var draft by remember(target.sourceId, target.trackId, target.uri) {
+        mutableStateOf(MetadataEditorDraftSession.start(committedBase))
     }
     var section by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(if (focusGenre) MetadataEditorSection.BASICS else initialSection)
@@ -171,8 +178,8 @@ internal fun MichiMetadataEditorPreviewContent(
     var saveMessage by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf<String?>(null)
     }
-    var pendingReview by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
-        mutableStateOf<MetadataReview.Ready?>(null)
+    var pendingContinuation by remember(target.sourceId, target.trackId, target.uri) {
+        mutableStateOf<org.michimusic.data.metadata.MetadataPreparedSaveContinuation?>(null)
     }
     var genreFirst by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(focusGenre)
@@ -250,7 +257,7 @@ internal fun MichiMetadataEditorPreviewContent(
         if (certifiedDirty || provisionalCount > 0) confirmExit = true else onDismiss()
     }
     fun revertChanges() {
-        draft = MetadataEditorDraftSession.start(snapshot)
+        draft = MetadataEditorDraftSession.start(committedBase)
         provisional = emptyMap()
         artLyrics = artLyrics.reset()
         genreFirst = false
@@ -260,22 +267,71 @@ internal fun MichiMetadataEditorPreviewContent(
     }
     LaunchedEffect(
         pilotWriter, target.sourceId, target.trackId, target.uri,
-        expectedFileBytes, pilotEligibilityOverride,
+        committedSize, pilotEligibilityOverride,
     ) {
         pilotEligibility = pilotEligibilityOverride ?: pilotWriter?.eligibility(target.uri)
     }
-    var retryPilotSave: (MetadataReview.Ready) -> Unit = {}
+    var launchConsent: (android.app.PendingIntent) -> Unit = {}
+    fun continuePrepared(token: org.michimusic.data.metadata.MetadataPreparedSaveContinuation) {
+        val writer = pilotWriter ?: return
+        if (saving) return
+        saving = true
+        saveMessage = null
+        scope.launch {
+            when (val outcome = writer.continuePreparedSave(
+                token, stillOwnsPrivateSource, playbackDescriptorClosed,
+            )) {
+                is MetadataSaveService.Outcome.Saved -> {
+                    saving = false
+                    val next = outcome.snapshot
+                    committedBase = next
+                    if (outcome.committedBytes > 0L) committedSize = outcome.committedBytes
+                    draft = MetadataEditorDraftSession.start(next)
+                    artLyrics = MetadataArtLyricsUiState()
+                    provisional = emptyMap()
+                    saveMessage = if (outcome.indexPublished) "Cambios guardados"
+                    else "Archivo verificado; biblioteca pendiente"
+                    MetadataLibraryRefreshSignal.request()
+                    onDirtyChanged(false)
+                }
+                is MetadataSaveService.Outcome.ConsentRequired -> {
+                    saving = false
+                    pendingContinuation = outcome.continuation
+                    launchConsent(outcome.intent)
+                }
+                is MetadataSaveService.Outcome.Blocked -> {
+                    saving = false
+                    saveMessage = "No se puede guardar ahora: ${outcome.reason}."
+                }
+                is MetadataSaveService.Outcome.RecoveryRequired -> {
+                    saving = false
+                    saveMessage = "Recuperación necesaria. No se declara guardado."
+                }
+                is MetadataSaveService.Outcome.Failed -> {
+                    saving = false
+                    saveMessage = if (outcome.needsRecovery)
+                        "Recuperación necesaria. No se declara guardado."
+                    else "No se pudo guardar: ${outcome.reason}."
+                }
+            }
+        }
+    }
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
-        val review = pendingReview
-        if (result.resultCode == Activity.RESULT_OK && review != null) {
-            pendingReview = null
-            retryPilotSave(review)
+        val token = pendingContinuation
+        if (result.resultCode == Activity.RESULT_OK && token != null) {
+            pendingContinuation = null
+            continuePrepared(token)
         } else {
-            pendingReview = null
+            pendingContinuation = null
             saveMessage = "Permiso de escritura no concedido."
         }
+    }
+    launchConsent = { intent ->
+        consentLauncher.launch(
+            IntentSenderRequest.Builder(intent.intentSender).build(),
+        )
     }
     fun performPilotSave(review: MetadataReview.Ready) {
         val writer = pilotWriter ?: return
@@ -291,15 +347,17 @@ internal fun MichiMetadataEditorPreviewContent(
                 sourceId = indexSourceId.ifBlank { target.sourceId },
                 trackId = target.trackId,
                 uriString = target.uri,
-                expectedBytes = expectedFileBytes,
+                expectedBytes = committedSize,
                 reviewInput = review,
                 ownerCurrent = stillOwnsPrivateSource,
                 playbackClosed = playbackDescriptorClosed,
             )) {
                 is MetadataSaveService.Outcome.Saved -> {
                     saving = false
-                    pendingReview = null
-                    draft = MetadataEditorDraftSession.start(outcome.snapshot)
+                    val next = outcome.snapshot
+                    committedBase = next
+                    if (outcome.committedBytes > 0L) committedSize = outcome.committedBytes
+                    draft = MetadataEditorDraftSession.start(next)
                     artLyrics = MetadataArtLyricsUiState()
                     provisional = emptyMap()
                     saveMessage = if (outcome.indexPublished) "Cambios guardados"
@@ -309,10 +367,8 @@ internal fun MichiMetadataEditorPreviewContent(
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
                     saving = false
-                    pendingReview = review
-                    consentLauncher.launch(
-                        IntentSenderRequest.Builder(outcome.intent.intentSender).build(),
-                    )
+                    pendingContinuation = outcome.continuation
+                    launchConsent(outcome.intent)
                 }
                 is MetadataSaveService.Outcome.Blocked -> {
                     saving = false
@@ -332,7 +388,6 @@ internal fun MichiMetadataEditorPreviewContent(
             }
         }
     }
-    retryPilotSave = ::performPilotSave
     BackHandler(enabled = true) { requestExit() }
     LaunchedEffect(certifiedDirty) { onDirtyChanged(certifiedDirty) }
 
@@ -597,7 +652,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 },
             )
             MetadataTrackSummary(
-                snapshot,
+                committedBase,
                 effectiveEditCount,
                 partial,
                 artworkModel,

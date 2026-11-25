@@ -187,6 +187,150 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
         assertEquals(null, MetadataIndexReconciliationReceipt.read(journalRoot, TX))
     }
 
+    @Test fun missingPreimageFailsClosedWithoutCasOrRewrite() = runBlocking {
+        val uri = requireNotNull(created)
+        val original = originalSnapshot(originalBytes, uri)
+        val review = review(original, "ME13 Sin Preimagen")
+        val candidate = stage(originalBytes, review)
+        seedVerifiedRow(originalBytes)
+        seedPostMutationJournal(uri, original, review, candidate)
+        writeSource(uri, candidate)
+        val entry = (MetadataRecoveryJournalV1(journalRoot).inspect() as
+            MetadataRecoveryJournalV1.Inspection.Pending).entry
+        assertTrue(MetadataIndexPreimageStore(journalRoot).delete(entry))
+        val before = sha(readSource(uri))
+
+        val outcome = MetadataRecoveryCoordinator(context, database).resume(
+            MetadataRecoveryCoordinator.RecoveryRequest(
+                transactionId = TX, sourceId = sourceId, trackId = trackId,
+                uri = uri.toString(), userRequested = true,
+                ownerStillCurrent = { true }, playbackClosed = { true },
+            ))
+
+        assertEquals(MetadataRecoveryCoordinator.Outcome.RecoveryRequired(
+            TX, "PREIMAGE_MISSING_OR_SUSPICIOUS"), outcome)
+        assertEquals(before, sha(readSource(uri)))
+        assertEquals(MetadataRecoveryPhase.POSTCHECK_VERIFIED,
+            (MetadataRecoveryJournalV1(journalRoot).inspect() as
+                MetadataRecoveryJournalV1.Inspection.Pending).entry.phase)
+    }
+
+    @Test fun exactPreparedContinuationWritesOnceAndIndexes() = runBlocking {
+        val uri = requireNotNull(created)
+        val original = originalSnapshot(originalBytes, uri)
+        val review = review(original, "ME13 Continuada")
+        val candidate = stage(originalBytes, review)
+        seedVerifiedRow(originalBytes)
+        val (entry, intent) = seedPreparedJournal(uri, review, candidate)
+        val token = requireNotNull(MetadataPreparedSaveContinuation.from(entry, intent))
+
+        val outcome = MetadataSaveService(context, database.trackDao(), database)
+            .continuePreparedSave(token, { true }, { true })
+
+        assertTrue("outcome=$outcome", outcome is MetadataSaveService.Outcome.Saved &&
+            outcome.indexPublished)
+        val row = database.trackDao().getTrackBySource(sourceId, trackId)!!
+        assertEquals("ME13 Continuada", row.title)
+        assertEquals(candidate.size.toLong(), row.size)
+        assertEquals(0L, row.verifiedAt)
+        assertEquals("", row.verifiedSha256)
+        assertEquals(MetadataRecoveryJournalV1.Inspection.Clear,
+            MetadataRecoveryJournalV1(journalRoot).inspect())
+        val readBack = readSource(uri)
+        assertEquals(sha(candidate), sha(readBack))
+        assertTrue(readBack.copyOfRange(readBack.size - audioPayload.size, readBack.size)
+            .contentEquals(audioPayload))
+    }
+
+    @Test fun preparedSaveRetryAfterConsentBypassesFreshEligibility() = runBlocking {
+        val uri = requireNotNull(created)
+        val original = originalSnapshot(originalBytes, uri)
+        val review = review(original, "ME13 Reintento")
+        val candidate = stage(originalBytes, review)
+        seedVerifiedRow(originalBytes)
+        seedPreparedJournal(uri, review, candidate)
+
+        val outcome = MetadataSaveService(context, database.trackDao(), database).save(
+            sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+            expectedBytes = originalBytes.size.toLong(), reviewInput = review,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+
+        assertTrue("outcome=$outcome", outcome is MetadataSaveService.Outcome.Saved &&
+            outcome.indexPublished)
+        assertEquals("ME13 Reintento",
+            database.trackDao().getTrackBySource(sourceId, trackId)!!.title)
+        assertEquals(MetadataRecoveryJournalV1.Inspection.Clear,
+            MetadataRecoveryJournalV1(journalRoot).inspect())
+        assertEquals(sha(candidate), sha(readSource(uri)))
+    }
+
+    @Test fun foreignContinuationTokenIsRefusedBeforeMutation() = runBlocking {
+        val uri = requireNotNull(created)
+        val original = originalSnapshot(originalBytes, uri)
+        val review = review(original, "ME13 Ajena")
+        val candidate = stage(originalBytes, review)
+        seedVerifiedRow(originalBytes)
+        val (entry, intent) = seedPreparedJournal(uri, review, candidate)
+        val token = requireNotNull(MetadataPreparedSaveContinuation.from(entry, intent))
+            .copy(uri = "content://media/external_primary/audio/media/999999")
+
+        val outcome = MetadataSaveService(context, database.trackDao(), database)
+            .continuePreparedSave(token, { true }, { true })
+
+        assertEquals(MetadataSaveService.Outcome.RecoveryRequired(
+            "CONTINUATION_MISMATCH"), outcome)
+        assertEquals(sha(originalBytes), sha(readSource(uri)))
+        val pending = MetadataRecoveryJournalV1(journalRoot).inspect() as
+            MetadataRecoveryJournalV1.Inspection.Pending
+        assertEquals(MetadataRecoveryPhase.STAGE_READY, pending.entry.phase)
+    }
+
+    private fun seedPreparedJournal(
+        uri: Uri,
+        review: MetadataReview.Ready,
+        candidate: ByteArray,
+    ): Pair<MetadataRecoveryJournalV1.Entry, MetadataCommitIntentManifest.Receipt> {
+        val journal = MetadataRecoveryJournalV1(journalRoot)
+        val intents = MetadataCommitIntentStore(journal)
+        val owners = MetadataRecoveryOwnerStore(journalRoot)
+        val preimages = MetadataIndexPreimageStore(journalRoot)
+        val container = MetadataAudioContainer.ID3_V23
+        val intent = MetadataCommitIntentManifest.create(
+            transactionId = TX, review = review,
+            provider = MetadataDocumentProvider.MEDIASTORE, container = container,
+            originalBytes = originalBytes.size.toLong(), originalSha256 = sha(originalBytes),
+            candidateBytes = candidate.size.toLong(), candidateSha256 = sha(candidate),
+        )
+        val initial = MetadataRecoveryJournalV1.Entry(
+            TX, MetadataRecoveryPhase.SNAPSHOTTING, sourceId, trackId, uri.toString(),
+            originalBytes.size.toLong(), 777L, ownerEvidenceToken = ownerToken)
+        var staged: MetadataRecoveryJournalV1.Entry? = null
+        val preparedPreimage = runBlocking {
+            database.trackDao().getTrackBySource(sourceId, trackId)
+                ?.asMetadataPreimage() ?: MetadataIndexPreimage.NoRow
+        }
+        runBlocking {
+            journal.exclusive {
+                journal.start(initial)
+                journal.backup(initial).writeBytes(originalBytes)
+                val backed = initial.copy(phase = MetadataRecoveryPhase.BACKUP_DURABLE,
+                    originalSha256 = sha(originalBytes))
+                journal.advance(initial, backed)
+                journal.stage(backed).writeBytes(candidate)
+                val ready = backed.copy(phase = MetadataRecoveryPhase.STAGE_READY,
+                    stageSha256 = sha(candidate), stageBytes = candidate.size.toLong(),
+                    format = container.name)
+                journal.advance(backed, ready)
+                intents.write(ready, intent)
+                check(owners.write(ready, review.original.target))
+                check(preimages.write(ready, preparedPreimage))
+                staged = ready
+            }
+        }
+        return requireNotNull(staged) to intent
+    }
+
     private fun originalSnapshot(bytes: ByteArray, uri: Uri): MetadataSnapshot {
         val file = File(context.cacheDir, "me13-recovery-original-${UUID.randomUUID()}.mp3")
         return try {
@@ -236,6 +380,7 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
         val journal = MetadataRecoveryJournalV1(journalRoot)
         val intents = MetadataCommitIntentStore(journal)
         val owners = MetadataRecoveryOwnerStore(journalRoot)
+        val preimages = MetadataIndexPreimageStore(journalRoot)
         val container = MetadataAudioContainer.ID3_V23
         val intent = MetadataCommitIntentManifest.create(
             transactionId = TX, review = review,
@@ -246,6 +391,10 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
         val initial = MetadataRecoveryJournalV1.Entry(
             TX, MetadataRecoveryPhase.SNAPSHOTTING, sourceId, trackId, uri.toString(),
             originalBytes.size.toLong(), 777L, ownerEvidenceToken = ownerToken)
+        val preparedPreimage = runBlocking {
+            database.trackDao().getTrackBySource(sourceId, trackId)
+                ?.asMetadataPreimage() ?: MetadataIndexPreimage.NoRow
+        }
         runBlocking {
             journal.exclusive {
                 journal.start(initial)
@@ -260,6 +409,7 @@ class MetadataRecoveryCoordinatorInstrumentedTest {
                 journal.advance(backed, staged)
                 intents.write(staged, intent)
                 check(owners.write(staged, review.original.target))
+                check(preimages.write(staged, preparedPreimage))
                 val permit = MetadataWritePermit(
                     transactionId = TX, sourceId = sourceId, trackId = trackId,
                     uri = uri.toString(), originalSha256 = sha(originalBytes),

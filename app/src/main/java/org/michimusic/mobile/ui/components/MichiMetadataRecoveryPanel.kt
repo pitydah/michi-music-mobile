@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.data.metadata.MetadataRecoveryConsole
+import org.michimusic.data.metadata.MetadataRecoveryCoordinator
+import org.koin.compose.koinInject
+import org.michimusic.data.cache.MichiDatabase
 
 /**
  * Explicit, manually invoked recovery. Inspection and the private-only discard
@@ -42,7 +45,10 @@ internal fun MichiMetadataRecoveryPanel(
     playbackClosed: () -> Boolean,
 ) {
     val context = LocalContext.current
-    val console = remember(context) { MetadataRecoveryConsole(context.applicationContext) }
+    val database: MichiDatabase = koinInject()
+    val console = remember(context, database) {
+        MetadataRecoveryConsole(context.applicationContext, database)
+    }
     val scope = rememberCoroutineScope()
     var state by remember(sourceId, trackId, uri) {
         mutableStateOf<MetadataRecoveryConsole.Status?>(null)
@@ -52,6 +58,7 @@ internal fun MichiMetadataRecoveryPanel(
     var busy by remember(sourceId, trackId, uri) { mutableStateOf(false) }
     var message by remember(sourceId, trackId, uri) { mutableStateOf<String?>(null) }
     var restoreMessage by remember(sourceId, trackId, uri) { mutableStateOf<String?>(null) }
+    var finishMessage by remember(sourceId, trackId, uri) { mutableStateOf<String?>(null) }
 
     fun refresh() {
         scope.launch {
@@ -102,6 +109,41 @@ internal fun MichiMetadataRecoveryPanel(
                     "Operación potencialmente interrumpida " +
                         "(${current.phase?.name ?: "DESCONOCIDA"}). Respaldos protegidos.",
                 )
+                val finishable = current.phase in setOf(
+                    MetadataRecoveryPhase.MUTATING,
+                    MetadataRecoveryPhase.MUTATION_UNKNOWN,
+                    MetadataRecoveryPhase.POSTCHECK_VERIFIED,
+                )
+                if (finishable && current.transactionId.isNotBlank()) {
+                    TextButton(enabled = !busy, onClick = {
+                        busy = true
+                        scope.launch {
+                            try {
+                                val result = console.resumeExact(
+                                    transactionId = current.transactionId,
+                                    sourceId = sourceId, trackId = trackId, uri = uri,
+                                    explicitlyConfirmed = true,
+                                    ownerStillCurrent = ownerStillCurrent,
+                                    playbackClosed = playbackClosed,
+                                )
+                                finishMessage = when (result) {
+                                    is MetadataRecoveryCoordinator.Outcome.Indexed ->
+                                        "Guardado finalizado y biblioteca actualizada."
+                                    is MetadataRecoveryCoordinator.Outcome.IndexPending ->
+                                        "Archivo verificado; biblioteca pendiente."
+                                    is MetadataRecoveryCoordinator.Outcome.RecoveryRequired ->
+                                        "Recuperación pendiente: ${result.code}."
+                                    is MetadataRecoveryCoordinator.Outcome.Blocked ->
+                                        "No se pudo finalizar: ${result.code}."
+                                }
+                                refresh()
+                            } finally { busy = false }
+                        }
+                    }, modifier = Modifier.testTag("metadata_recovery_finish_save")) {
+                        Text("Finalizar guardado / actualizar biblioteca")
+                    }
+                }
+                finishMessage?.let { Text(it) }
                 val restorable = current.phase == MetadataRecoveryPhase.MUTATING ||
                     current.phase == MetadataRecoveryPhase.MUTATION_UNKNOWN
                 if (restorable) {

@@ -1,23 +1,23 @@
 package org.michimusic.data.metadata
 
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 
 /**
- * ME-13 D/T15: one process-wide scope per exact source identity. Two service
- * instances cannot both mutate the same provider item; the second call is
- * refused before any backup, journal transition or destructive open.
+ * F4/P1-1: the journal is single and app-wide, so there is one process-wide
+ * mutation lease. It is never removed from the map (no ABA) and it is shared
+ * by every source identity, including URI aliases and different track ids.
  */
 internal object MetadataSaveLocks {
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private val gate = Mutex()
 
-    fun key(sourceId: String, trackId: String, uri: String): String =
-        "$sourceId\u0000$trackId\u0000$uri"
+    fun key(sourceId: String, trackId: String, uri: String): String = "metadata-journal"
 
-    fun lock(key: String): Mutex = locks.computeIfAbsent(key) { Mutex() }
+    fun lock(key: String): Mutex = gate
 
-    fun release(key: String, mutex: Mutex) {
-        if (mutex.isLocked) return
-        locks.remove(key, mutex)
+    fun release(key: String, mutex: Mutex) = Unit
+
+    suspend fun <T> tryRun(onBusy: () -> T, block: suspend () -> T): T {
+        if (!gate.tryLock()) return onBusy()
+        return try { block() } finally { gate.unlock() }
     }
 }

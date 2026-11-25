@@ -63,6 +63,29 @@ class MetadataRecoveryJournalCleanupTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun failureInsideCompleteVerifiedKeepsCleanupSafeAndRetries() = runBlocking {
+        val root = Files.createTempDirectory("me13-cleanup-kill-").toFile()
+        try {
+            val journal = MetadataRecoveryJournalV1(root)
+            val postcheck = preparePostcheck(journal, root)
+            val intent = journal.intent(postcheck)
+            assertTrue(intent.delete())
+            assertTrue(intent.mkdirs())
+            java.io.File(intent, "blocker").writeText("x")
+            assertFalse(journal.completeVerified(postcheck.id))
+            val pending = (journal.inspect() as
+                MetadataRecoveryJournalV1.Inspection.Pending).entry
+            assertEquals(MetadataRecoveryPhase.CLEANUP_SAFE, pending.phase)
+            assertTrue(journal.backup(postcheck).exists())
+            assertTrue(journal.stage(postcheck).exists())
+            java.io.File(intent, "blocker").delete()
+            assertTrue(intent.delete())
+            assertTrue(journal.completeVerified(postcheck.id))
+            assertEquals(MetadataRecoveryJournalV1.Inspection.Clear, journal.inspect())
+            assertFalse(journal.backup(postcheck).exists())
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun secondCleanupIsRefusedOnlyAfterTheJournalIsClear() = runBlocking {
         val root = Files.createTempDirectory("me13-cleanup-").toFile()
         try {

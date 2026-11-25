@@ -26,7 +26,11 @@ import org.michimusic.core.metadata.MetadataTarget
  */
 internal class MetadataVerifiedCommittedSnapshotReader(context: Context) {
     sealed interface Result {
-        data class Verified(val snapshot: MetadataSnapshot) : Result
+        data class Verified(
+            val snapshot: MetadataSnapshot,
+            val physicalBytes: Long,
+            val physicalSha256: String,
+        ) : Result
         data class Refused(val code: String) : Result
     }
 
@@ -107,7 +111,7 @@ internal class MetadataVerifiedCommittedSnapshotReader(context: Context) {
                         return@withContext Result.Refused("KNOWN_OBSERVATION_CONFLICT")
             }
         }
-        Result.Verified(projected)
+        Result.Verified(projected, second.actualSize, second.actualSha256)
     }
 
     private fun refusalFor(reason: String): String = when (reason) {

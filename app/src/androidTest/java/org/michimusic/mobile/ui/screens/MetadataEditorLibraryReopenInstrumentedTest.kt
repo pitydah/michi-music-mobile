@@ -155,10 +155,27 @@ class MetadataEditorLibraryReopenInstrumentedTest {
             "The exact CAS must publish the library, not only the file",
             compose.onAllNodesWithText("Cambios guardados").fetchSemanticsNodes().isNotEmpty(),
         )
+        // F2/N05-N06: a second edit in the same session must use the committed
+        // physical size; Revert must return to the first saved candidate.
+        compose.onNodeWithTag("metadata_input_title_0")
+            .performTextReplacement("ME13 T48 Segundo")
+        hideKeyboard()
+        compose.onNodeWithTag("metadata_revert_changes").performClick()
+        compose.onNodeWithTag("metadata_confirm_revert").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("metadata_input_title_0")
+            .assert(hasText("ME13 T48 Guardada"))
+        compose.onNodeWithTag("metadata_input_title_0")
+            .performTextReplacement("ME13 T48 Final")
+        hideKeyboard()
+        compose.onNodeWithTag("metadata_save_file").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithText("Cambios guardados").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.waitForIdle()
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitUntil(60_000) {
-            compose.onAllNodesWithText("ME13 T48 Guardada").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("ME13 T48 Final").fetchSemanticsNodes().isNotEmpty()
         }
 
         compose.activityRule.scenario.recreate()
@@ -168,10 +185,10 @@ class MetadataEditorLibraryReopenInstrumentedTest {
         }
         compose.onNodeWithText("Biblioteca").performClick()
         compose.waitUntil(60_000) {
-            compose.onAllNodesWithContentDescription("Opciones para ME13 T48 Guardada")
+            compose.onAllNodesWithContentDescription("Opciones para ME13 T48 Final")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithContentDescription("Opciones para ME13 T48 Guardada").performClick()
+        compose.onNodeWithContentDescription("Opciones para ME13 T48 Final").performClick()
         compose.waitUntil(30_000) {
             compose.onAllNodesWithTag("track_menu_edit_metadata").fetchSemanticsNodes().isNotEmpty()
         }
@@ -181,9 +198,9 @@ class MetadataEditorLibraryReopenInstrumentedTest {
             compose.onAllNodesWithTag("metadata_workbench").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("metadata_input_title_0")
-            .assert(hasText("ME13 T48 Guardada"))
+            .assert(hasText("ME13 T48 Final"))
         val row = runBlocking { trackDao.getTrackBySource(sourceId, trackId)!! }
-        assertEquals("ME13 T48 Guardada", row.title)
+        assertEquals("ME13 T48 Final", row.title)
         assertEquals(0L, row.verifiedAt)
         assertEquals("", row.verifiedSha256)
         val after = context.contentResolver.openInputStream(requireNotNull(created))!!

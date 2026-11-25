@@ -47,11 +47,15 @@ class MetadataRecoveryCoordinator internal constructor(
         data class Indexed(
             val transactionId: String,
             val snapshot: MetadataSnapshot,
+            val committedBytes: Long = 0L,
+            val committedSha256: String = "",
         ) : Outcome
         data class IndexPending(
             val transactionId: String,
             val snapshot: MetadataSnapshot,
             val code: String,
+            val committedBytes: Long = 0L,
+            val committedSha256: String = "",
         ) : Outcome
         data class RecoveryRequired(
             val transactionId: String,
@@ -64,6 +68,7 @@ class MetadataRecoveryCoordinator internal constructor(
     private val journal = MetadataRecoveryJournalV1(root)
     private val intents = MetadataCommitIntentStore(journal)
     private val owners = MetadataRecoveryOwnerStore(root)
+    private val preimages = MetadataIndexPreimageStore(root)
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
     private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
@@ -126,15 +131,20 @@ class MetadataRecoveryCoordinator internal constructor(
         val committed = when (val read = committedSnapshots.read(
             entry, target, intent,
         )) {
-            is MetadataVerifiedCommittedSnapshotReader.Result.Verified -> read.snapshot
+            is MetadataVerifiedCommittedSnapshotReader.Result.Verified -> read
             is MetadataVerifiedCommittedSnapshotReader.Result.Refused ->
                 return@withContext Outcome.RecoveryRequired(
                     entry.id, "COMMITTED_SNAPSHOT_NOT_VERIFIED")
         }
+        val preimage = when (val stored = preimages.read(entry)) {
+            is MetadataIndexPreimageStore.Result.Read -> stored.preimage
+            is MetadataIndexPreimageStore.Result.Refused ->
+                return@withContext Outcome.RecoveryRequired(entry.id, stored.code)
+        }
         val row = runCatching {
             database.trackDao().getTrackBySource(entry.sourceId, entry.trackId)
         }.getOrNull()
-        val expected = preWriteIdentity(entry, row)
+        val expected = preWriteIdentity(entry, preimage)
         if (expected != null) {
             val published = publication.reconcile(
                 entry.id, evidence.original, expected, true,
@@ -148,13 +158,14 @@ class MetadataRecoveryCoordinator internal constructor(
         if (!writeReceipt(entry, expected, token))
             return@withContext Outcome.RecoveryRequired(
                 entry.id, "INDEX_OBLIGATION_NOT_DURABLE")
-        Outcome.IndexPending(entry.id, committed,
-            if (expected == null) "MISSING_ROW_OR_PREIMAGE" else "CAS_REFUSED_OR_CONFLICT")
+        Outcome.IndexPending(entry.id, committed.snapshot,
+            if (expected == null) "MISSING_ROW_OR_PREIMAGE" else "CAS_REFUSED_OR_CONFLICT",
+            committed.physicalBytes, committed.physicalSha256)
     }
 
     private fun finishIndexed(
         entry: MetadataRecoveryJournalV1.Entry,
-        snapshot: MetadataSnapshot,
+        committed: MetadataVerifiedCommittedSnapshotReader.Result.Verified,
     ): Outcome {
         val proof = MetadataIndexAppliedReceipt(
             transactionId = entry.id, sourceId = entry.sourceId,
@@ -166,25 +177,29 @@ class MetadataRecoveryCoordinator internal constructor(
         if (!journal.completeVerified(entry.id))
             return Outcome.RecoveryRequired(entry.id, "INDEXED_CLEANUP_PENDING")
         MetadataIndexAppliedReceipt.delete(root, entry.id)
-        return Outcome.Indexed(entry.id, snapshot)
+        return Outcome.Indexed(entry.id, committed.snapshot,
+            committed.physicalBytes, committed.physicalSha256)
     }
 
     private fun preWriteIdentity(
         entry: MetadataRecoveryJournalV1.Entry,
-        row: CachedTrack?,
+        preimage: MetadataIndexPreimage,
     ): MetadataIndexPublicationPolicy.IndexIdentity? {
-        if (row == null || row.filepath != entry.uri || row.size != entry.expectedBytes)
+        if (preimage !is MetadataIndexPreimage.Existing) return null
+        if (preimage.uri != entry.uri || preimage.size != entry.expectedBytes ||
+            preimage.sourceId != entry.sourceId || preimage.trackId != entry.trackId)
             return null
-        val verified = row.verifiedAt > 0L &&
-            row.verifiedSha256 == entry.originalSha256 &&
-            row.verifiedSize == row.size &&
-            row.verifiedAlgorithm.lowercase() == "sha256"
-        val unhashed = row.verifiedAt == 0L && row.verifiedSha256.isEmpty() &&
-            row.verifiedSize == 0L && row.verifiedAlgorithm.isEmpty()
+        val verified = preimage.verifiedAt > 0L &&
+            preimage.verifiedSha256 == entry.originalSha256 &&
+            preimage.verifiedSize == preimage.size &&
+            preimage.verifiedAlgorithm.lowercase() == "sha256"
+        val unhashed = preimage.verifiedAt == 0L && preimage.verifiedSha256.isEmpty() &&
+            preimage.verifiedSize == 0L && preimage.verifiedAlgorithm.isEmpty()
         if (!verified && !unhashed) return null
         return MetadataIndexPublicationPolicy.IndexIdentity(
-            sourceId = row.sourceId, trackId = row.id, uri = row.filepath,
-            version = row.verifiedAt, observedSourceSha256 = row.verifiedSha256,
+            sourceId = preimage.sourceId, trackId = preimage.trackId, uri = preimage.uri,
+            version = preimage.verifiedAt,
+            observedSourceSha256 = preimage.verifiedSha256,
         )
     }
 

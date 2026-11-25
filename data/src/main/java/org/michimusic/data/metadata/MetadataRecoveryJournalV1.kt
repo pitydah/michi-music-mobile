@@ -270,6 +270,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
 
     /** Durable owner evidence written before MUTATING; optional for legacy V2. */
     fun owner(entry: Entry): File = File(root, "owner-${validatedId(entry.id)}.bin")
+    fun preimage(entry: Entry): File = File(root, "preimage-${validatedId(entry.id)}.bin")
 
     private fun validatedId(id: String): String {
         require(validId.matches(id)) { "INVALID_PRIVATE_TRANSACTION_ID" }
@@ -407,7 +408,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         }
         return try {
             if (cleanup !== entry) advance(entry, cleanup)
-            for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry))) {
+            for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry), preimage(entry))) {
                 if (Files.isSymbolicLink(file.toPath())) return false
                 if (file.exists() && !file.delete()) return false
             }
@@ -420,7 +421,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
         if (entry.id != id || !MetadataRecoveryPhasePolicy.canDiscardPrivateOnly(entry.phase) ||
             privateTrialPresent(entry)) return false
-        for (file in listOf(intent(entry), stage(entry), backup(entry))) {
+        for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry), preimage(entry))) {
             if (Files.isSymbolicLink(file.toPath())) return false
             if (file.exists() && !file.delete()) return false
         }
