@@ -1,16 +1,25 @@
 package org.michimusic.mobile.ui.metadata
 
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
 
 /**
- * ME-13 T48: a completed MP3 save invalidates the live local library exactly
- * once. The editor never edits a remembered Track in place; the library screen
- * reloads from its source after this signal.
+ * Post-readback notifications for exact committed metadata transactions.
+ *
+ * This flow is presentation coordination, never mutation authority. Consumers
+ * may patch an already loaded cache from the verified snapshot, but must not
+ * infer a successful source write from delivery alone.
  */
 object MetadataLibraryRefreshSignal {
-    val revision = MutableStateFlow(0L)
+    private val mutableChanges = MutableSharedFlow<MetadataCommittedLibraryChange>(
+        replay = 1,
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val changes = mutableChanges.asSharedFlow()
 
-    fun request() {
-        revision.value = revision.value + 1L
-    }
+    fun request(change: MetadataCommittedLibraryChange): Boolean =
+        mutableChanges.tryEmit(change)
 }

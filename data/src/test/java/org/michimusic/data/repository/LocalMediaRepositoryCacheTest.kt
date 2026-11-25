@@ -14,6 +14,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
+import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataSnapshot
+import org.michimusic.core.metadata.MetadataTarget
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -106,6 +110,52 @@ class LocalMediaRepositoryCacheTest {
         val result = repo.fetchTracksResult()
         assertTrue(result is MediaResult.PermissionDenied)
     }
+
+    @Test
+    fun committedMetadataPatchesCachedTrackAndRegroupsWithoutMediaStoreQuery() =
+        runTest(testDispatcher) {
+            val original = trackA.copy(
+                id = "local_7",
+                album = "Old",
+                albumId = "42",
+                filepath = "content://media/external/audio/media/7",
+            )
+            val repo = QueryControlledRepository(
+                listOf(MediaResult.Success(listOf(original))),
+            )
+            repo.loadTracks()
+
+            val result = repo.applyMetadataCommittedChange(
+                MetadataCommittedLibraryChange(
+                    transactionId = "tx",
+                    sourceId = "lib_device_local",
+                    trackId = original.id,
+                    uri = original.filepath,
+                    changedFields = setOf(MetadataField.ALBUM),
+                    resourceOperations = emptySet(),
+                    snapshot = MetadataSnapshot(
+                        target = MetadataTarget(
+                            "lib_device_local", original.id, original.filepath, "cold",
+                        ),
+                        tagsVerified = true,
+                        known = mapOf(MetadataField.ALBUM to listOf("New")),
+                    ),
+                    previousRevision = 1,
+                    committedRevision = 2,
+                    committedBytes = 123,
+                    committedSha256 = "b".repeat(64),
+                ),
+            )
+
+            assertTrue(result is LocalMediaRepository.MetadataCachePatch.Applied)
+            val applied = result as LocalMediaRepository.MetadataCachePatch.Applied
+            assertEquals("New", applied.changedTrack.album)
+            assertEquals("", applied.changedTrack.albumId)
+            assertEquals("New", applied.albums.single().album.title)
+            assertEquals(1, repo.queryCount)
+            assertEquals("New", repo.loadTracks().single().album)
+            assertEquals(1, repo.queryCount)
+        }
 
     companion object {
         private val trackA = Track(id = "a", title = "Song A", artist = "Artist", album = "Album", source = TrackSource.LOCAL)

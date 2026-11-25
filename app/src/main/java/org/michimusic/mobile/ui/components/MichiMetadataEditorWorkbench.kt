@@ -297,7 +297,7 @@ internal fun MichiMetadataEditorPreviewContent(
                     provisional = emptyMap()
                     saveMessage = if (outcome.indexPublished) "Cambios guardados"
                     else "Archivo verificado; biblioteca pendiente"
-                    MetadataLibraryRefreshSignal.request()
+                    outcome.libraryChange?.let(MetadataLibraryRefreshSignal::request)
                     onDirtyChanged(false)
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
@@ -399,7 +399,7 @@ internal fun MichiMetadataEditorPreviewContent(
                     provisional = emptyMap()
                     saveMessage = if (outcome.indexPublished) "Cambios guardados"
                     else "Archivo verificado; biblioteca pendiente"
-                    MetadataLibraryRefreshSignal.request()
+                    outcome.libraryChange?.let(MetadataLibraryRefreshSignal::request)
                     onDirtyChanged(false)
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {

@@ -18,6 +18,10 @@ import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
+import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataSnapshot
+import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.data.cache.AppDao
 
 import org.michimusic.data.repository.LocalMediaRepository
@@ -119,6 +123,108 @@ class AlbumsViewModelTest {
 
         assertEquals(1, viewModel.playlists.value.size)
     }
+
+    @Test
+    fun `exact metadata change patches loaded lists without requerying MediaStore`() =
+        runTest(testDispatcher) {
+            val uri = "content://media/external/audio/media/7"
+            val before = Track(
+                id = "local_7",
+                title = "Before",
+                artist = "Artist",
+                album = "Old Album",
+                albumId = "17",
+                duration = 100,
+                size = 1000,
+                format = "mp3",
+                filepath = uri,
+                source = org.michimusic.core.models.TrackSource.LOCAL,
+            )
+            val after = before.copy(
+                title = "After",
+                album = "New Album",
+                albumId = "",
+                size = 1200,
+                contentHash = "b".repeat(64),
+            )
+            val initialAlbum = LocalMediaRepository.LocalAlbum(
+                album = org.michimusic.core.models.Album(
+                    id = "a1",
+                    title = before.album,
+                    artist = before.artist,
+                    coverId = "",
+                    year = 0,
+                ),
+                tracks = listOf(before),
+            )
+            val changedAlbum = LocalMediaRepository.LocalAlbum(
+                album = org.michimusic.core.models.Album(
+                    id = "a2",
+                    title = after.album,
+                    artist = after.artist,
+                    coverId = "",
+                    year = 0,
+                ),
+                tracks = listOf(after),
+            )
+            val change = MetadataCommittedLibraryChange(
+                transactionId = "tx-selective-refresh",
+                sourceId = "lib_device_local",
+                trackId = before.id,
+                uri = uri,
+                changedFields = setOf(MetadataField.TITLE, MetadataField.ALBUM),
+                resourceOperations = emptySet(),
+                snapshot = MetadataSnapshot(
+                    target = MetadataTarget(
+                        sourceId = "lib_device_local",
+                        trackId = before.id,
+                        uri = uri,
+                        evidenceToken = "post-readback",
+                    ),
+                    tagsVerified = true,
+                    known = mapOf(
+                        MetadataField.TITLE to listOf(after.title),
+                        MetadataField.ALBUM to listOf(after.album),
+                    ),
+                ),
+                previousRevision = 4,
+                committedRevision = 5,
+                committedBytes = after.size,
+                committedSha256 = after.contentHash,
+            )
+            coEvery { localRepo.fetchAlbumsResult() } returns
+                MediaResult.Success(listOf(initialAlbum))
+            coEvery { appDao.getTopTracks(12) } returns
+                listOf(org.michimusic.data.cache.PlayCountEntity(before.id, 10))
+            coEvery { appDao.getRecentHistory(20) } returns
+                listOf(
+                    org.michimusic.data.cache.HistoryEntity(
+                        trackId = before.id,
+                        playedAt = 1,
+                    ),
+                )
+            coEvery { playlistRepo.getAllPlaylists() } returns emptyList()
+            coEvery { localRepo.applyMetadataCommittedChange(change) } returns
+                LocalMediaRepository.MetadataCachePatch.Applied(
+                    after,
+                    listOf(after),
+                    listOf(changedAlbum),
+                )
+
+            viewModel.loadMedia()
+            testScheduler.advanceUntilIdle()
+            viewModel.applyMetadataChange(change)
+            viewModel.applyMetadataChange(change)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals("After", viewModel.allTracks.value.single().title)
+            assertEquals("New Album", viewModel.albums.value.single().album.title)
+            assertEquals("After", viewModel.topTracks.value.single().title)
+            assertEquals("After", viewModel.recentTracks.value.single().title)
+            coVerify(exactly = 1) { localRepo.fetchAlbumsResult() }
+            coVerify(exactly = 1) { localRepo.applyMetadataCommittedChange(change) }
+            coVerify(exactly = 0) { localRepo.invalidateCache() }
+        }
 
     @Test
     fun `createPlaylist persists via repository and refreshes playlists state`() = runTest(testDispatcher) {

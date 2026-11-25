@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
 import org.michimusic.data.cache.AppDao
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
@@ -66,6 +67,7 @@ class AlbumsViewModel(
 
     private var loadJob: Job? = null
     private val loadEpoch = java.util.concurrent.atomic.AtomicLong()
+    private val metadataTransactions = LinkedHashSet<String>()
 
     init {
         if (rootAuthority != null) {
@@ -196,11 +198,61 @@ class AlbumsViewModel(
         }
     }
 
+    /**
+     * Applies one exact post-readback metadata notification to the loaded local
+     * catalog. No MediaStore query or global cache invalidation is performed.
+     */
+    fun applyMetadataChange(change: MetadataCommittedLibraryChange) {
+        val accepted = synchronized(metadataTransactions) {
+            metadataTransactions.add(change.transactionId)
+        }
+        if (!accepted) return
+        viewModelScope.launch(ioDispatcher) {
+            when (val patch = repo.applyMetadataCommittedChange(change)) {
+                is LocalMediaRepository.MetadataCachePatch.Applied -> {
+                    val changed = patch.changedTrack
+                    fun replace(items: List<Track>): List<Track> = items.map { track ->
+                        if (track.id == changed.id && track.filepath == changed.filepath) changed
+                        else track
+                    }
+                    _albums.value = patch.albums
+                    _allTracks.value = patch.tracks
+                    _favoriteTracks.value = patch.tracks.filter {
+                        it.id in _favoriteTrackIds.value
+                    }
+                    _topTracks.value = replace(_topTracks.value)
+                    _recentTracks.value = replace(_recentTracks.value)
+                    _downloadedTrackIds.value = patch.tracks.filter { track ->
+                        org.michimusic.core.models.TrackAvailabilityChecker
+                            .isTrackDownloaded(track)
+                    }.mapTo(linkedSetOf()) { it.id }
+                    synchronized(metadataTransactions) {
+                        while (metadataTransactions.size > MAX_METADATA_TRANSACTIONS) {
+                            metadataTransactions.remove(metadataTransactions.first())
+                        }
+                    }
+                }
+                LocalMediaRepository.MetadataCachePatch.CacheUnavailable,
+                is LocalMediaRepository.MetadataCachePatch.Refused -> {
+                    // A replay received before initial loading is harmless. Allow
+                    // the exact transaction to be retried after a cache exists.
+                    synchronized(metadataTransactions) {
+                        metadataTransactions.remove(change.transactionId)
+                    }
+                }
+            }
+        }
+    }
+
     private val _isCreatingPlaylist = MutableStateFlow(false)
     val isCreatingPlaylist: StateFlow<Boolean> = _isCreatingPlaylist.asStateFlow()
 
     private val _createPlaylistError = MutableStateFlow<String?>(null)
     val createPlaylistError: StateFlow<String?> = _createPlaylistError.asStateFlow()
+
+    private companion object {
+        const val MAX_METADATA_TRANSACTIONS = 128
+    }
 
     fun createPlaylist(name: String, onResult: (CreatePlaylistResult) -> Unit = {}) {
         val trimmed = name.trim()

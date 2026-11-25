@@ -51,6 +51,7 @@ class MetadataSaveService internal constructor(
             val indexPublished: Boolean,
             val committedBytes: Long = 0L,
             val committedSha256: String = "",
+            val libraryChange: org.michimusic.core.metadata.MetadataCommittedLibraryChange? = null,
         ) : Outcome
         data class ConsentRequired(
             val intent: PendingIntent,
@@ -301,11 +302,29 @@ class MetadataSaveService internal constructor(
                 return Outcome.RecoveryRequired("POSTCHECK_SNAPSHOT_UNAVAILABLE")
         }
         if (indexed) {
+            val marker = try { trackDao.getAppliedMetadataTransaction(entry.id) }
+                catch (_: Exception) { null }
+                ?: return Outcome.RecoveryRequired("APPLIED_MARKER_UNAVAILABLE")
+            val libraryChange = org.michimusic.core.metadata.MetadataCommittedLibraryChange(
+                transactionId = entry.id,
+                sourceId = entry.sourceId,
+                trackId = entry.trackId,
+                uri = entry.uri,
+                changedFields = intent.changes.mapTo(linkedSetOf()) { it.field },
+                resourceOperations = intent.resources.mapTo(linkedSetOf()) {
+                    org.michimusic.core.metadata.MetadataResourceOperation.of(it)
+                },
+                snapshot = committed.snapshot,
+                previousRevision = marker.originalRevision,
+                committedRevision = marker.committedRevision,
+                committedBytes = committed.physicalBytes,
+                committedSha256 = committed.physicalSha256,
+            )
             checkpoints.reach(MetadataSaveCheckpoint.BEFORE_TERMINAL_CLEANUP)
             if (!journal.completeVerified(entry.id))
                 return Outcome.RecoveryRequired("INDEXED_CLEANUP_PENDING")
             return Outcome.Saved(committed.snapshot, true,
-                committed.physicalBytes, committed.physicalSha256)
+                committed.physicalBytes, committed.physicalSha256, libraryChange)
         }
         if (!writeIndexReceipt(entry.copy(phase = MetadataRecoveryPhase.POSTCHECK_VERIFIED),
                 target, expectedIndex))
@@ -658,7 +677,8 @@ class MetadataSaveService internal constructor(
         )) {
             is MetadataRecoveryCoordinator.Outcome.Indexed ->
                 Outcome.Saved(outcome.snapshot, true,
-                    outcome.committedBytes, outcome.committedSha256)
+                    outcome.committedBytes, outcome.committedSha256,
+                    outcome.libraryChange)
             is MetadataRecoveryCoordinator.Outcome.IndexPending ->
                 Outcome.Saved(outcome.snapshot, false,
                     outcome.committedBytes, outcome.committedSha256)

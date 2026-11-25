@@ -164,11 +164,10 @@ fun AlbumsScreen(
     org.michimusic.mobile.ui.components.MediaPermissionWatcher(mediaState) {
         viewModel.loadMedia(forceRefresh = true)
     }
-    val metadataRefreshRevision by
-        org.michimusic.mobile.ui.metadata.MetadataLibraryRefreshSignal.revision
-            .collectAsStateWithLifecycle()
-    LaunchedEffect(metadataRefreshRevision) {
-        if (metadataRefreshRevision > 0L) viewModel.loadMedia(forceRefresh = true)
+    LaunchedEffect(viewModel) {
+        org.michimusic.mobile.ui.metadata.MetadataLibraryRefreshSignal.changes.collect {
+            viewModel.applyMetadataChange(it)
+        }
     }
 
     val audioController: AudioController = koinInject()

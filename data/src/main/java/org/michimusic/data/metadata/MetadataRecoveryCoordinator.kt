@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
 import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
 import org.michimusic.core.metadata.MetadataRecoveryPhase
@@ -44,6 +45,7 @@ class MetadataRecoveryCoordinator internal constructor(
             val snapshot: MetadataSnapshot,
             val committedBytes: Long = 0L,
             val committedSha256: String = "",
+            val libraryChange: MetadataCommittedLibraryChange? = null,
         ) : Outcome
         data class IndexPending(
             val transactionId: String,
@@ -142,11 +144,11 @@ class MetadataRecoveryCoordinator internal constructor(
                 entry.id, evidence.original, expected, true,
                 request.ownerStillCurrent, request.playbackClosed, permit)
             if (published.isIndexed()) {
-                return@withContext finishIndexed(entry, committed)
+                return@withContext finishIndexed(entry, intent, preimage, committed)
             }
         }
         if (appliedMarkerMatches(entry, preimage)) {
-            return@withContext finishIndexed(entry, committed)
+            return@withContext finishIndexed(entry, intent, preimage, committed)
         }
         if (!writeReceipt(entry, expected, token))
             return@withContext Outcome.RecoveryRequired(
@@ -156,10 +158,45 @@ class MetadataRecoveryCoordinator internal constructor(
             committed.physicalBytes, committed.physicalSha256)
     }
 
-    private fun finishIndexed(
+    private suspend fun finishIndexed(
         entry: MetadataRecoveryJournalV1.Entry,
+        intent: MetadataCommitIntentManifest.Receipt,
+        preimage: MetadataIndexPreimage,
         committed: MetadataVerifiedCommittedSnapshotReader.Result.Verified,
     ): Outcome {
+        val existing = preimage as? MetadataIndexPreimage.Existing
+            ?: return Outcome.RecoveryRequired(entry.id, "PREIMAGE_NOT_EXACT")
+        val marker = runCatching {
+            database.trackDao().getAppliedMetadataTransaction(entry.id)
+        }.getOrNull() ?: return Outcome.RecoveryRequired(
+            entry.id,
+            "APPLIED_MARKER_UNAVAILABLE",
+        )
+        val exactMarker = marker.sourceId == entry.sourceId &&
+            marker.trackId == entry.trackId &&
+            marker.uri == entry.uri &&
+            marker.originalRevision == existing.metadataRevision &&
+            marker.committedRevision > marker.originalRevision &&
+            marker.candidateSha256 == entry.stageSha256 &&
+            marker.candidateBytes == entry.stageBytes
+        if (!exactMarker) {
+            return Outcome.RecoveryRequired(entry.id, "APPLIED_MARKER_MISMATCH")
+        }
+        val libraryChange = MetadataCommittedLibraryChange(
+            transactionId = entry.id,
+            sourceId = entry.sourceId,
+            trackId = entry.trackId,
+            uri = entry.uri,
+            changedFields = intent.changes.mapTo(linkedSetOf()) { it.field },
+            resourceOperations = intent.resources.mapTo(linkedSetOf()) {
+                org.michimusic.core.metadata.MetadataResourceOperation.of(it)
+            },
+            snapshot = committed.snapshot,
+            previousRevision = marker.originalRevision,
+            committedRevision = marker.committedRevision,
+            committedBytes = committed.physicalBytes,
+            committedSha256 = committed.physicalSha256,
+        )
         val proof = MetadataIndexAppliedReceipt(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
@@ -171,7 +208,7 @@ class MetadataRecoveryCoordinator internal constructor(
             return Outcome.RecoveryRequired(entry.id, "INDEXED_CLEANUP_PENDING")
         MetadataIndexAppliedReceipt.delete(root, entry.id)
         return Outcome.Indexed(entry.id, committed.snapshot,
-            committed.physicalBytes, committed.physicalSha256)
+            committed.physicalBytes, committed.physicalSha256, libraryChange)
     }
 
     private fun preWriteIdentity(

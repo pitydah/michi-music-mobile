@@ -15,12 +15,14 @@ import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.RecoveredSafGenre
 import org.michimusic.data.cache.LibraryExclusionDao
 import org.michimusic.data.cache.LibraryExclusionEntity
+import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.cache.TrackDao
@@ -66,6 +68,16 @@ open class LocalMediaRepository(
         val album: Album,
         val tracks: List<Track>,
     )
+
+    sealed interface MetadataCachePatch {
+        data class Applied(
+            val changedTrack: Track,
+            val tracks: List<Track>,
+            val albums: List<LocalAlbum>,
+        ) : MetadataCachePatch
+        data object CacheUnavailable : MetadataCachePatch
+        data class Refused(val reason: String) : MetadataCachePatch
+    }
 
     open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
         val albums = loadAlbums()
@@ -196,6 +208,37 @@ open class LocalMediaRepository(
             cachedTracks = null
             cachedCoverage = MediaCoverage.FULL
         }
+    }
+
+    /**
+     * Patches one already-loaded local row after an exact metadata commit.
+     * It never queries MediaStore and never upgrades incomplete cache coverage.
+     */
+    open suspend fun applyMetadataCommittedChange(
+        change: MetadataCommittedLibraryChange,
+    ): MetadataCachePatch = cacheMutex.withLock {
+        val current = cachedTracks ?: return@withLock MetadataCachePatch.CacheUnavailable
+        val indices = current.indices.filter { index ->
+            val track = current[index]
+            val sourceMatches = track.sourceId == change.sourceId ||
+                (track.sourceId.isBlank() &&
+                    change.sourceId == MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID)
+            sourceMatches && track.id == change.trackId && track.filepath == change.uri
+        }
+        if (indices.size != 1) {
+            return@withLock MetadataCachePatch.Refused("TARGET_NOT_UNIQUE")
+        }
+        val index = indices.single()
+        val projected = when (val result =
+            MetadataCommittedTrackProjection.apply(current[index], change)
+        ) {
+            is MetadataCommittedTrackProjection.Result.Applied -> result.track
+            is MetadataCommittedTrackProjection.Result.Refused ->
+                return@withLock MetadataCachePatch.Refused(result.reason)
+        }
+        val updated = current.toMutableList().also { it[index] = projected }.toList()
+        cachedTracks = updated
+        MetadataCachePatch.Applied(projected, updated, groupAlbums(updated))
     }
     /**
      * Manual, cancelable recovery. Every 32-track page is a committed Room

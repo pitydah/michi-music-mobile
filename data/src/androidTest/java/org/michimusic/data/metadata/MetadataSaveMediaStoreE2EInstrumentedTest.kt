@@ -28,6 +28,7 @@ import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
 import org.michimusic.core.metadata.MetadataPrivateBundleStage
+import org.michimusic.core.metadata.MetadataResourceOperation
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSelectiveAssetStage
 import org.michimusic.core.models.TrackDto
@@ -197,6 +198,26 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertEquals(after.size.toLong(), row.size)
         assertEquals(0L, row.verifiedAt)
         assertEquals("", row.verifiedSha256)
+        val libraryChange = checkNotNull(saved.libraryChange)
+        assertEquals(setOf(MetadataField.TITLE), libraryChange.changedFields)
+        assertTrue(libraryChange.resourceOperations.isEmpty())
+        assertEquals(sourceId, libraryChange.sourceId)
+        assertEquals(trackId, libraryChange.trackId)
+        assertEquals(uri.toString(), libraryChange.uri)
+        assertEquals(row.metadataRevision, libraryChange.committedRevision)
+        assertEquals(after.size.toLong(), libraryChange.committedBytes)
+        assertEquals(afterSha, libraryChange.committedSha256)
+        assertEquals(
+            listOf("ME13 Renombrada"),
+            libraryChange.snapshot.known[MetadataField.TITLE],
+        )
+        val scalarMarker = checkNotNull(
+            database.trackDao().getAppliedMetadataTransaction(libraryChange.transactionId),
+        )
+        assertEquals(scalarMarker.originalRevision, libraryChange.previousRevision)
+        assertEquals(scalarMarker.committedRevision, libraryChange.committedRevision)
+        assertEquals(scalarMarker.candidateBytes, libraryChange.committedBytes)
+        assertEquals(scalarMarker.candidateSha256, libraryChange.committedSha256)
 
         val reopened = when (
             val read = reader.loadEditorColdRead(readSourceId, trackId, uri.toString(), after.size.toLong())
@@ -456,7 +477,9 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             "Exact APIC replacement must commit and publish, got $outcome",
             outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
         )
+        val saved = outcome as MetadataSaveService.Outcome.Saved
         val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val afterSha = sha(after)
         val physical = File(context.cacheDir, "me-art-after-${UUID.randomUUID()}.mp3")
         val resources = try {
             physical.writeBytes(after)
@@ -470,6 +493,19 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertEquals("Artwork Original", row.title)
         assertEquals(after.size.toLong(), row.size)
         assertTrue(row.metadataRevision > originalRevision)
+        val libraryChange = checkNotNull(saved.libraryChange)
+        assertTrue(libraryChange.changedFields.isEmpty())
+        assertEquals(
+            setOf(MetadataResourceOperation.ID3_APIC_REPLACE),
+            libraryChange.resourceOperations,
+        )
+        assertEquals(originalRevision, libraryChange.previousRevision)
+        assertEquals(row.metadataRevision, libraryChange.committedRevision)
+        assertEquals(after.size.toLong(), libraryChange.committedBytes)
+        assertEquals(afterSha, libraryChange.committedSha256)
+        assertEquals(sourceId, libraryChange.snapshot.target.sourceId)
+        assertEquals(artworkTrackId, libraryChange.snapshot.target.trackId)
+        assertEquals(uri.toString(), libraryChange.snapshot.target.uri)
         database.openHelper.writableDatabase.query(
             "SELECT originalRevision,committedRevision,candidateSha256,candidateBytes " +
                 "FROM metadata_applied_transaction WHERE sourceId=? AND trackId=?",
@@ -478,10 +514,17 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             assertTrue("Exact applied transaction marker is missing", cursor.moveToFirst())
             assertEquals(originalRevision, cursor.getLong(0))
             assertEquals(row.metadataRevision, cursor.getLong(1))
-            assertEquals(sha(after), cursor.getString(2))
+            assertEquals(afterSha, cursor.getString(2))
             assertEquals(after.size.toLong(), cursor.getLong(3))
             assertTrue("There must be exactly one marker", !cursor.moveToNext())
         }
+        val artworkMarker = checkNotNull(
+            database.trackDao().getAppliedMetadataTransaction(libraryChange.transactionId),
+        )
+        assertEquals(artworkMarker.originalRevision, libraryChange.previousRevision)
+        assertEquals(artworkMarker.committedRevision, libraryChange.committedRevision)
+        assertEquals(artworkMarker.candidateSha256, libraryChange.committedSha256)
+        assertEquals(artworkMarker.candidateBytes, libraryChange.committedBytes)
         assertTrue(
             MetadataRecoveryJournalV1(
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
