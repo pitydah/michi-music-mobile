@@ -1,0 +1,11 @@
+id,provider,container,revision,field_or_asset,operation,expected,result,evidence,reason
+E2-01,MediaStore,MP3,ID3v2.4,ALBUM_ARTIST,replace,write+readback,NOT RUN,None,Not implemented
+E2-02,MediaStore,MP3,ID3v2.3,COMPOSER,replace,write+readback,NOT RUN,None,Not implemented
+E2-03,MediaStore,MP3,ID3v2.4,TRACK_NUMBER/TOTAL,replace,write+readback,NOT RUN,None,Not implemented
+E2-04,MediaStore,MP3,ID3v2.3/2.4,APIC,add/replace/remove,write+readback,NOT RUN,None,Not implemented
+E2-05,MediaStore,MP3,ID3v2.3/2.4,USLT/COMM,replace,write+readback,NOT RUN,None,Not implemented
+E2-06,MediaStore,MP3,ID3v2.4,GENRE,multivalue,write+readback,NOT RUN,None,Not implemented
+E3-01,MediaStore,FLAC,any,Vorbis Comment,replace,write+readback,NOT RUN,None,No FLAC profile
+E3-02,MediaStore,FLAC,any,PICTURE,replace,write+readback,NOT RUN,None,No FLAC profile
+E4-01,SAF,MP3/FLAC,any,text,replace,write+readback,NOT RUN,None,No SAF profile
+E5-01,MediaStore,MP4/M4A,any,ilst text,replace,write+readback,NOT RUN,None,No MP4 profile

@@ -1,0 +1,6 @@
+id,case,expected,result,evidence
+E-N01,MP3 APIC while profile permitsArtwork=false,Blocked before source open,PASS,ME13 profile test + app UI disables artwork save
+E-N02,MP3 multivalue while permitsMultiValue empty,Blocked before source open,PASS,ME14 SaveService field-size guard
+E-N03,FLAC write request,Blocked unsupported profile,PASS,ME14 T48/eligibility only MP3
+E-N04,SAF write request,Blocked unsupported profile,PASS,ME14 eligibility only MediaStore
+E-N05,MP4/M4A write request,Blocked unsupported profile,PASS,ME14 eligibility only MediaStore

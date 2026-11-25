@@ -1,0 +1,5 @@
+id,bundle,expected,result,evidence
+B01,MP3 fields + APIC + lyrics one candidate,NOT IMPLEMENTED,NOT RUN,No asset authority
+B02,FLAC fields + picture,NOT IMPLEMENTED,NOT RUN,No FLAC profile
+B03,SAF fields + rename URI CAS,NOT IMPLEMENTED,NOT RUN,No SAF profile
+B04,MP4 fields + cover,NOT IMPLEMENTED,NOT RUN,No MP4 profile

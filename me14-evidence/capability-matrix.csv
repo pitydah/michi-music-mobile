@@ -1,0 +1,9 @@
+provider,container,revision,operation,support,evidence,limitation
+MediaStore,MP3,ID3v2.3/2.4,TITLE/ARTIST/ALBUM/GENRE read+replace,CERTIFIED,ME13 T01-T06 + ME14 T48,Four scalar fields only
+MediaStore,MP3,ID3v2.3/2.4,ALBUM_ARTIST/COMPOSER/TRACK/DISC/DATE/COMMENT/LABEL/ISRC/BPM/KEY,NOT_IMPLEMENTED,None,Profile remains four fields
+MediaStore,MP3,ID3v2.3/2.4,APIC add/replace/remove,NOT_IMPLEMENTED,None,permitsArtwork=false
+MediaStore,MP3,ID3v2.3/2.4,multivalue,NOT_IMPLEMENTED,None,permitsMultiValue empty
+MediaStore,MP3,ID3v2.3/2.4,USLT/COMM described text,NOT_IMPLEMENTED,None,No write profile
+MediaStore,FLAC,any,Vorbis Comment/PICTURE,NOT_IMPLEMENTED,None,No certified FLAC profile
+SAF,MP3/FLAC,any,DocumentsContract write,NOT_IMPLEMENTED,None,No local SAF write profile
+MediaStore,MP4/M4A,any,ilst/atom write,NOT_IMPLEMENTED,None,No MP4/M4A profile
