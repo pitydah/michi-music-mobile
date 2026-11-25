@@ -14,6 +14,7 @@ import org.michimusic.core.metadata.MetadataCommitCertification
 import org.michimusic.core.metadata.MetadataProviderRecoveryProfile
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataReadAccessPolicy
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 
 /**
  * ME-10M. Source-byte transport only. Intentionally NOT called from Compose,
@@ -133,9 +134,16 @@ internal class MetadataProviderMutationTransport(private val context: Context) {
         val sourceKind = MetadataReadAccessPolicy.classify(entry.sourceId,
             uri.scheme, uri.authority)
         val scopeMatches = when (scoped) {
-            is ScopedAuthorization.Write -> uri.authority == "media"
+            is ScopedAuthorization.Write ->
+                MetadataWriteProfileRegistry.byId(scoped.permit.profileId)?.provider ==
+                    MetadataSourceProviderIdentity.classify(
+                        entry.sourceId, uri.scheme, uri.authority,
+                    )?.profileProvider
             is ScopedAuthorization.Restore ->
-                uri.authority == "media" && scoped.permit.sourceId == "lib_device_local" &&
+                MetadataWriteProfileRegistry.byId(scoped.permit.profileId)?.provider ==
+                    MetadataSourceProviderIdentity.classify(
+                        entry.sourceId, uri.scheme, uri.authority,
+                    )?.profileProvider &&
                     scoped.permit.container == entry.format
             null -> when (sourceKind) {
                 MetadataReadAccessPolicy.Kind.MEDIASTORE ->

@@ -67,12 +67,15 @@ internal data class MetadataIndexReconciliationReceipt(
 
     /**
      * A V3 receipt with an exact pre-write row identity is the only variant that
-     * may reach the reconciler CAS. Older receipts remain readable and protected.
+     * may reach the reconciler CAS. Provider authority is deliberately not
+     * inferred here: the reconciler binds the URI/source pair to the exact typed
+     * write profile before it can publish. Older receipts remain readable and
+     * protected.
      */
     val actionable: Boolean
         get() = version == VERSION &&
-            sourceId == LOCAL_SOURCE &&
-            uri.startsWith("content://media/") &&
+            sourceId.isNotBlank() &&
+            uri.startsWith("content://") &&
             ownerEvidenceToken.isNotBlank() &&
             previousSize in 1..MAX_BYTES &&
             previousMetadataRevision >= 0L &&

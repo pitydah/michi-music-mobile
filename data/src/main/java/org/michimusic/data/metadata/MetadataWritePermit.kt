@@ -1,9 +1,11 @@
 package org.michimusic.data.metadata
 
 import org.michimusic.core.metadata.CertifiedWriteEvidence
+import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
+import java.net.URI
 
 /**
  * ME-13: a typed, transaction-bound authorization. It is not a global gate and
@@ -40,21 +42,25 @@ internal data class MetadataWritePermit(
             candidateSha256 == entry.stageSha256 &&
             stageBytes == entry.stageBytes &&
             MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
+                val observedContainer = runCatching {
+                    MetadataAudioContainer.valueOf(container)
+                }.getOrNull()
                 evidenceId == profile.capabilityEvidenceId &&
                     container == entry.format &&
+                    observedContainer != null &&
                     (fields.isNotEmpty() || resources.isNotEmpty()) &&
-                    fields.all { it in profile.supportedFields } &&
+                    profile.supports(
+                        observedContainer,
+                        revision,
+                        fields,
+                        emptySet(),
+                        artworkChanged = false,
+                    ) &&
                     profile.supports(resources) &&
-                    profile.containers.any { it.name == container } &&
-                    (when (profile.id) {
-                        org.michimusic.core.metadata.MediaStoreMp3TextProfile.ID ->
-                            revision in setOf(3, 4)
-                        org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
-                            revision == 1
-                        org.michimusic.core.metadata.MediaStoreM4aTextProfile.ID ->
-                            revision == 1
-                        else -> false
-                    }) &&
-                    entry.uri.startsWith("content://media/")
+                    runCatching { URI(entry.uri) }.getOrNull()?.let { parsed ->
+                        MetadataSourceProviderIdentity.classify(
+                            entry.sourceId, parsed.scheme, parsed.authority,
+                        )?.profileProvider == profile.provider
+                    } == true
             } == true
 }

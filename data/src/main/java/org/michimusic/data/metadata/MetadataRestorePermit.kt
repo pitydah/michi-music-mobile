@@ -9,8 +9,8 @@ import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 
 /**
  * ME-13 S5: an exact, transaction-bound authorization to restore the journal
- * backup of one certified local MediaStore item. It replaces the two global
- * provider/writer booleans ONLY for this precise transaction; SAF cannot use it.
+ * backup of one certified local provider item. It replaces the two global
+ * provider/writer booleans ONLY for this precise transaction.
  *
  * The permit is not a receipt and not a Room authorization. It is minted from a
  * durable intent + journal pair, and the coordinator re-reads the journal, the
@@ -35,15 +35,28 @@ internal data class MetadataRestorePermit(
 ) {
     fun authorizes(transactionId: String, target: MetadataTarget): Boolean =
         explicitUserAction && this.transactionId == transactionId &&
-            sourceId == LOCAL_SOURCE && trackId.isNotBlank() &&
-            uri.startsWith("content://media/") &&
+            trackId.isNotBlank() &&
             sourceId == target.sourceId && trackId == target.trackId && uri == target.uri &&
             ownerEvidenceToken.isNotBlank() &&
             ownerEvidenceToken == target.evidenceToken &&
             MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
+                val observedContainer = runCatching {
+                    MetadataAudioContainer.valueOf(container)
+                }.getOrNull()
                 profile.capabilityEvidenceId == evidenceId &&
-                    profile.containers.any { it.name == container } &&
-                    revision in profile.tagRevisions
+                    observedContainer != null &&
+                    profile.supports(
+                        observedContainer,
+                        revision,
+                        emptySet(),
+                        emptySet(),
+                        artworkChanged = false,
+                    ) &&
+                    runCatching { java.net.URI(uri) }.getOrNull()?.let { parsed ->
+                        MetadataSourceProviderIdentity.classify(
+                            sourceId, parsed.scheme, parsed.authority,
+                        )?.profileProvider == profile.provider
+                    } == true
             } == true &&
             originalBytes in 12..MAX_BYTES && stageBytes in 12..MAX_BYTES &&
             originalSha256.matches(HEX) && candidateSha256.matches(HEX) &&
@@ -55,10 +68,9 @@ internal data class MetadataRestorePermit(
             trackId == entry.trackId && uri == entry.uri &&
             originalSha256 == entry.originalSha256 && originalBytes == entry.expectedBytes &&
             candidateSha256 == entry.stageSha256 && stageBytes == entry.stageBytes &&
-            container == entry.format && uri.startsWith("content://media/")
+            container == entry.format
 
     companion object {
-        const val LOCAL_SOURCE = "lib_device_local"
         private const val MAX_BYTES = 1024L * 1024L * 1024L
         private val HEX = Regex("[a-f0-9]{64}")
 
@@ -88,12 +100,17 @@ internal data class MetadataRestorePermit(
             explicitUserAction: Boolean,
         ): MetadataRestorePermit? {
             if (!explicitUserAction || !MetadataCommitIntentManifest.valid(intent)) return null
-            if (intent.provider != MetadataDocumentProvider.MEDIASTORE) return null
             if (intent.transactionId != entry.id) return null
-            val profile = MetadataWriteProfileRegistry.forContainer(intent.container)
+            val parsed = runCatching { java.net.URI(entry.uri) }.getOrNull()
                 ?: return null
-            if (intent.changes.any { it.field !in profile.supportedFields } ||
-                !profile.supports(intent.resources)) return null
+            val provider = MetadataSourceProviderIdentity.classify(
+                entry.sourceId, parsed.scheme, parsed.authority,
+            ) ?: return null
+            if (intent.provider != provider.documentProvider) return null
+            val profile = MetadataWriteProfileRegistry.forProviderAndContainer(
+                provider.profileProvider, intent.container,
+            )
+                ?: return null
             if (entry.format != intent.container.name) return null
             if (intent.originalBytes != entry.expectedBytes ||
                 intent.originalSha256 != entry.originalSha256 ||
@@ -111,6 +128,18 @@ internal data class MetadataRestorePermit(
                 MetadataAudioContainer.MP4_M4A -> 1
                 else -> return null
             }
+            val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
+            val multiValueFields = intent.changes
+                .filterTo(mutableListOf()) { it.afterCount > 1 }
+                .mapTo(linkedSetOf()) { it.field }
+            if (!profile.supports(
+                    intent.container,
+                    revision,
+                    fields,
+                    multiValueFields,
+                    artworkChanged = false,
+                ) || !profile.supports(intent.resources)
+            ) return null
             return MetadataRestorePermit(
                 transactionId = entry.id, sourceId = entry.sourceId,
                 trackId = entry.trackId, uri = entry.uri,

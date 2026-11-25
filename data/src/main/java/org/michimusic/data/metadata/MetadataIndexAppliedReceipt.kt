@@ -32,7 +32,7 @@ internal data class MetadataIndexAppliedReceipt(
 ) {
     fun encode(): ByteArray {
         require(TX.matches(transactionId) && sourceId.isNotBlank() && trackId.isNotBlank())
-        require(uri.startsWith("content://media/"))
+        require(validContentUri(uri))
         require(SHA.matches(candidateSha256) && candidateBytes in 1..MAX_BYTES)
         val payload = ByteArrayOutputStream()
         DataOutputStream(payload).use { out ->
@@ -58,6 +58,15 @@ internal data class MetadataIndexAppliedReceipt(
         private val TX = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         private val NAME = Regex("index-applied-[0-9a-f-]{36}\\.bin")
 
+        /**
+         * This sidecar is only resumable cleanup proof. Provider authority is
+         * established separately by the exact Room marker and typed permit.
+         */
+        private fun validContentUri(value: String): Boolean =
+            runCatching { java.net.URI(value) }.getOrNull()?.let {
+                it.scheme == "content" && !it.authority.isNullOrBlank()
+            } == true
+
         fun decode(bytes: ByteArray): MetadataIndexAppliedReceipt? = try {
             val input = DataInputStream(ByteArrayInputStream(bytes))
             val length = input.readInt()
@@ -75,7 +84,7 @@ internal data class MetadataIndexAppliedReceipt(
             )
             require(stream.available() == 0)
             require(TX.matches(receipt.transactionId))
-            require(receipt.uri.startsWith("content://media/"))
+            require(validContentUri(receipt.uri))
             require(SHA.matches(receipt.candidateSha256))
             require(receipt.candidateBytes in 1..MAX_BYTES)
             receipt

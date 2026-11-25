@@ -96,6 +96,51 @@ class MetadataRecoveryJournalCleanupTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun restoredVerifiedUsesTheSameResumableCleanupBoundary() = runBlocking {
+        val root = Files.createTempDirectory("me13-restored-cleanup-").toFile()
+        try {
+            val journal = MetadataRecoveryJournalV1(root)
+            val restored = journal.exclusive {
+                journal.start(entry)
+                journal.backup(entry).writeBytes(backupBytes)
+                val backed = entry.copy(
+                    phase = MetadataRecoveryPhase.BACKUP_DURABLE,
+                    originalSha256 = sha(backupBytes),
+                )
+                journal.advance(entry, backed)
+                journal.stage(backed).writeBytes(stageBytes)
+                val staged = backed.copy(
+                    phase = MetadataRecoveryPhase.STAGE_READY,
+                    stageSha256 = sha(stageBytes),
+                    stageBytes = stageBytes.size.toLong(),
+                    format = MetadataAudioContainer.ID3_V24.name,
+                )
+                journal.advance(backed, staged)
+                journal.intent(staged).writeBytes(ByteArray(16))
+                val mutating = staged.copy(phase = MetadataRecoveryPhase.MUTATING)
+                journal.advance(staged, mutating, permit)
+                val unknown = mutating.copy(
+                    phase = MetadataRecoveryPhase.MUTATION_UNKNOWN,
+                )
+                journal.advance(mutating, unknown)
+                val rollback = unknown.copy(
+                    phase = MetadataRecoveryPhase.ROLLBACK_PENDING,
+                )
+                journal.advance(unknown, rollback)
+                val restored = rollback.copy(
+                    phase = MetadataRecoveryPhase.RESTORED_VERIFIED,
+                )
+                journal.advance(rollback, restored)
+                restored
+            }
+            assertTrue(journal.completeRestoredVerified(restored.id))
+            assertEquals(MetadataRecoveryJournalV1.Inspection.Clear, journal.inspect())
+            assertFalse(journal.backup(restored).exists())
+            assertFalse(journal.stage(restored).exists())
+            assertFalse(journal.intent(restored).exists())
+        } finally { root.deleteRecursively() }
+    }
+
     private fun preparePostcheck(
         journal: MetadataRecoveryJournalV1,
         root: java.io.File,

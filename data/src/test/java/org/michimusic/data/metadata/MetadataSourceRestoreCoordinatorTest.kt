@@ -32,6 +32,7 @@ import org.robolectric.shadows.ShadowContentResolver
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MediaStoreFlacTextProfile
 import org.michimusic.core.metadata.MediaStoreM4aTextProfile
+import org.michimusic.core.metadata.SafLocalMp3TitleProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
@@ -41,6 +42,7 @@ import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataId3StageRewriter
 import org.michimusic.core.metadata.MetadataRecoveryPhase
+import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 
@@ -286,6 +288,71 @@ class MetadataSourceRestoreCoordinatorTest {
             null,
             MetadataRestorePermit.fromDurable(entry, artistIntent, target, true),
         )
+    }
+
+    @Test fun safRestorePermitIsBoundToExactDocumentProfileAndTitleOnly() {
+        val safSource = "safroot_" + "1".repeat(40)
+        val safTrack = "saftrack_" + "2".repeat(40)
+        val safUri = "content://com.android.externalstorage.documents/" +
+            "document/primary%3ADownload%2Ftrack.mp3"
+        val safTarget = MetadataTarget(safSource, safTrack, safUri, token)
+        val safReview = MetadataEditPreview.review(
+            MetadataSnapshot(
+                target = safTarget,
+                tagsVerified = true,
+                known = mapOf(MetadataField.TITLE to listOf("Original")),
+                verifiedFields = setOf(MetadataField.TITLE),
+            ),
+            listOf(MetadataChange.Replace(
+                MetadataField.TITLE, listOf("Edited"),
+            )),
+        ) as MetadataReview.Ready
+        val safIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX,
+            review = safReview,
+            provider = MetadataDocumentProvider.SAF,
+            container = MetadataAudioContainer.ID3_V23,
+            originalBytes = original.size.toLong(),
+            originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(),
+            candidateSha256 = candidateSha,
+        )
+        val entry = MetadataRecoveryJournalV1.Entry(
+            TX,
+            MetadataRecoveryPhase.STAGE_READY,
+            safSource,
+            safTrack,
+            safUri,
+            original.size.toLong(),
+            777L,
+            originalSha256 = originalSha,
+            stageSha256 = candidateSha,
+            stageBytes = candidate.size.toLong(),
+            format = MetadataAudioContainer.ID3_V23.name,
+            ownerEvidenceToken = token,
+        )
+
+        val permit = MetadataRestorePermit.fromDurable(
+            entry, safIntent, safTarget, true,
+        )
+
+        assertTrue(permit != null)
+        assertEquals(SafLocalMp3TitleProfile.ID, permit!!.profileId)
+        assertEquals(SafLocalMp3TitleProfile.EVIDENCE_ID, permit.evidenceId)
+        assertEquals(3, permit.revision)
+        assertFalse(permit.copy(revision = 4).authorizes(TX, safTarget))
+        assertEquals(null, MetadataRestorePermit.fromDurable(
+            entry,
+            safIntent.copy(provider = MetadataDocumentProvider.MEDIASTORE),
+            safTarget,
+            true,
+        ))
+        assertEquals(null, MetadataRestorePermit.fromDurable(
+            entry,
+            safIntent,
+            safTarget.copy(uri = "content://media/external/audio/media/1"),
+            true,
+        ))
     }
 
     private fun writePermit(entry: MetadataRecoveryJournalV1.Entry) = MetadataWritePermit(

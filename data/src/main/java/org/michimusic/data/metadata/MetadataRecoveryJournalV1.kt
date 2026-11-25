@@ -398,10 +398,26 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
      * re-running the provider postcheck or requiring both hashes again.
      */
     fun completeVerified(id: String): Boolean {
+        return completeTerminal(id, MetadataRecoveryPhase.POSTCHECK_VERIFIED)
+    }
+
+    /**
+     * Terminal cleanup after an independently verified restoration. The source
+     * contains the durable preimage again, so private artifacts are no longer
+     * the only surviving copy of user data.
+     */
+    fun completeRestoredVerified(id: String): Boolean {
+        return completeTerminal(id, MetadataRecoveryPhase.RESTORED_VERIFIED)
+    }
+
+    private fun completeTerminal(
+        id: String,
+        verifiedPhase: MetadataRecoveryPhase,
+    ): Boolean {
         val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
         if (entry.id != id) return false
         val cleanup = when (entry.phase) {
-            MetadataRecoveryPhase.POSTCHECK_VERIFIED ->
+            verifiedPhase ->
                 entry.copy(phase = MetadataRecoveryPhase.CLEANUP_SAFE)
             MetadataRecoveryPhase.CLEANUP_SAFE -> entry
             else -> return false

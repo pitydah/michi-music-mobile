@@ -4,6 +4,10 @@
      blocked by the system-level permission and cannot enumerate the private fixtures. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity
+            android:name="org.michimusic.data.metadata.MetadataSafGrantTestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <provider
             android:name="org.michimusic.data.metadata.MetadataSyntheticDocumentsProvider"
             android:authorities="org.michimusic.data.metadata.me08.testing"

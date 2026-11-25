@@ -130,8 +130,11 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
         return MetadataCommittedCandidateStability.BytesRead.Read(actual, sha)
     }
 
-    private fun announcement(uri: Uri): MetadataCommittedCandidateStability.Announcement? =
-        stamp(uri, true)?.let {
+    private fun announcement(
+        uri: Uri,
+        mediaStore: Boolean,
+    ): MetadataCommittedCandidateStability.Announcement? =
+        stamp(uri, mediaStore)?.let {
             MetadataCommittedCandidateStability.Announcement(it.size, it.modified)
         }
 
@@ -159,16 +162,22 @@ internal class MetadataCurrentBytesReader(private val context: Context) {
         val uri = try { Uri.parse(rawUri) } catch (_: Exception) {
             return PostCommitRead.Rejected("INVALID_URI")
         }
-        if (uri.scheme != "content" || uri.authority != "media" ||
-            sourceId != "lib_device_local" || expectedCandidateBytes !in 1..(1024L*1024*1024))
+        val kind = MetadataReadAccessPolicy.classify(sourceId, uri.scheme, uri.authority)
+        if (kind == MetadataReadAccessPolicy.Kind.REJECT ||
+            expectedCandidateBytes !in 1..(1024L * 1024 * 1024))
             return PostCommitRead.Rejected("INVALID_SOURCE")
+        val mediaStore = kind == MetadataReadAccessPolicy.Kind.MEDIASTORE
+        if (!mediaStore && !runCatching {
+                DocumentsContract.isDocumentUri(context, uri)
+            }.getOrDefault(false)
+        ) return PostCommitRead.Rejected("INVALID_SOURCE")
         return when (val outcome = MetadataCommittedCandidateStability.resolve(
             expectedCandidateBytes, expectedCandidateSha256,
         ) {
             MetadataCommittedCandidateStability.Observation(
-                before = announcement(uri),
+                before = announcement(uri, mediaStore),
                 read = readExactBytes(uri, expectedCandidateBytes, checkCancellation),
-                after = announcement(uri),
+                after = announcement(uri, mediaStore),
             )
         }) {
             is MetadataCommittedCandidateStability.Outcome.Accepted -> PostCommitRead.Exact(

@@ -1,5 +1,7 @@
 package org.michimusic.core.metadata
 
+import java.net.URI
+
 /**
  * ME-07. A readback after an independently prepared candidate is not proof
  * of an authorized write. This gate prevents callers from issuing a durable
@@ -87,16 +89,27 @@ object MetadataVerifiedReceiptGate {
         // Requiring a named profile is stronger than an arbitrary nonempty
         // evidence label. The finalizer independently verifies the typed permit
         // against the exact journal entry and candidate before issuing a receipt.
+        val profile = MetadataWriteProfileRegistry.byId(evidence.profileId)
+        val parsed = runCatching { URI(evidence.uri) }.getOrNull()
+        val providerMatches = profile != null && parsed != null &&
+            when (MetadataReadAccessPolicy.classify(
+                evidence.sourceId, parsed.scheme, parsed.authority,
+            )) {
+                MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                    profile.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
+                    profile.provider ==
+                        MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                MetadataReadAccessPolicy.Kind.REJECT -> false
+            }
         if (!txId.matches(transactionId) ||
             evidence.transactionId != transactionId ||
             evidence.candidateSha256 != expectedStageSha256 ||
             !digest.matches(evidence.originalSha256) ||
             !digest.matches(evidence.candidateSha256) ||
-            MetadataWriteProfileRegistry.byId(evidence.profileId)
-                ?.capabilityEvidenceId != evidence.evidenceId ||
-            evidence.sourceId != "lib_device_local" ||
+            profile?.capabilityEvidenceId != evidence.evidenceId ||
+            !providerMatches ||
             evidence.trackId.isBlank() ||
-            !evidence.uri.startsWith("content://media/") ||
             evidence.candidateBytes !in 12L..(1024L * 1024L * 1024L))
             return Decision.Refused(Refusal.INVALID_TRANSACTION)
         return assessAuthorized(transactionId, phase, expectedStageSha256, physical,

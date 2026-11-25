@@ -61,6 +61,20 @@ class MetadataIndexReconciliationReceiptTest {
         assertFalse(v3.copy(previousVerifiedSha256 = "").actionable)
     }
 
+    @Test fun v3SafReceiptCanReachProviderBoundReconciliation() {
+        val saf = v3.copy(
+            sourceId = "safroot_0123456789abcdef0123456789abcdef01234567",
+            trackId = "saf_0123456789abcdef0123456789abcdef01234567",
+            uri = "content://com.android.externalstorage.documents/document/" +
+                "primary%3ADownload%2Fmichi.mp3",
+        )
+
+        assertTrue(saf.actionable)
+        assertEquals(saf.sourceId, saf.expectedIndex()!!.sourceId)
+        assertFalse(saf.copy(sourceId = "").actionable)
+        assertFalse(saf.copy(uri = "file:///sdcard/Download/michi.mp3").actionable)
+    }
+
     @Test fun v2IsReadableWithConservativeRevisionButNeverActionable() {
         val legacy = v3.copy(version = 2, previousMetadataRevision = 0L)
         val decoded = MetadataIndexReconciliationReceipt.decode(legacy.encode())!!

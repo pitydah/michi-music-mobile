@@ -188,7 +188,9 @@ class MetadataRecoveryConsole(
             )
             when (outcome) {
                 is MetadataSourceRestoreCoordinator.Outcome.RestoredVerified ->
-                    RestoreResult.RestoredVerified
+                    if (journal.completeRestoredVerified(entry.id))
+                        RestoreResult.RestoredVerified
+                    else RestoreResult.Blocked("RESTORED_CLEANUP_PENDING")
                 is MetadataSourceRestoreCoordinator.Outcome.OriginalWasIntact ->
                     RestoreResult.OriginalWasIntact
                 is MetadataSourceRestoreCoordinator.Outcome.CandidateInstalledFinalizeRequired ->

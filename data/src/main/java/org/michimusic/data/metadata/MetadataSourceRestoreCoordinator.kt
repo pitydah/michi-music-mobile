@@ -19,6 +19,7 @@ import org.michimusic.core.metadata.MetadataProviderRecoveryProfile
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataRecoveryRestorePolicy
 import org.michimusic.core.metadata.MetadataTarget
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 
 /**
  * ME-10R / ME-13 S5. Protected source restoration using the SAME durable
@@ -27,8 +28,8 @@ import org.michimusic.core.metadata.MetadataTarget
  * - The legacy global route remains hard-false behind
  *   [MetadataCommitCertification] and [MetadataProviderRecoveryProfile].
  * - The S5 route accepts only an exact, transaction-bound
- *   [MetadataRestorePermit] for a local MediaStore MP3 ID3v2.3/2.4 transaction.
- *   It does not open SAF, FLAC, MP4 or any other container.
+ *   [MetadataRestorePermit] for the provider/container profile recorded by the
+ *   durable transaction.
  *
  * Restoration is only ever considered after the exact private backup and the
  * durable manifest are revalidated. A verified candidate means the write landed:
@@ -184,10 +185,15 @@ internal class MetadataSourceRestoreCoordinator(
             }
             val providerMatches = when (exactSource.provider) {
                 MetadataDocumentProvider.MEDIASTORE ->
-                    if (scoped) request.permit?.uri == entry.uri
+                    if (scoped) MetadataWriteProfileRegistry
+                        .byId(request.permit?.profileId.orEmpty())?.provider ==
+                        MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
                     else profile?.provider == MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
                 MetadataDocumentProvider.SAF ->
-                    !scoped && profile?.provider ==
+                    if (scoped) MetadataWriteProfileRegistry
+                        .byId(request.permit?.profileId.orEmpty())?.provider ==
+                        MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                    else profile?.provider ==
                         MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
                 else -> false
             }

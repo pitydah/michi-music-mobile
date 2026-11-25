@@ -1,11 +1,8 @@
 package org.michimusic.data.metadata
 
 import android.app.PendingIntent
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import android.os.Process
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
@@ -80,14 +77,21 @@ class MetadataSaveService internal constructor(
         journal, intents, owners,
     )
     private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
-    private fun profileFor(format: org.michimusic.core.metadata.MetadataAudioContainer) =
-        org.michimusic.core.metadata.MetadataWriteProfileRegistry.forContainer(format)
+    private val sourceStamps = MetadataExactSourceStampReader(context)
+    private val writePermission = MetadataExactWritePermission(context)
+    private fun profileFor(
+        provider: MetadataSourceProviderIdentity,
+        format: org.michimusic.core.metadata.MetadataAudioContainer,
+    ) = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+        .forProviderAndContainer(provider.profileProvider, format)
 
-    fun eligibility(uriString: String): Eligibility {
+    fun eligibility(sourceId: String, uriString: String): Eligibility {
         val uri = runCatching { Uri.parse(uriString) }.getOrNull()
             ?: return Eligibility.UnsupportedProfile("URI no válida")
-        if (uri.scheme != ContentResolver.SCHEME_CONTENT || uri.authority != MediaStore.AUTHORITY)
-            return Eligibility.UnsupportedProfile("El archivo no pertenece a MediaStore")
+        if (MetadataSourceProviderIdentity.classify(
+                sourceId, uri.scheme, uri.authority,
+            ) == null
+        ) return Eligibility.UnsupportedProfile("El proveedor local no está certificado")
         val display = query(uri, OpenableColumns.DISPLAY_NAME)
             ?: return Eligibility.UnsupportedProfile("No se puede leer el nombre del archivo")
         val isMp3 = display.endsWith(".mp3", ignoreCase = true)
@@ -107,6 +111,10 @@ class MetadataSaveService internal constructor(
             return Eligibility.RecoveryPending
         return Eligibility.Eligible
     }
+
+    /** Compatibility for existing local MediaStore callers. */
+    fun eligibility(uriString: String): Eligibility =
+        eligibility(MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID, uriString)
 
     suspend fun save(
         sourceId: String,
@@ -197,7 +205,10 @@ class MetadataSaveService internal constructor(
                         entry.expectedBytes))
                     return@withContext Outcome.RecoveryRequired(
                         "ORIGINAL_CHANGED_KEEP_BACKUP")
-                if (!hasExactWriteAccess(Uri.parse(entry.uri)))
+                if (writePermission.inspect(
+                        entry.sourceId, entry.uri, true,
+                    ) !is MetadataExactWritePermission.Result.ExistingExactGrant
+                )
                     return@withContext Outcome.Blocked("EXACT_GRANT_MISSING")
                 return@withContext commitPrepared(
                     entry, intent, target, evidence.original,
@@ -352,15 +363,19 @@ class MetadataSaveService internal constructor(
             MetadataAudioContainer.MP4_M4A -> 1
             else -> return null
         }
+        val provider = MetadataSourceProviderIdentity.classify(
+            entry.sourceId, Uri.parse(entry.uri).scheme, Uri.parse(entry.uri).authority,
+        ) ?: return null
+        val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+            .forProviderAndContainer(provider.profileProvider, container) ?: return null
+        if (intent.provider != provider.documentProvider) return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
             originalSha256 = entry.originalSha256,
             candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-            profileId = org.michimusic.core.metadata.MetadataWriteProfileRegistry
-                .forContainer(container)?.id ?: return null,
-            evidenceId = org.michimusic.core.metadata.MetadataWriteProfileRegistry
-                .forContainer(container)?.capabilityEvidenceId ?: return null,
+            profileId = profile.id,
+            evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
             explicitUserAction = true,
@@ -411,14 +426,17 @@ class MetadataSaveService internal constructor(
                 prepared.sourceId == sourceId && prepared.trackId == trackId &&
                 prepared.uri == uriString
         } == true
-        if (!exactPrepared && eligibility(uriString) !is Eligibility.Eligible)
+        if (!exactPrepared && eligibility(sourceId, uriString) !is Eligibility.Eligible)
             return@withContext Outcome.Blocked("Perfil de escritura no certificado")
         if (!ownerCurrent() || !playbackClosed())
             return@withContext Outcome.Blocked("OWNER_OR_PLAYBACK_CHANGED")
 
         val uri = Uri.parse(uriString)
-        val stamp = (longQuery(uri, MediaStore.MediaColumns.DATE_MODIFIED) ?: 0L) * 1000L
-        if (stamp <= 0L) return@withContext Outcome.Blocked("El origen no tiene sello válido")
+        val provider = MetadataSourceProviderIdentity.classify(
+            sourceId, uri.scheme, uri.authority,
+        ) ?: return@withContext Outcome.Blocked("El proveedor local no está certificado")
+        val stamp = sourceStamps.read(sourceId, uriString, expectedBytes)
+            ?: return@withContext Outcome.Blocked("El origen no tiene sello válido")
 
         val sourceCopy = File(context.cacheDir, "me13-source-${UUID.randomUUID()}.bin")
         var entry: MetadataRecoveryJournalV1.Entry
@@ -435,7 +453,7 @@ class MetadataSaveService internal constructor(
             if (container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A &&
                 resourceEdits.isNotEmpty())
                 return@withContext Outcome.Blocked("Los recursos M4A no están certificados")
-            val activeProfile = profileFor(container)
+            val activeProfile = profileFor(provider, container)
                 ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
             val fields = review?.diffs.orEmpty().mapTo(linkedSetOf()) { it.field }
             if (!activeProfile.supports(container, revision, fields, emptySet(), false))
@@ -482,6 +500,7 @@ class MetadataSaveService internal constructor(
                 val expectedIntent = runCatching {
                     createIntent(
                         entry, canonicalTarget, review, observed, resourceEdits,
+                        provider.documentProvider,
                     )
                 }.getOrNull() ?: return@withContext Outcome.Blocked(
                     "La revisión no coincide con la intención persistida",
@@ -492,7 +511,7 @@ class MetadataSaveService internal constructor(
                     intent.changes.map { it.field } != pendingFields ||
                     intent.resources != expectedIntent.resources ||
                     intent.container != observed.container ||
-                    intent.provider != MetadataDocumentProvider.MEDIASTORE ||
+                    intent.provider != provider.documentProvider ||
                     intent.ownerSha256 !=
                     org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
                         canonicalTarget,
@@ -516,7 +535,8 @@ class MetadataSaveService internal constructor(
                 entry = MetadataRecoveryJournalV1.Entry(
                     id = UUID.randomUUID().toString(), phase = MetadataRecoveryPhase.SNAPSHOTTING,
                     sourceId = sourceId, trackId = trackId, uri = uriString,
-                    expectedBytes = expectedBytes, expectedModifiedAt = stamp,
+                    expectedBytes = expectedBytes,
+                    expectedModifiedAt = stamp.modifiedAtProviderUnits,
                     format = observed.container.name,
                     ownerEvidenceToken = canonicalTarget.evidenceToken,
                 )
@@ -543,6 +563,7 @@ class MetadataSaveService internal constructor(
                 checkpoints.reach(MetadataSaveCheckpoint.AFTER_STAGE_READY)
                 val manifest = createIntent(
                     entry, canonicalTarget, review, observed, resourceEdits,
+                    provider.documentProvider,
                 )
                 if (!activeProfile.supports(manifest.resources)) {
                     journal.discardPrepared(entry.id)
@@ -569,25 +590,26 @@ class MetadataSaveService internal constructor(
 
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes de escribir")
-            if (!hasExactWriteAccess(uri)) {
-                if (!owners.write(entry, canonicalTarget))
-                    return@withContext Outcome.Blocked(
-                        "No se pudo persistir la evidencia del propietario",
-                    )
-                val consent = runCatching {
-                    MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
-                }.getOrNull()
-                return@withContext if (consent == null)
-                    Outcome.Blocked("El proveedor no concede escritura exacta")
-                else {
+            when (val grant = writePermission.inspect(sourceId, uriString, true)) {
+                is MetadataExactWritePermission.Result.MediaStoreConsentRequired -> {
+                    if (!owners.write(entry, canonicalTarget))
+                        return@withContext Outcome.Blocked(
+                            "No se pudo persistir la evidencia del propietario",
+                        )
                     val preparedIntent = (intents.inspect(entry) as?
                         MetadataCommitIntentStore.Inspection.Present)?.receipt
                     val continuation = preparedIntent?.let {
                         MetadataPreparedSaveContinuation.from(entry, it)
                     } ?: return@withContext Outcome.RecoveryRequired(
                         "INTENT_NOT_DURABLE")
-                    Outcome.ConsentRequired(consent, continuation)
+                    return@withContext Outcome.ConsentRequired(grant.intent, continuation)
                 }
+                MetadataExactWritePermission.Result.ExistingExactGrant -> Unit
+                MetadataExactWritePermission.Result.NoGrant,
+                MetadataExactWritePermission.Result.InvalidTarget ->
+                    return@withContext Outcome.Blocked(
+                        "El proveedor no concede escritura exacta",
+                    )
             }
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes del consentimiento")
@@ -672,21 +694,6 @@ class MetadataSaveService internal constructor(
             is MetadataRecoveryCoordinator.Outcome.Blocked ->
                 Outcome.RecoveryRequired("RECOVERY_BLOCKED:${outcome.code}")
         }
-    }
-
-    /**
-     * A URI grant is not the only proof of exact write access: MediaStore items
-     * created by this app are writable through the owning provider without a
-     * persisted grant. Probe with a non-truncating "rw" descriptor before asking
-     * the user for a system consent dialog.
-     */
-    private fun hasExactWriteAccess(uri: Uri): Boolean {
-        if (context.checkUriPermission(uri, Process.myPid(), Process.myUid(),
-                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED) return true
-        return runCatching {
-            context.contentResolver.openFileDescriptor(uri, "rw")?.use { true } ?: false
-        }.getOrDefault(false)
     }
 
     private fun writeIndexReceipt(
@@ -801,13 +808,14 @@ class MetadataSaveService internal constructor(
         review: MetadataReview.Ready?,
         observed: ObservedTag,
         resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
+        provider: MetadataDocumentProvider,
     ): MetadataCommitIntentManifest.Receipt =
         if (observed.container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A) {
             require(review != null && resourceEdits.isEmpty()) { "M4A_SCALAR_ONLY" }
             MetadataCommitIntentManifest.create(
                 transactionId = entry.id,
                 review = review,
-                provider = MetadataDocumentProvider.MEDIASTORE,
+                provider = provider,
                 container = observed.container,
                 originalBytes = entry.expectedBytes,
                 originalSha256 = entry.originalSha256,
@@ -821,7 +829,7 @@ class MetadataSaveService internal constructor(
                 review = review,
                 resources = requireNotNull(observed.resources),
                 edits = resourceEdits,
-                provider = MetadataDocumentProvider.MEDIASTORE,
+                provider = provider,
                 container = observed.container,
                 originalBytes = entry.expectedBytes,
                 originalSha256 = entry.originalSha256,

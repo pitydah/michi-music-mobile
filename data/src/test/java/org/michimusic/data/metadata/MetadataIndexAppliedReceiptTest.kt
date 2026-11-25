@@ -32,6 +32,23 @@ class MetadataIndexAppliedReceiptTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun localSafProofRoundTripsWithoutBecomingProviderAuthority() {
+        val root = Files.createTempDirectory("me18-saf-applied").toFile()
+        val saf = receipt.copy(
+            sourceId = "safroot_1234567890abcdef",
+            trackId = "saf_1234567890abcdef",
+            uri = "content://com.android.externalstorage.documents/document/" +
+                "primary%3ADownload%2FMichiMetadataSafE2E%2Ftrack.mp3",
+        )
+        try {
+            assertTrue(MetadataIndexAppliedReceipt.write(root, saf))
+            assertEquals(saf, MetadataIndexAppliedReceipt.read(root, tx))
+            assertTrue(MetadataIndexAppliedReceipt.delete(root, tx))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun tamperedProofIsRejected() {
         val root = Files.createTempDirectory("me13-applied-tamper").toFile()
         try {

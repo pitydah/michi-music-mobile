@@ -75,6 +75,28 @@ class MetadataVerifiedReceiptGateTest {
         assertTrue(certified(owner = false) is MetadataVerifiedReceiptGate.Decision.Refused)
     }
 
+    @Test fun exactSafProfileCanIssueReceiptWithoutBorrowingMediaStoreEvidence() {
+        val saf = scopedEvidence.copy(
+            profileId = SafLocalMp3TitleProfile.ID,
+            evidenceId = SafLocalMp3TitleProfile.EVIDENCE_ID,
+            sourceId = "safroot_" + "c".repeat(40),
+            trackId = "saf_" + "d".repeat(40),
+            uri = "content://com.android.externalstorage.documents/" +
+                "document/primary%3ADownload%2FMichi%2Fsong.mp3",
+        )
+        assertEquals(
+            MetadataVerifiedReceiptGate.Decision.ReadyForIndexCompare(id, sha),
+            certified(saf),
+        )
+        assertEquals(
+            MetadataVerifiedReceiptGate.Refusal.INVALID_TRANSACTION,
+            (certified(saf.copy(
+                profileId = MediaStoreMp3TextProfile.ID,
+                evidenceId = MediaStoreMp3TextProfile.EVIDENCE_ID,
+            )) as MetadataVerifiedReceiptGate.Decision.Refused).reason,
+        )
+    }
+
     @Test fun arbitraryProfileOrEvidenceLabelCannotCertifySource() {
         for (forged in listOf(
             scopedEvidence.copy(profileId = "FLAC_ALLOWED"),

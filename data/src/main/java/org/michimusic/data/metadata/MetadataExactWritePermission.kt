@@ -33,7 +33,11 @@ internal class MetadataExactWritePermission(private val context: Context) {
         return when (kind) {
             MetadataReadAccessPolicy.Kind.MEDIASTORE -> {
                 // Never request broad collection permissions or grant for another URI.
-                if (holdsPermission) Result.ExistingExactGrant
+                // An app-owned MediaStore item is writable without an explicit
+                // URI grant. Prove that authority with a non-truncating exact
+                // descriptor probe before requesting system consent.
+                if (holdsPermission || canOpenExactReadWrite(uri))
+                    Result.ExistingExactGrant
                 else try {
                     Result.MediaStoreConsentRequired(MediaStore.createWriteRequest(
                         context.contentResolver, listOf(uri)))
@@ -59,4 +63,8 @@ internal class MetadataExactWritePermission(private val context: Context) {
                 (cursor.getInt(0) and DocumentsContract.Document.FLAG_SUPPORTS_WRITE) != 0
         } == true
     } catch (_: Exception) { false }
+
+    private fun canOpenExactReadWrite(uri: Uri): Boolean = runCatching {
+        context.contentResolver.openFileDescriptor(uri, "rw")?.use { true } ?: false
+    }.getOrDefault(false)
 }

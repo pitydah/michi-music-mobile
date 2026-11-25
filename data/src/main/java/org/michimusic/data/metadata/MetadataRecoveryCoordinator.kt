@@ -265,8 +265,14 @@ class MetadataRecoveryCoordinator internal constructor(
             else -> return null
         }
         if (intent.container != container) return null
+        val parsed = runCatching { android.net.Uri.parse(entry.uri) }.getOrNull()
+            ?: return null
+        val provider = MetadataSourceProviderIdentity.classify(
+            entry.sourceId, parsed.scheme, parsed.authority,
+        ) ?: return null
+        if (intent.provider != provider.documentProvider) return null
         val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
-            .forContainer(container) ?: return null
+            .forProviderAndContainer(provider.profileProvider, container) ?: return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,

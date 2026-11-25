@@ -1,6 +1,7 @@
 package org.michimusic.data.metadata
 
 import kotlinx.coroutines.CancellationException
+import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataCommitCertification
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
@@ -42,20 +43,20 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
         val delta=(prepared as? MetadataSourceIndexDelta.Result.PreparedForExternalCas)?.delta
             ?: return Result.Blocked(Refusal.SOURCE_UNVERIFIED)
         val profile = permit?.let { MetadataWriteProfileRegistry.byId(it.profileId) }
+        val permitContainer = permit?.let {
+            runCatching { MetadataAudioContainer.valueOf(it.container) }.getOrNull()
+        }
         val scoped = permit != null && profile != null && permit.explicitUserAction &&
             permit.evidenceId == profile.capabilityEvidenceId &&
-            profile.containers.any { it.name == permit.container } &&
-            (when (profile.id) {
-                org.michimusic.core.metadata.MediaStoreMp3TextProfile.ID ->
-                    permit.revision in setOf(3, 4)
-                org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
-                    permit.revision == 1
-                org.michimusic.core.metadata.MediaStoreM4aTextProfile.ID ->
-                    permit.revision == 1
-                else -> false
-            }) &&
+            permitContainer != null &&
             (permit.fields.isNotEmpty() || permit.resources.isNotEmpty()) &&
-            permit.fields.all { it in profile.supportedFields } &&
+            profile.supports(
+                permitContainer,
+                permit.revision,
+                permit.fields,
+                emptySet(),
+                artworkChanged = false,
+            ) &&
             profile.supports(permit.resources) &&
             permit.transactionId == delta.transactionId &&
             permit.candidateSha256 == delta.sourceSha256 &&

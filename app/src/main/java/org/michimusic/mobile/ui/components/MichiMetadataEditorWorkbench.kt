@@ -275,7 +275,8 @@ internal fun MichiMetadataEditorPreviewContent(
         pilotWriter, target.sourceId, target.trackId, target.uri,
         committedSize, pilotEligibilityOverride,
     ) {
-        pilotEligibility = pilotEligibilityOverride ?: pilotWriter?.eligibility(target.uri)
+        pilotEligibility = pilotEligibilityOverride ?:
+            pilotWriter?.eligibility(target.sourceId, target.uri)
     }
     var launchConsent: (android.app.PendingIntent) -> Unit = {}
     fun continuePrepared(token: org.michimusic.data.metadata.MetadataPreparedSaveContinuation) {
@@ -497,8 +498,9 @@ internal fun MichiMetadataEditorPreviewContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pilotEligible) {
                         Text(
-                            "Perfil MediaStore certificado: texto básico MP3, título FLAC y " +
-                                "título M4A de solo audio, " +
+                            "Perfiles certificados: texto básico MP3 en MediaStore, título MP3 " +
+                                "en un documento SAF local con permiso persistente, título FLAC y " +
+                                "título M4A de solo audio en MediaStore, " +
                                 "reemplazo de carátula existente MP3/FLAC y reemplazo o " +
                                 "borrado de COMM/USLT existentes en MP3.",
                             color = TertiaryCyan,
@@ -512,9 +514,10 @@ internal fun MichiMetadataEditorPreviewContent(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Vídeo MP4, recursos u otros campos M4A, añadir o quitar carátulas, " +
+                            "Proveedores SAF remotos, recursos u otros campos mediante SAF, " +
+                                "vídeo MP4, recursos u otros campos M4A, añadir o quitar carátulas, " +
                                 "crear comentarios o letras, texto descrito FLAC, varios valores " +
-                                "por campo y SAF permanecen bloqueados.",
+                                "por campo permanecen bloqueados.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -536,9 +539,9 @@ internal fun MichiMetadataEditorPreviewContent(
                             color = TextSecondary,
                         )
                         Text(
-                            "La ruta certificada requiere un archivo MediaStore compatible y " +
-                                "una operación admitida por su perfil exacto. No se ha modificado " +
-                                "ningún archivo.",
+                            "La ruta certificada requiere un archivo MediaStore compatible o un " +
+                                "documento SAF local con permiso persistente, además de una " +
+                                "operación admitida por su perfil exacto. No se ha modificado ningún archivo.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )

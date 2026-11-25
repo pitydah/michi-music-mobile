@@ -141,19 +141,71 @@ object MediaStoreM4aTextProfile {
     )
 }
 
+/**
+ * MP3 title rewrite on a local SAF document with an exact persisted write
+ * grant. This evidence is deliberately separate from MediaStore authority.
+ */
+object SafLocalMp3TitleProfile {
+    const val ID = "SAF_LOCAL_MP3_ID3_V23V24_TITLE_V1"
+    const val EVIDENCE_ID = "ME18_SAF_DOCUMENT_MP3_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24),
+        tagRevisions = setOf(3, 4),
+        supportedFields = setOf(MetadataField.TITLE),
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
 object MetadataWriteProfileRegistry {
     fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
         MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
         MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
         MediaStoreM4aTextProfile.ID -> MediaStoreM4aTextProfile.profile
+        SafLocalMp3TitleProfile.ID -> SafLocalMp3TitleProfile.profile
         else -> null
     }
     fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
-        when (container) {
-            MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
-                MediaStoreMp3TextProfile.profile
-            MetadataAudioContainer.FLAC -> MediaStoreFlacTextProfile.profile
-            MetadataAudioContainer.MP4_M4A -> MediaStoreM4aTextProfile.profile
-            else -> null
+        forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+            container,
+        )
+
+    fun forProviderAndContainer(
+        provider: MetadataProviderRecoveryProfile.Kind,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? =
+        when (provider) {
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO -> when (container) {
+                MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                    MediaStoreMp3TextProfile.profile
+                MetadataAudioContainer.FLAC -> MediaStoreFlacTextProfile.profile
+                MetadataAudioContainer.MP4_M4A -> MediaStoreM4aTextProfile.profile
+                else -> null
+            }
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT -> when (container) {
+                MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                    SafLocalMp3TitleProfile.profile
+                else -> null
+            }
+            MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE -> null
         }
+
+    fun forDocumentProviderAndContainer(
+        provider: MetadataDocumentProvider,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? = forProviderAndContainer(
+        when (provider) {
+            MetadataDocumentProvider.MEDIASTORE ->
+                MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+            MetadataDocumentProvider.SAF ->
+                MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+            MetadataDocumentProvider.REMOTE, MetadataDocumentProvider.UNKNOWN ->
+                MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE
+        },
+        container,
+    )
 }

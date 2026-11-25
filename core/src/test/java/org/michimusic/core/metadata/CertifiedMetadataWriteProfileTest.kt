@@ -94,4 +94,35 @@ class CertifiedMetadataWriteProfileTest {
             MetadataAudioContainer.MP4_M4A,
         ) === m4a)
     }
+
+    @Test fun providerAwareLookupUsesDistinctSafEvidence() {
+        assertTrue(
+            MetadataWriteProfileRegistry.forProviderAndContainer(
+                MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+                MetadataAudioContainer.ID3_V24,
+            ) === MediaStoreMp3TextProfile.profile,
+        )
+        val saf = MetadataWriteProfileRegistry.forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+            MetadataAudioContainer.ID3_V24,
+        )
+        assertTrue(saf === SafLocalMp3TitleProfile.profile)
+        assertTrue(saf !== MediaStoreMp3TextProfile.profile)
+        assertTrue(saf!!.id != MediaStoreMp3TextProfile.ID)
+        assertTrue(saf.capabilityEvidenceId != MediaStoreMp3TextProfile.EVIDENCE_ID)
+        assertTrue(saf.supports(
+            MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.TITLE), emptySet(), false,
+        ))
+        assertFalse(saf.supports(
+            MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.ARTIST), emptySet(), false,
+        ))
+        assertTrue(
+            MetadataWriteProfileRegistry.forProviderAndContainer(
+                MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE,
+                MetadataAudioContainer.FLAC,
+            ) == null,
+        )
+    }
 }

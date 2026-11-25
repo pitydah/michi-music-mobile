@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MediaStoreM4aTextProfile
+import org.michimusic.core.metadata.SafLocalMp3TitleProfile
 import org.michimusic.core.metadata.MetadataArtworkEvidence
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataField
@@ -169,6 +170,66 @@ class MetadataIndexCasCoordinatorTest {
         assertEquals(
             false,
             permit(profileId = MediaStoreMp3TextProfile.ID).matches(entry),
+        )
+    }
+
+    @Test fun safPermitCannotBorrowMediaStoreAuthorityOrChangeItsScope() {
+        val safSource = "safroot_" + "1".repeat(40)
+        val safUri = "content://com.android.externalstorage.documents/" +
+            "document/primary%3ADownload%2Ftrack.mp3"
+        val entry = MetadataRecoveryJournalV1.Entry(
+            id = tx,
+            phase = MetadataRecoveryPhase.STAGE_READY,
+            sourceId = safSource,
+            trackId = "saftrack_" + "2".repeat(40),
+            uri = safUri,
+            expectedBytes = 100,
+            expectedModifiedAt = 1,
+            originalSha256 = source.observedSourceSha256,
+            stageSha256 = sha,
+            stageBytes = 120,
+            format = "ID3_V23",
+        )
+        fun permit(
+            profileId: String = SafLocalMp3TitleProfile.ID,
+            evidenceId: String = SafLocalMp3TitleProfile.EVIDENCE_ID,
+            revision: Int = 3,
+            fields: Set<MetadataField> = setOf(MetadataField.TITLE),
+            sourceId: String = entry.sourceId,
+            uri: String = entry.uri,
+        ) = MetadataWritePermit(
+            transactionId = tx,
+            sourceId = sourceId,
+            trackId = entry.trackId,
+            uri = uri,
+            originalSha256 = entry.originalSha256,
+            candidateSha256 = sha,
+            stageBytes = 120,
+            profileId = profileId,
+            evidenceId = evidenceId,
+            container = "ID3_V23",
+            revision = revision,
+            fields = fields,
+            explicitUserAction = true,
+        )
+
+        assertEquals(true, permit().matches(entry))
+        assertEquals(false, permit(revision = 4).matches(entry))
+        assertEquals(
+            false,
+            permit(fields = setOf(MetadataField.ARTIST)).matches(entry),
+        )
+        assertEquals(
+            false,
+            permit(
+                profileId = MediaStoreMp3TextProfile.ID,
+                evidenceId = MediaStoreMp3TextProfile.EVIDENCE_ID,
+            ).matches(entry),
+        )
+        assertEquals(false, permit(sourceId = "lib_device_local").matches(entry))
+        assertEquals(
+            false,
+            permit(uri = "content://media/external/audio/media/1").matches(entry),
         )
     }
 }
