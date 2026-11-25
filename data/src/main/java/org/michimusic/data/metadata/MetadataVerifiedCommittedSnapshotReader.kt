@@ -10,7 +10,9 @@ import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataPostSourceFieldPolicy
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
+import org.michimusic.core.metadata.MetadataResourceSemanticPolicy
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 
@@ -63,17 +65,21 @@ internal class MetadataVerifiedCommittedSnapshotReader(context: Context) {
             return@withContext Result.Refused(
                 refusalFor((first as MetadataCurrentBytesReader.PostCommitRead.Rejected).reason))
 
-        val report = try {
+        val parsed = try {
             val descriptor = resolver.openFileDescriptor(Uri.parse(entry.uri), "r")
                 ?: return@withContext Result.Refused("SOURCE_COLD_READ_FAILED")
             ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { stream ->
-                MetadataColdFieldParser.observe(stream.channel)
+                val report = MetadataColdFieldParser.observe(stream.channel)
+                val resources = if (intent.resources.isEmpty()) null
+                else MetadataPrivateBundleStage.observeChannel(stream.channel)
+                report to resources
             }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
             return@withContext Result.Refused("SOURCE_TAG_PARSE_FAILED")
         }
+        val report = parsed.first
 
         val second = current.readCommittedCandidate(
             entry.sourceId, entry.uri, intent.candidateBytes, intent.candidateSha256,
@@ -88,6 +94,13 @@ internal class MetadataVerifiedCommittedSnapshotReader(context: Context) {
             is MetadataPostSourceFieldPolicy.Verdict.Compared -> Unit
             is MetadataPostSourceFieldPolicy.Verdict.Blocked ->
                 return@withContext Result.Refused("SOURCE_FIELDS_DO_NOT_MATCH_INTENT")
+        }
+        if (intent.resources.isNotEmpty()) {
+            val resources = parsed.second
+                ?: return@withContext Result.Refused("SOURCE_RESOURCES_DO_NOT_MATCH_INTENT")
+            if (MetadataResourceSemanticPolicy.compareCandidate(intent, resources) !is
+                MetadataResourceSemanticPolicy.Verdict.ResourcesMatch
+            ) return@withContext Result.Refused("SOURCE_RESOURCES_DO_NOT_MATCH_INTENT")
         }
 
         val projected = runCatching {

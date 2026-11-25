@@ -12,6 +12,10 @@ import org.michimusic.core.metadata.MetadataCandidateSemanticPolicy
 import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataFieldReadReport
+import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
+import org.michimusic.core.metadata.MetadataResourceSemanticPolicy
+import org.michimusic.core.metadata.MetadataAudioContainer
 
 /**
  * ME-10O: read-only, explicit inspection of two private journal files, bound
@@ -23,7 +27,10 @@ import org.michimusic.core.metadata.MetadataFieldReadReport
  */
 internal object MetadataPreparedSemanticInspector {
     sealed interface Inspection {
-        data class Compared(val verdict: MetadataCandidateSemanticPolicy.Verdict.ObservedFieldsMatch) : Inspection {
+        data class Compared(
+            val verdict: MetadataCandidateSemanticPolicy.Verdict.ObservedFieldsMatch,
+            val resources: MetadataResourceSemanticPolicy.Verdict.ResourcesMatch,
+        ) : Inspection {
             val permitsSourceMutation: Boolean get() = false
         }
         data class Refused(val reason: Refusal,
@@ -32,7 +39,10 @@ internal object MetadataPreparedSemanticInspector {
     enum class Refusal { INVALID_INTENT, PRIVATE_FILE_UNREADABLE, PRIVATE_HASH_MISMATCH, SEMANTIC_MISMATCH }
     private const val BUFFER = 64 * 1024
 
-    private data class PhysicalRead(val report: MetadataFieldReadReport)
+    private data class PhysicalRead(
+        val report: MetadataFieldReadReport,
+        val resources: MetadataArtworkLyricsProbe.Snapshot?,
+    )
     private class BadPrivateHash : Exception()
 
     fun inspectFiles(
@@ -44,7 +54,15 @@ internal object MetadataPreparedSemanticInspector {
         if (!MetadataCommitIntentManifest.valid(intent))
             return Inspection.Refused(Refusal.INVALID_INTENT)
         val before = try {
-            readAndVerify(original, intent.originalBytes, intent.originalSha256, checkCancellation)
+            readAndVerify(
+                original, intent.originalBytes, intent.originalSha256,
+                intent.container in setOf(
+                    MetadataAudioContainer.ID3_V23,
+                    MetadataAudioContainer.ID3_V24,
+                    MetadataAudioContainer.FLAC,
+                ),
+                checkCancellation,
+            )
         } catch (cancel: CancellationException) { throw cancel
         } catch (_: BadPrivateHash) {
             return Inspection.Refused(Refusal.PRIVATE_HASH_MISMATCH)
@@ -52,17 +70,43 @@ internal object MetadataPreparedSemanticInspector {
             return Inspection.Refused(Refusal.PRIVATE_FILE_UNREADABLE)
         }
         val after = try {
-            readAndVerify(candidate, intent.candidateBytes, intent.candidateSha256, checkCancellation)
+            readAndVerify(
+                candidate, intent.candidateBytes, intent.candidateSha256,
+                intent.container in setOf(
+                    MetadataAudioContainer.ID3_V23,
+                    MetadataAudioContainer.ID3_V24,
+                    MetadataAudioContainer.FLAC,
+                ),
+                checkCancellation,
+            )
         } catch (cancel: CancellationException) { throw cancel
         } catch (_: BadPrivateHash) {
             return Inspection.Refused(Refusal.PRIVATE_HASH_MISMATCH)
         } catch (_: Exception) {
             return Inspection.Refused(Refusal.PRIVATE_FILE_UNREADABLE)
         }
-        return when (val verdict = MetadataCandidateSemanticPolicy.compare(intent, before.report, after.report)) {
+        val fields = when (val verdict =
+            MetadataCandidateSemanticPolicy.compare(intent, before.report, after.report)
+        ) {
             is MetadataCandidateSemanticPolicy.Verdict.Refused ->
-                Inspection.Refused(Refusal.SEMANTIC_MISMATCH, verdict)
-            is MetadataCandidateSemanticPolicy.Verdict.ObservedFieldsMatch -> Inspection.Compared(verdict)
+                return Inspection.Refused(Refusal.SEMANTIC_MISMATCH, verdict)
+            is MetadataCandidateSemanticPolicy.Verdict.ObservedFieldsMatch -> verdict
+        }
+        val resourceVerdict = if (intent.container in setOf(
+                MetadataAudioContainer.ID3_V23,
+                MetadataAudioContainer.ID3_V24,
+                MetadataAudioContainer.FLAC,
+            )
+        ) MetadataResourceSemanticPolicy.compare(
+            intent,
+            before.resources ?: return Inspection.Refused(Refusal.SEMANTIC_MISMATCH),
+            after.resources ?: return Inspection.Refused(Refusal.SEMANTIC_MISMATCH),
+        ) else MetadataResourceSemanticPolicy.Verdict.ResourcesMatch(0)
+        return when (val resources = resourceVerdict) {
+            is MetadataResourceSemanticPolicy.Verdict.Refused ->
+                Inspection.Refused(Refusal.SEMANTIC_MISMATCH)
+            is MetadataResourceSemanticPolicy.Verdict.ResourcesMatch ->
+                Inspection.Compared(fields, resources)
         }
     }
 
@@ -70,6 +114,7 @@ internal object MetadataPreparedSemanticInspector {
         file: File,
         expectedBytes: Long,
         expectedSha256: String,
+        observeResources: Boolean,
         checkCancellation: () -> Unit,
     ): PhysicalRead {
         val path = file.toPath()
@@ -99,7 +144,10 @@ internal object MetadataPreparedSemanticInspector {
                 (it.toInt() and 255).toString(16).padStart(2, '0')
             }
             if (actualHash != expectedSha256) throw BadPrivateHash()
-            return PhysicalRead(report)
+            val resources = if (observeResources)
+                runCatching { MetadataPrivateBundleStage.observeChannel(channel) }.getOrNull()
+            else null
+            return PhysicalRead(report, resources)
         }
     }
 }

@@ -1,7 +1,10 @@
 package org.michimusic.data.metadata
 
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.nio.file.Files
+import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +20,7 @@ import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.core.metadata.MetadataRecoveryPhase
+import org.michimusic.core.metadata.MetadataArtworkEvidence
 
 class MetadataCommitIntentStoreTest {
     private val id="12341234-1234-4abc-8abc-123412341234"
@@ -31,6 +35,31 @@ class MetadataCommitIntentStoreTest {
         return MetadataCommitIntentManifest.create(id,review,MetadataDocumentProvider.MEDIASTORE,
             MetadataAudioContainer.FLAC,2048,"a".repeat(64),4096,"b".repeat(64))
     }
+    private fun resourceReceipt() = MetadataCommitIntentManifest.Receipt(
+        transactionId = id,
+        ownerSha256 = "c".repeat(64),
+        provider = MetadataDocumentProvider.MEDIASTORE,
+        container = MetadataAudioContainer.ID3_V24,
+        originalBytes = 2048,
+        originalSha256 = "a".repeat(64),
+        candidateBytes = 4096,
+        candidateSha256 = "b".repeat(64),
+        changes = emptyList(),
+        resources = listOf(
+            MetadataCommitIntentManifest.ResourceChange.PictureReplacement(
+                ordinal = 0,
+                format = MetadataArtworkEvidence.Format.ID3_APIC,
+                type = 3,
+                description = "Cover",
+                beforeMime = "image/jpeg",
+                beforeBytes = 32,
+                beforeSha256 = "d".repeat(64),
+                afterMime = "image/png",
+                afterBytes = 48,
+                afterSha256 = "e".repeat(64),
+            ),
+        ),
+    )
     private fun fresh() = Files.createTempDirectory("michi-intent-me10n-").toFile()
 
     @Test fun absentLegacyManifestIsNotInvented() = runBlocking {
@@ -52,6 +81,34 @@ class MetadataCommitIntentStoreTest {
                 store.write(entry(),receipt())
                 assertEquals(MetadataCommitIntentStore.Inspection.Present(receipt()),
                     store.inspect(entry()))
+            }
+        } finally { root.deleteRecursively() }
+    }
+    @Test fun writesAndReadsAssetOnlyV2Receipt() = runBlocking {
+        val root=fresh()
+        try {
+            val journal=MetadataRecoveryJournalV1(root)
+            journal.exclusive {
+                val store=MetadataCommitIntentStore(journal)
+                store.write(entry(),resourceReceipt())
+                assertEquals(
+                    MetadataCommitIntentStore.Inspection.Present(resourceReceipt()),
+                    store.inspect(entry()),
+                )
+            }
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun readsLegacyV1AsScalarOnly() = runBlocking {
+        val root=fresh()
+        try {
+            val journal=MetadataRecoveryJournalV1(root)
+            journal.exclusive {
+                journal.intent(entry()).writeBytes(legacyV1(receipt()))
+                val inspected=MetadataCommitIntentStore(journal).inspect(entry())
+                assertEquals(MetadataCommitIntentStore.Inspection.Present(receipt()), inspected)
+                val decoded=(inspected as MetadataCommitIntentStore.Inspection.Present).receipt
+                assertTrue(decoded.resources.isEmpty())
             }
         } finally { root.deleteRecursively() }
     }
@@ -121,5 +178,38 @@ class MetadataCommitIntentStoreTest {
                     MetadataCommitIntentStore(journal).inspect(entry()))
             }
         } finally { root.deleteRecursively() }
+    }
+
+    private fun legacyV1(r: MetadataCommitIntentManifest.Receipt): ByteArray {
+        val body=ByteArrayOutputStream().also { stream ->
+            DataOutputStream(stream).use { out ->
+                out.writeInt(0x4d45314e)
+                out.writeInt(1)
+                out.writeUTF(r.transactionId)
+                out.writeUTF(r.ownerSha256)
+                out.writeUTF(r.provider.name)
+                out.writeUTF(r.container.name)
+                out.writeLong(r.originalBytes)
+                out.writeUTF(r.originalSha256)
+                out.writeLong(r.candidateBytes)
+                out.writeUTF(r.candidateSha256)
+                out.writeInt(r.changes.size)
+                r.changes.forEach { change ->
+                    out.writeUTF(change.field.name)
+                    out.writeInt(change.beforeCount)
+                    out.writeInt(change.afterCount)
+                    out.writeUTF(change.beforeSha256)
+                    out.writeUTF(change.afterSha256)
+                }
+            }
+        }.toByteArray()
+        val digest=MessageDigest.getInstance("SHA-256").digest(body)
+        return ByteArrayOutputStream().also { stream ->
+            DataOutputStream(stream).use { out ->
+                out.writeInt(body.size)
+                out.write(body)
+                out.write(digest)
+            }
+        }.toByteArray()
     }
 }

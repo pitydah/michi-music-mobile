@@ -13,7 +13,8 @@ import java.security.MessageDigest
 object MetadataArtworkEvidence {
     enum class Format { ID3_APIC, FLAC_PICTURE }
     data class Picture(val format: Format, val type: Int, val mime: String,
-        val bytes: Int, val sha256: String, val width: Int? = null, val height: Int? = null)
+        val bytes: Int, val sha256: String, val width: Int? = null, val height: Int? = null,
+        val description: String = "")
     private const val MAX_BYTES = 8 * 1024 * 1024
     private fun digest(data: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(data).joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
@@ -51,7 +52,7 @@ object MetadataArtworkEvidence {
         if (mime != "image/jpeg" && mime != "image/png") return null
         val descSize = word()?.takeIf { it <= 2048 }?.toInt() ?: return null
         if (pos > block.size - descSize) return null
-        if (text(block.copyOfRange(pos, pos + descSize)) == null) return null
+        val description = text(block.copyOfRange(pos, pos + descSize)) ?: return null
         pos += descSize
         val width = word()?.takeIf { it in 1..16384 }?.toInt() ?: return null
         val height = word()?.takeIf { it in 1..16384 }?.toInt() ?: return null
@@ -62,7 +63,10 @@ object MetadataArtworkEvidence {
         if (pos != block.size - imageSize) return null
         val image = block.copyOfRange(pos, block.size)
         if (!valid(mime, image)) return null
-        return Picture(Format.FLAC_PICTURE, type, mime, imageSize, digest(image), width, height)
+        return Picture(
+            Format.FLAC_PICTURE, type, mime, imageSize, digest(image), width, height,
+            description,
+        )
     }
 
     /** One validated APIC payload. Shared by evidence and the artwork probe. */
@@ -214,7 +218,7 @@ object MetadataArtworkEvidence {
         if (image.size !in 4..MAX_BYTES) return null
         val dimensions = imageInfo(mime, image) ?: return null
         val info = Picture(Format.ID3_APIC, type, mime, image.size, digest(image),
-            dimensions.first, dimensions.second)
+            dimensions.first, dimensions.second, description)
         return Id3ApicFrame(info, image, encoding, description, imageStart)
     }
 

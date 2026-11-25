@@ -51,7 +51,10 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
                 org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
                     permit.revision == 1
                 else -> false
-            }) && permit.fields.isNotEmpty() &&
+            }) &&
+            (permit.fields.isNotEmpty() || permit.resources.isNotEmpty()) &&
+            permit.fields.all { it in profile.supportedFields } &&
+            profile.supports(permit.resources) &&
             permit.transactionId == delta.transactionId &&
             permit.candidateSha256 == delta.sourceSha256 &&
             permit.stageBytes == delta.candidateBytes &&

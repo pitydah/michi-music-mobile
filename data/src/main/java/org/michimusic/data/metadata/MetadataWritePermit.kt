@@ -3,6 +3,7 @@ package org.michimusic.data.metadata
 import org.michimusic.core.metadata.CertifiedWriteEvidence
 import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataCommitIntentManifest
 
 /**
  * ME-13: a typed, transaction-bound authorization. It is not a global gate and
@@ -22,6 +23,7 @@ internal data class MetadataWritePermit(
     val revision: Int,
     val fields: Set<MetadataField>,
     val explicitUserAction: Boolean,
+    val resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList(),
 ) {
     fun evidence(): CertifiedWriteEvidence = CertifiedWriteEvidence(
         transactionId = transactionId, profileId = profileId, evidenceId = evidenceId,
@@ -40,8 +42,9 @@ internal data class MetadataWritePermit(
             MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
                 evidenceId == profile.capabilityEvidenceId &&
                     container == entry.format &&
-                    fields.isNotEmpty() &&
+                    (fields.isNotEmpty() || resources.isNotEmpty()) &&
                     fields.all { it in profile.supportedFields } &&
+                    profile.supports(resources) &&
                     profile.containers.any { it.name == container } &&
                     (when (profile.id) {
                         org.michimusic.core.metadata.MediaStoreMp3TextProfile.ID ->

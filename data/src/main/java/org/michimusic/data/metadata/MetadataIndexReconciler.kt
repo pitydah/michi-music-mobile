@@ -357,6 +357,7 @@ class MetadataIndexReconciler internal constructor(
             evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision, fields = fields,
             explicitUserAction = true,
+            resources = intent.resources,
         ).takeIf { it.matches(entry) }
     }
 

@@ -14,6 +14,7 @@ data class CertifiedMetadataWriteProfile(
     val permitsArtwork: Boolean,
     val permitsMultiValue: Set<MetadataField>,
     val capabilityEvidenceId: String,
+    val supportedResourceOperations: Set<MetadataResourceOperation> = emptySet(),
 ) {
     fun supports(container: MetadataAudioContainer, revision: Int, fields: Set<MetadataField>,
         multiValueFields: Set<MetadataField>, artworkChanged: Boolean): Boolean {
@@ -26,6 +27,30 @@ data class CertifiedMetadataWriteProfile(
             fields.all { it in supportedFields } &&
             multiValueFields.all { it in permitsMultiValue } &&
             (!artworkChanged || permitsArtwork)
+    }
+
+    fun supports(resources: List<MetadataCommitIntentManifest.ResourceChange>): Boolean =
+        resources.all { MetadataResourceOperation.of(it) in supportedResourceOperations }
+}
+
+enum class MetadataResourceOperation {
+    ID3_APIC_REPLACE,
+    FLAC_PICTURE_REPLACE,
+    ID3_DESCRIBED_TEXT_REPLACE,
+    ID3_DESCRIBED_TEXT_CLEAR;
+
+    companion object {
+        fun of(change: MetadataCommitIntentManifest.ResourceChange): MetadataResourceOperation =
+            when (change) {
+                is MetadataCommitIntentManifest.ResourceChange.PictureReplacement ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REPLACE
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REPLACE
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.DescribedText ->
+                    if (change.afterCount == 0) ID3_DESCRIBED_TEXT_CLEAR
+                    else ID3_DESCRIBED_TEXT_REPLACE
+            }
     }
 }
 
@@ -47,8 +72,8 @@ enum class SaveBlock {
  * cold reread and audio payload equality.
  */
 object MediaStoreMp3TextProfile {
-    const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_V1"
-    const val EVIDENCE_ID = "ME13_MEDIASTORE_MP3_ID3_TEXT_V1"
+    const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_APIC_V2"
+    const val EVIDENCE_ID = "ME16_MEDIASTORE_MP3_ID3_TEXT_APIC_V2"
 
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
@@ -62,6 +87,9 @@ object MediaStoreMp3TextProfile {
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.ID3_APIC_REPLACE,
+        ),
     )
 }
 

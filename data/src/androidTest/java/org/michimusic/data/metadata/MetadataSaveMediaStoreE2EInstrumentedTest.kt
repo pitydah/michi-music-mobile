@@ -9,6 +9,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -21,9 +22,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.metadata.MetadataChange
+import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataReview
+import org.michimusic.core.metadata.MetadataSelectiveAssetStage
 import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
@@ -358,9 +362,170 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         )
     }
 
+    @Test fun replaceExistingApicCommitsExactResourceAndPublishesRoom() = runBlocking {
+        val resolver = context.contentResolver
+        val beforeImage = png(1)
+        val afterImage = png(2)
+        val before = id3v24WithApic(
+            title = "Artwork Original",
+            artist = "Synthetic Artist",
+            album = "Synthetic Album",
+            genre = "Rock",
+            image = beforeImage,
+            audio = audioPayload,
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-art-${UUID.randomUUID()}.mp3")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable artwork MediaStore item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(before)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val artworkTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = artworkTrackId,
+                    title = "Artwork Original",
+                    artist = "Synthetic Artist",
+                    album = "Synthetic Album",
+                    size = observedSize,
+                    format = "mp3",
+                    genre = "Rock",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, artworkTrackId, uri.toString(), observedSize, sha(before),
+            1_700_000_000_000L, "sha256",
+        )
+        val originalRevision = database.trackDao()
+            .getTrackBySource(sourceId, artworkTrackId)!!.metadataRevision
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, artworkTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected artwork fixture: $read")
+        }
+        val privateSource = File(context.cacheDir, "me-art-${UUID.randomUUID()}.mp3")
+        val observedResources = try {
+            privateSource.writeBytes(before)
+            MetadataPrivateBundleStage.observeFile(privateSource)
+        } finally {
+            privateSource.delete()
+        }
+        val proposal = (
+            MetadataArtworkReplacementPreview.review(
+                observedResources, 0, afterImage, "image/png",
+            ) as MetadataArtworkReplacementPreview.Result.Ready
+            ).proposal
+        val outcome = MetadataSaveService(context, database.trackDao(), database).saveBundle(
+            sourceId = sourceId,
+            trackId = artworkTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            targetInput = original.target,
+            reviewInput = null,
+            resourceEdits = listOf(MetadataSelectiveAssetStage.Edit.Picture(proposal)),
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+
+        assertTrue(
+            "Exact APIC replacement must commit and publish, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val physical = File(context.cacheDir, "me-art-after-${UUID.randomUUID()}.mp3")
+        val resources = try {
+            physical.writeBytes(after)
+            MetadataPrivateBundleStage.observeFile(physical)
+        } finally {
+            physical.delete()
+        }
+        assertArrayEquals(afterImage, resources.artworks.single().image)
+        assertArrayEquals(audioPayload, after.copyOfRange(after.size - audioPayload.size, after.size))
+        val row = database.trackDao().getTrackBySource(sourceId, artworkTrackId)!!
+        assertEquals("Artwork Original", row.title)
+        assertEquals(after.size.toLong(), row.size)
+        assertTrue(row.metadataRevision > originalRevision)
+        database.openHelper.writableDatabase.query(
+            "SELECT originalRevision,committedRevision,candidateSha256,candidateBytes " +
+                "FROM metadata_applied_transaction WHERE sourceId=? AND trackId=?",
+            arrayOf(sourceId, artworkTrackId),
+        ).use { cursor ->
+            assertTrue("Exact applied transaction marker is missing", cursor.moveToFirst())
+            assertEquals(originalRevision, cursor.getLong(0))
+            assertEquals(row.metadataRevision, cursor.getLong(1))
+            assertEquals(sha(after), cursor.getString(2))
+            assertEquals(after.size.toLong(), cursor.getLong(3))
+            assertTrue("There must be exactly one marker", !cursor.moveToNext())
+        }
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
     private fun sha(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
+
+    private fun png(mark: Int): ByteArray {
+        fun be(value: Int) = byteArrayOf(
+            (value ushr 24).toByte(), (value ushr 16).toByte(),
+            (value ushr 8).toByte(), value.toByte(),
+        )
+        return byteArrayOf(0x89.toByte(), 80, 78, 71, 13, 10, 26, 10) +
+            be(13) + "IHDR".toByteArray() + be(16) + be(20) +
+            byteArrayOf(8, 2, 0, 0, 0) + ByteArray(4) { mark.toByte() } +
+            be(0) + "IEND".toByteArray() + ByteArray(4) { mark.toByte() }
+    }
+
+    private fun id3v24WithApic(
+        title: String,
+        artist: String,
+        album: String,
+        genre: String,
+        image: ByteArray,
+        audio: ByteArray,
+    ): ByteArray {
+        fun sync(n: Int) = byteArrayOf(
+            ((n ushr 21) and 127).toByte(), ((n ushr 14) and 127).toByte(),
+            ((n ushr 7) and 127).toByte(), (n and 127).toByte(),
+        )
+        fun frame(id: String, payload: ByteArray) =
+            id.toByteArray(Charsets.US_ASCII) + sync(payload.size) +
+                byteArrayOf(0, 0) + payload
+        fun text(id: String, value: String) =
+            frame(id, byteArrayOf(3) + value.toByteArray(Charsets.UTF_8))
+        val apic = byteArrayOf(0) + "image/png".toByteArray(Charsets.US_ASCII) +
+            byteArrayOf(0, 3, 0) + image
+        val body = text("TIT2", title) + text("TPE1", artist) +
+            text("TALB", album) + text("TCON", genre) + frame("APIC", apic)
+        return "ID3".toByteArray(Charsets.US_ASCII) + byteArrayOf(4, 0, 0) +
+            sync(body.size) + body + audio
+    }
 
     private fun flac(comments: List<String>, audio: ByteArray): ByteArray {
         fun littleEndian32(out: ByteArrayOutputStream, value: Int) {

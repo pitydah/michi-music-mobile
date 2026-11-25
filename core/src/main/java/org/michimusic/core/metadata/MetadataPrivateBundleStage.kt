@@ -82,6 +82,49 @@ object MetadataPrivateBundleStage {
             Region(bytes,at)
         } else throw Rejected(Reason.FORMAT_UNSUPPORTED)
     }
+    private fun metadataRegion(channel: FileChannel): Region {
+        val size = channel.size()
+        if (size !in 20..MAX_BUNDLE_BYTES) throw Rejected(Reason.TOO_LARGE)
+        fun readExact(at: Long, bytes: ByteArray) {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            var position = at
+            while (buffer.hasRemaining()) {
+                val read = channel.read(buffer, position)
+                if (read <= 0) throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                position += read
+            }
+        }
+        val header = ByteArray(10)
+        readExact(0, header)
+        if (header.copyOfRange(0, 3).contentEquals("ID3".toByteArray())) {
+            val length = MetadataArtworkLyricsProbe.id3DeclaredLength(header)
+                ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+            if (length >= size || length > MAX_METADATA_BYTES)
+                throw Rejected(Reason.FORMAT_UNSUPPORTED)
+            return Region(ByteArray(length).also { readExact(0, it) }, length.toLong())
+        }
+        if (header.copyOfRange(0, 4).contentEquals("fLaC".toByteArray())) {
+            var at = 4L
+            var count = 0
+            var last = false
+            while (!last) {
+                if (++count > 128 || at + 4 > MAX_METADATA_BYTES || at + 4 > size)
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                val block = ByteArray(4)
+                readExact(at, block)
+                val kind = u(block[0]) and 127
+                val length = (u(block[1]) shl 16) or (u(block[2]) shl 8) or u(block[3])
+                if (count == 1 && (kind != 0 || length != 34))
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                at += 4 + length
+                if (at > MAX_METADATA_BYTES || at >= size)
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                last = (u(block[0]) and 128) != 0
+            }
+            return Region(ByteArray(at.toInt()).also { readExact(0, it) }, at)
+        }
+        throw Rejected(Reason.FORMAT_UNSUPPORTED)
+    }
     private fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
         val region=metadataRegion(file)
         val result=MetadataArtworkLyricsProbe.inspect(region.metadata)
@@ -98,6 +141,13 @@ object MetadataPrivateBundleStage {
      */
     fun observeFile(file: File): MetadataArtworkLyricsProbe.Snapshot =
         observe(file).first
+    /** Bounded positional observation from an already-open read-only descriptor. */
+    fun observeChannel(channel: FileChannel): MetadataArtworkLyricsProbe.Snapshot {
+        val result = MetadataArtworkLyricsProbe.inspect(metadataRegion(channel).metadata)
+            as? MetadataArtworkLyricsProbe.Result.Ready
+            ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        return result.snapshot
+    }
     private fun same(a: MetadataArtworkLyricsProbe.Snapshot,b: MetadataArtworkLyricsProbe.Snapshot):Boolean =
         a.format==b.format && a.texts==b.texts && a.artworks.size==b.artworks.size &&
             a.artworks.zip(b.artworks).all { (x,y) ->

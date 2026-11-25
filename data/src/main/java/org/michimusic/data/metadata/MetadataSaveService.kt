@@ -103,12 +103,38 @@ class MetadataSaveService internal constructor(
         ownerCurrent: () -> Boolean = { false },
         playbackClosed: () -> Boolean = { false },
     ): Outcome {
+        return saveBundle(
+            sourceId = sourceId,
+            trackId = trackId,
+            uriString = uriString,
+            expectedBytes = expectedBytes,
+            targetInput = reviewInput.original.target,
+            reviewInput = reviewInput,
+            resourceEdits = emptyList(),
+            ownerCurrent = ownerCurrent,
+            playbackClosed = playbackClosed,
+        )
+    }
+
+    suspend fun saveBundle(
+        sourceId: String,
+        trackId: String,
+        uriString: String,
+        expectedBytes: Long,
+        targetInput: org.michimusic.core.metadata.MetadataTarget,
+        reviewInput: MetadataReview.Ready?,
+        resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
+        ownerCurrent: () -> Boolean = { false },
+        playbackClosed: () -> Boolean = { false },
+    ): Outcome {
         val key = MetadataSaveLocks.key(sourceId, trackId, uriString)
         val lock = MetadataSaveLocks.lock(key)
         if (!lock.tryLock()) return Outcome.RecoveryRequired("IN_PROGRESS")
         try {
-            return saveBody(sourceId, trackId, uriString, expectedBytes, reviewInput,
-                ownerCurrent, playbackClosed)
+            return saveBody(
+                sourceId, trackId, uriString, expectedBytes, targetInput,
+                reviewInput, resourceEdits, ownerCurrent, playbackClosed,
+            )
         } finally {
             lock.unlock()
             MetadataSaveLocks.release(key, lock)
@@ -284,6 +310,7 @@ class MetadataSaveService internal constructor(
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
             explicitUserAction = true,
+            resources = intent.resources,
         )
     }
 
@@ -292,14 +319,16 @@ class MetadataSaveService internal constructor(
         trackId: String,
         uriString: String,
         expectedBytes: Long,
-        reviewInput: MetadataReview.Ready,
+        targetInput: org.michimusic.core.metadata.MetadataTarget,
+        reviewInput: MetadataReview.Ready?,
+        resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
         ownerCurrent: () -> Boolean,
         playbackClosed: () -> Boolean,
     ): Outcome = withContext(Dispatchers.IO) {
-        val canonicalTarget = reviewInput.proposed.target.copy(
+        val canonicalTarget = targetInput.copy(
             sourceId = sourceId, trackId = trackId, uri = uriString,
         )
-        val review = reviewInput.copy(
+        val review = reviewInput?.copy(
             original = reviewInput.original.copy(target = canonicalTarget),
             proposed = reviewInput.proposed.copy(target = canonicalTarget),
         )
@@ -320,7 +349,8 @@ class MetadataSaveService internal constructor(
             MetadataRecoveryJournalV1.Inspection.Clear -> Unit
         }
         if (expectedBytes <= 0L) return@withContext Outcome.Blocked("Tamaño de origen no válido")
-        if (review.diffs.isEmpty()) return@withContext Outcome.Blocked("No hay cambios efectivos")
+        if (review?.diffs.isNullOrEmpty() && resourceEdits.isEmpty())
+            return@withContext Outcome.Blocked("No hay cambios efectivos")
         val exactPrepared = (journal.inspect() as?
             MetadataRecoveryJournalV1.Inspection.Pending)?.entry?.let { prepared ->
             prepared.phase == MetadataRecoveryPhase.STAGE_READY &&
@@ -354,7 +384,7 @@ class MetadataSaveService internal constructor(
             }
             val activeProfile = profileFor(container)
                 ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
-            val fields = review.diffs.mapTo(linkedSetOf()) { it.field }
+            val fields = review?.diffs.orEmpty().mapTo(linkedSetOf()) { it.field }
             if (!activeProfile.supports(container, revision, fields, emptySet(), false))
                 return@withContext Outcome.Blocked("Perfil de escritura no certificado")
 
@@ -395,21 +425,39 @@ class MetadataSaveService internal constructor(
                         "La intención persistida no es válida; no se reanuda",
                     )
                 val intent = persisted.receipt
-                val pendingFields = review.diffs.map { it.field }.sortedBy { it.name }
+                val pendingFields = review?.diffs.orEmpty().map { it.field }.sortedBy { it.name }
+                val expectedIntent = runCatching {
+                    MetadataCommitIntentManifest.createBundle(
+                        transactionId = entry.id,
+                        target = canonicalTarget,
+                        review = review,
+                        resources = observed,
+                        edits = resourceEdits,
+                        provider = MetadataDocumentProvider.MEDIASTORE,
+                        container = observed.format.toContainer(),
+                        originalBytes = entry.expectedBytes,
+                        originalSha256 = entry.originalSha256,
+                        candidateBytes = entry.stageBytes,
+                        candidateSha256 = entry.stageSha256,
+                    )
+                }.getOrNull() ?: return@withContext Outcome.Blocked(
+                    "La revisión no coincide con la intención persistida",
+                )
                 if (intent.candidateSha256 != entry.stageSha256 ||
                     intent.originalSha256 != entry.originalSha256 ||
                     intent.candidateBytes != entry.stageBytes ||
                     intent.changes.map { it.field } != pendingFields ||
+                    intent.resources != expectedIntent.resources ||
                     intent.container != observed.format.toContainer() ||
                     intent.provider != MetadataDocumentProvider.MEDIASTORE ||
                     intent.ownerSha256 !=
                     org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
-                        review.original.target,
+                        canonicalTarget,
                     ))
                     return@withContext Outcome.Blocked(
                         "La revisión cambió desde la preparación; no se reanuda",
                     )
-                val changed = review.diffs.associateBy { it.field }
+                val changed = review?.diffs.orEmpty().associateBy { it.field }
                 if (intent.changes.any { change ->
                         val diff = changed[change.field]
                             ?: return@withContext Outcome.Blocked("La revisión no coincide")
@@ -427,7 +475,7 @@ class MetadataSaveService internal constructor(
                     sourceId = sourceId, trackId = trackId, uri = uriString,
                     expectedBytes = expectedBytes, expectedModifiedAt = stamp,
                     format = observed.format.name,
-                    ownerEvidenceToken = review.original.target.evidenceToken,
+                    ownerEvidenceToken = canonicalTarget.evidenceToken,
                 )
                 journal.start(entry)
                 val snapshotEntry = entry
@@ -443,15 +491,21 @@ class MetadataSaveService internal constructor(
                 candidate = journal.stage(entry)
                 val receipt = MetadataPrivateBundleStage.stage(
                     backup, candidate,
-                    MetadataPrivateBundleStage.Request(sourceSha, observed, review),
+                    MetadataPrivateBundleStage.Request(
+                        sourceSha, observed, review, resourceEdits,
+                    ),
                 )
                 entry = backupEntry.copy(phase = MetadataRecoveryPhase.STAGE_READY,
                     stageSha256 = receipt.candidateSha256, stageBytes = receipt.candidateBytes,
                     format = observed.format.name)
                 journal.advance(backupEntry, entry)
                 checkpoints.reach(MetadataSaveCheckpoint.AFTER_STAGE_READY)
-                val manifest = MetadataCommitIntentManifest.create(
-                    transactionId = entry.id, review = review,
+                val manifest = MetadataCommitIntentManifest.createBundle(
+                    transactionId = entry.id,
+                    target = canonicalTarget,
+                    review = review,
+                    resources = observed,
+                    edits = resourceEdits,
                     provider = MetadataDocumentProvider.MEDIASTORE,
                     container = observed.format.toContainer(),
                     originalBytes = entry.expectedBytes,
@@ -459,6 +513,12 @@ class MetadataSaveService internal constructor(
                     candidateBytes = entry.stageBytes,
                     candidateSha256 = entry.stageSha256,
                 )
+                if (!activeProfile.supports(manifest.resources)) {
+                    journal.discardPrepared(entry.id)
+                    return@withContext Outcome.Blocked(
+                        "Perfil de recursos no certificado",
+                    )
+                }
                 val written = journal.exclusive {
                     runCatching { intents.write(entry, manifest) }.isSuccess
                 }
@@ -498,11 +558,21 @@ class MetadataSaveService internal constructor(
                 return@withContext abort(entry, "El origen cambió antes del consentimiento")
             val persisted = (intents.inspect(entry) as? MetadataCommitIntentStore.Inspection.Present)
                 ?.receipt ?: return@withContext Outcome.RecoveryRequired("INTENT_NOT_DURABLE")
+            if (!activeProfile.supports(persisted.resources))
+                return@withContext Outcome.Blocked("Perfil de recursos no certificado")
+            val originalSnapshot = review?.original ?: runCatching {
+                java.io.FileInputStream(sourceCopy).use { input ->
+                    org.michimusic.core.metadata.MetadataColdFieldParser.observe(input.channel)
+                        .toSnapshot(canonicalTarget)
+                }
+            }.getOrElse {
+                return@withContext Outcome.Blocked("No se pudo observar el origen")
+            }
             return@withContext commitPrepared(
                 entry = entry,
                 intent = persisted,
-                target = review.original.target,
-                original = review.original,
+                target = canonicalTarget,
+                original = originalSnapshot,
                 ownerCurrent = ownerCurrent,
                 playbackClosed = playbackClosed,
             )

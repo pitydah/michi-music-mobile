@@ -26,13 +26,16 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
+import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataId3StageRewriter
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataReview
+import org.michimusic.core.metadata.MetadataSelectiveAssetStage
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 import org.robolectric.RobolectricTestRunner
@@ -128,6 +131,70 @@ class MetadataVerifiedCommittedSnapshotReaderTest {
             (outcome as MetadataVerifiedCommittedSnapshotReader.Result.Refused).code)
     }
 
+    @Test fun assetOnlyApicIntentRequiresExactCommittedResourceIdentity() = runBlocking {
+        val beforeFile = File.createTempFile("me-resource-before", ".mp3")
+        val afterFile = File(beforeFile.parentFile, "me-resource-after-${UUID.randomUUID()}.mp3")
+        try {
+            beforeFile.writeBytes(id3v24WithApic(png(1), audio))
+            val observed = MetadataPrivateBundleStage.observeFile(beforeFile)
+            val proposal = (
+                MetadataArtworkReplacementPreview.review(
+                    observed, 0, png(2), "image/png",
+                ) as MetadataArtworkReplacementPreview.Result.Ready
+                ).proposal
+            val edit = MetadataSelectiveAssetStage.Edit.Picture(proposal)
+            MetadataPrivateBundleStage.stage(
+                beforeFile,
+                afterFile,
+                MetadataPrivateBundleStage.Request(
+                    sha(beforeFile.readBytes()), observed, null, listOf(edit),
+                ),
+            )
+            val beforeBytes = beforeFile.readBytes()
+            val afterBytes = afterFile.readBytes()
+            val assetIntent = MetadataCommitIntentManifest.createBundle(
+                transactionId = TX,
+                target = target,
+                review = null,
+                resources = observed,
+                edits = listOf(edit),
+                provider = org.michimusic.core.metadata.MetadataDocumentProvider.MEDIASTORE,
+                container = MetadataAudioContainer.ID3_V24,
+                originalBytes = beforeBytes.size.toLong(),
+                originalSha256 = sha(beforeBytes),
+                candidateBytes = afterBytes.size.toLong(),
+                candidateSha256 = sha(afterBytes),
+            )
+            val assetEntry = entry.copy(
+                expectedBytes = beforeBytes.size.toLong(),
+                originalSha256 = sha(beforeBytes),
+                stageSha256 = sha(afterBytes),
+                stageBytes = afterBytes.size.toLong(),
+                format = MetadataAudioContainer.ID3_V24.name,
+            )
+            provider.file.writeBytes(afterBytes)
+
+            assertTrue(
+                reader().read(assetEntry, target, assetIntent) is
+                    MetadataVerifiedCommittedSnapshotReader.Result.Verified,
+            )
+
+            val picture = assetIntent.resources.single() as
+                MetadataCommitIntentManifest.ResourceChange.PictureReplacement
+            val wrongIntent = assetIntent.copy(
+                resources = listOf(picture.copy(afterSha256 = sha(png(3)))),
+            )
+            val refused = reader().read(assetEntry, target, wrongIntent)
+            assertEquals(
+                "SOURCE_RESOURCES_DO_NOT_MATCH_INTENT",
+                (refused as MetadataVerifiedCommittedSnapshotReader.Result.Refused).code,
+            )
+        } finally {
+            beforeFile.delete()
+            afterFile.delete()
+        }
+    }
+
     private fun reader() = MetadataVerifiedCommittedSnapshotReader(context)
 
     private fun parse(file: File): MetadataSnapshot {
@@ -160,6 +227,33 @@ class MetadataVerifiedCommittedSnapshotReaderTest {
             out.write(3); out.write(0); out.write(0); out.write(sync(body.size))
             out.write(body); out.write(audio)
         }.toByteArray()
+    }
+
+    private fun png(mark: Int): ByteArray {
+        fun be(value: Int) = byteArrayOf(
+            (value ushr 24).toByte(), (value ushr 16).toByte(),
+            (value ushr 8).toByte(), value.toByte(),
+        )
+        return byteArrayOf(0x89.toByte(), 80, 78, 71, 13, 10, 26, 10) +
+            be(13) + "IHDR".toByteArray() + be(16) + be(20) +
+            byteArrayOf(8, 2, 0, 0, 0) + ByteArray(4) { mark.toByte() } +
+            be(0) + "IEND".toByteArray() + ByteArray(4) { mark.toByte() }
+    }
+
+    private fun id3v24WithApic(image: ByteArray, audio: ByteArray): ByteArray {
+        fun sync(n: Int) = byteArrayOf(
+            ((n ushr 21) and 127).toByte(), ((n ushr 14) and 127).toByte(),
+            ((n ushr 7) and 127).toByte(), (n and 127).toByte(),
+        )
+        fun frame(id: String, payload: ByteArray) =
+            id.toByteArray(StandardCharsets.US_ASCII) + sync(payload.size) +
+                byteArrayOf(0, 0) + payload
+        val apic = byteArrayOf(0) + "image/png".toByteArray() +
+            byteArrayOf(0, 3, 0) + image
+        val body = frame("TIT2", byteArrayOf(3) + "Original".toByteArray()) +
+            frame("APIC", apic) + ByteArray(3)
+        return "ID3".toByteArray() + byteArrayOf(4, 0, 0) +
+            sync(body.size) + body + audio
     }
 
     private fun sha(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")

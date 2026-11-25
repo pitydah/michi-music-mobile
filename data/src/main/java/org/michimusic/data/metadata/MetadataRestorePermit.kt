@@ -92,6 +92,8 @@ internal data class MetadataRestorePermit(
             if (intent.transactionId != entry.id) return null
             val profile = MetadataWriteProfileRegistry.forContainer(intent.container)
                 ?: return null
+            if (intent.changes.any { it.field !in profile.supportedFields } ||
+                !profile.supports(intent.resources)) return null
             if (entry.format != intent.container.name) return null
             if (intent.originalBytes != entry.expectedBytes ||
                 intent.originalSha256 != entry.originalSha256 ||

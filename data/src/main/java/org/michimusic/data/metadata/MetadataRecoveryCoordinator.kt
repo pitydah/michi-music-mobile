@@ -239,6 +239,7 @@ class MetadataRecoveryCoordinator internal constructor(
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
             explicitUserAction = true,
+            resources = intent.resources,
         ).takeIf { it.matches(entry) }
     }
 
