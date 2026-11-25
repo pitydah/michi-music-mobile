@@ -7,7 +7,6 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.provider.MediaStore
 import androidx.room.Room
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.DataInputStream
@@ -43,7 +42,8 @@ import org.michimusic.data.repository.SyncedTrackRepository
  */
 @RunWith(AndroidJUnit4::class)
 class MetadataSaveKillInstrumentedTest {
-    private val context get() = ApplicationProvider.getApplicationContext<Context>()
+    private val context: Context
+        get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val packageName = "ME14_TEST_"
     private val recordRoot get() = File(context.noBackupFilesDir, "me14-kill-only")
     private val record get() = File(recordRoot, "phase-one.bin")
@@ -51,6 +51,30 @@ class MetadataSaveKillInstrumentedTest {
     @Test fun phaseOneKillAfterProviderClose(): Unit = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments()
             .getString("ME14_KILL_SAVE") == "I_ACCEPT_PROCESS_DEATH")
+        runSave(killAfterProviderClose = true)
+    }
+
+    @Test fun noKillControlCrossesTheRealProviderBoundary(): Unit = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments()
+            .getString("ME14_CONTROL_SAVE") == "I_ACCEPT_CONTROL")
+        val result = runSave(killAfterProviderClose = false)
+        assertTrue("outcome=${result.outcome}", result.outcome.indexPublished)
+        assertTrue(result.reachedAfterProviderClose)
+        assertEquals(result.candidateSha, sha(
+            context.contentResolver.openInputStream(result.uri)!!.use { it.readBytes() },
+        ))
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+        result.database.close()
+        context.deleteDatabase(result.databaseName)
+        context.contentResolver.delete(result.uri, null, null)
+        recordRoot.deleteRecursively()
+    }
+
+    private suspend fun runSave(killAfterProviderClose: Boolean): SaveRun {
         check(recordRoot.deleteRecursively())
         check(recordRoot.mkdirs())
         // This instrumentation package owns a disposable journal root; never the
@@ -63,8 +87,6 @@ class MetadataSaveKillInstrumentedTest {
             .open("me13-silence.mp3").use { it.readBytes() }
         val original = Mp3FixtureTags.build(
             3, "ME13 Kill Original", "Artista Kill", "Album Kill", "Rock", audio)
-        val candidate = Mp3FixtureTags.build(
-            3, "ME13 Kill Candidate", "Artista Kill", "Album Kill", "Rock", audio)
         val uri = insert(original)
         val trackId = "local_${uri.lastPathSegment!!.toLong()}"
         val sourceId = MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID
@@ -89,19 +111,27 @@ class MetadataSaveKillInstrumentedTest {
             listOf(MetadataChange.Replace(MetadataField.TITLE,
                 listOf("ME13 Kill Candidate")))) as MetadataReview.Ready
 
+        var reachedAfterProviderClose = false
         val hook = MetadataSaveCheckpointHook { point ->
             if (point == MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE) {
+                reachedAfterProviderClose = true
                 val entry = (MetadataRecoveryJournalV1(
                     File(context.noBackupFilesDir, "michi-metadata-editor-v1")).inspect() as
                     MetadataRecoveryJournalV1.Inspection.Pending).entry
-                writeRecord(Record(
-                    transactionId = entry.id, dbName = databaseName,
-                    sourceId = sourceId, trackId = trackId, uri = uri.toString(),
-                    originalSha = sha(original), candidateSha = sha(candidate),
-                    candidateBytes = candidate.size.toLong(), pid = Process.myPid(),
-                ))
-                Process.killProcess(Process.myPid())
-                error("KILL_DID_NOT_OCCUR")
+                if (killAfterProviderClose) {
+                    writeRecord(Record(
+                        transactionId = entry.id, dbName = databaseName,
+                        sourceId = sourceId, trackId = trackId, uri = uri.toString(),
+                        originalSha = sha(original), candidateSha = entry.stageSha256,
+                        candidateBytes = entry.stageBytes, pid = Process.myPid(),
+                    ))
+                    Process.sendSignal(Process.myPid(), 9)
+                    // Signal delivery is asynchronous. Never suspend here:
+                    // coroutine cancellation can be caught by Save before the
+                    // kernel kills this process, producing a false test failure.
+                    // This loop cannot return or throw into the mutation path.
+                    while (true) Thread.onSpinWait()
+                }
             }
         }
         val outcome = MetadataSaveService(context, database.trackDao(), database, hook).save(
@@ -109,7 +139,17 @@ class MetadataSaveKillInstrumentedTest {
             expectedBytes = original.size.toLong(), reviewInput = review,
             ownerCurrent = { true }, playbackClosed = { true },
         )
-        error("SAVE_RETURNED_BEFORE_KILL: $outcome")
+        if (killAfterProviderClose) error("SAVE_RETURNED_BEFORE_KILL: $outcome")
+        val saved = outcome as? MetadataSaveService.Outcome.Saved
+            ?: error("CONTROL_SAVE_FAILED: $outcome")
+        return SaveRun(
+            database = database,
+            databaseName = databaseName,
+            uri = uri,
+            candidateSha = saved.committedSha256,
+            outcome = saved,
+            reachedAfterProviderClose = reachedAfterProviderClose,
+        )
     }
 
     @Test fun phaseTwoResumeAfterRealProcessDeath() = runBlocking {
@@ -156,7 +196,7 @@ class MetadataSaveKillInstrumentedTest {
             put(MediaStore.Audio.Media.IS_PENDING, 1)
         }
         val uri = requireNotNull(context.contentResolver.insert(
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values))
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values))
         context.contentResolver.openFileDescriptor(uri, "rwt")!!.use { pfd ->
             ParcelFileDescriptor.AutoCloseOutputStream(pfd).use {
                 it.write(bytes); it.flush(); it.fd.sync()
@@ -173,6 +213,15 @@ class MetadataSaveKillInstrumentedTest {
         val candidateSha: String, val candidateBytes: Long, val pid: Int,
     )
 
+    private data class SaveRun(
+        val database: MichiDatabase,
+        val databaseName: String,
+        val uri: Uri,
+        val candidateSha: String,
+        val outcome: MetadataSaveService.Outcome.Saved,
+        val reachedAfterProviderClose: Boolean,
+    )
+
     private fun writeRecord(record: Record) {
         val file = this.record
         FileOutputStream(file).use { out ->
@@ -183,8 +232,9 @@ class MetadataSaveKillInstrumentedTest {
                 data.writeUTF(record.uri); data.writeUTF(record.originalSha)
                 data.writeUTF(record.candidateSha); data.writeLong(record.candidateBytes)
                 data.writeInt(record.pid)
+                data.flush()
+                out.fd.sync()
             }
-            out.fd.sync()
         }
         check(file.isFile && file.length() in 1..4096)
     }
