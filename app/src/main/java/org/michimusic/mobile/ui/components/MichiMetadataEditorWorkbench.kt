@@ -61,6 +61,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -179,8 +180,10 @@ internal fun MichiMetadataEditorPreviewContent(
     var saveMessage by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf<String?>(null)
     }
-    var pendingContinuation by remember(target.sourceId, target.trackId, target.uri) {
-        mutableStateOf<org.michimusic.data.metadata.MetadataPreparedSaveContinuation?>(null)
+    var pendingTransactionId by rememberSaveable(
+        target.sourceId, target.trackId, target.uri,
+    ) {
+        mutableStateOf<String?>(null)
     }
     var genreFirst by remember(target.sourceId, target.trackId, target.uri, target.evidenceToken) {
         mutableStateOf(focusGenre)
@@ -299,7 +302,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
                     saving = false
-                    pendingContinuation = outcome.continuation
+                    pendingTransactionId = outcome.continuation.transactionId
                     launchConsent(outcome.intent)
                 }
                 is MetadataSaveService.Outcome.Blocked -> {
@@ -322,12 +325,30 @@ internal fun MichiMetadataEditorPreviewContent(
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
-        val token = pendingContinuation
-        if (result.resultCode == Activity.RESULT_OK && token != null) {
-            pendingContinuation = null
-            continuePrepared(token)
+        val transactionId = pendingTransactionId
+        if (result.resultCode == Activity.RESULT_OK && transactionId != null) {
+            pendingTransactionId = null
+            val writer = pilotWriter
+            if (writer == null) {
+                saveMessage = "No se pudo reconstruir el guardado preparado."
+            } else {
+                scope.launch {
+                    when (val lookup = writer.reconstructPreparedSave(
+                        transactionId = transactionId,
+                        sourceId = indexSourceId.ifBlank { target.sourceId },
+                        trackId = target.trackId,
+                        uriString = target.uri,
+                    )) {
+                        is MetadataSaveService.ContinuationLookup.Ready ->
+                            continuePrepared(lookup.continuation)
+                        is MetadataSaveService.ContinuationLookup.Refused ->
+                            saveMessage =
+                                "El guardado preparado ya no coincide con la evidencia durable."
+                    }
+                }
+            }
         } else {
-            pendingContinuation = null
+            pendingTransactionId = null
             saveMessage = "Permiso de escritura no concedido."
         }
     }
@@ -383,7 +404,7 @@ internal fun MichiMetadataEditorPreviewContent(
                 }
                 is MetadataSaveService.Outcome.ConsentRequired -> {
                     saving = false
-                    pendingContinuation = outcome.continuation
+                    pendingTransactionId = outcome.continuation.transactionId
                     launchConsent(outcome.intent)
                 }
                 is MetadataSaveService.Outcome.Blocked -> {

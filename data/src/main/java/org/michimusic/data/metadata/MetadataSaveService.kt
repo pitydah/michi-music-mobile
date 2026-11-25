@@ -61,6 +61,12 @@ class MetadataSaveService internal constructor(
         data class Failed(val reason: String, val needsRecovery: Boolean) : Outcome
     }
 
+    sealed interface ContinuationLookup {
+        data class Ready(val continuation: MetadataPreparedSaveContinuation) :
+            ContinuationLookup
+        data class Refused(val reason: String) : ContinuationLookup
+    }
+
     private val root = File(context.noBackupFilesDir, "michi-metadata-editor-v1")
     private val journal = MetadataRecoveryJournalV1(root)
     private val owners = MetadataRecoveryOwnerStore(root)
@@ -69,6 +75,9 @@ class MetadataSaveService internal constructor(
     private val publication = MetadataFinalizedIndexPublicationCoordinator(context, database)
     private val finalization = MetadataPostMutationFinalizationCoordinator(context)
     private val intents = MetadataCommitIntentStore(journal)
+    private val continuationResolver = MetadataPreparedSaveContinuationResolver(
+        journal, intents, owners,
+    )
     private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
     private fun profileFor(format: org.michimusic.core.metadata.MetadataAudioContainer) =
         org.michimusic.core.metadata.MetadataWriteProfileRegistry.forContainer(format)
@@ -193,6 +202,27 @@ class MetadataSaveService internal constructor(
         } finally {
             lock.unlock()
             MetadataSaveLocks.release(key, lock)
+        }
+    }
+
+    /**
+     * Rebuilds a consent continuation after activity or process recreation.
+     * The caller supplies only the retained transaction ID and the screen's
+     * expected target identity; all authority comes from durable private state.
+     */
+    suspend fun reconstructPreparedSave(
+        transactionId: String,
+        sourceId: String,
+        trackId: String,
+        uriString: String,
+    ): ContinuationLookup = withContext(Dispatchers.IO) {
+        when (val resolved = continuationResolver.resolve(
+            transactionId, sourceId, trackId, uriString,
+        )) {
+            is MetadataPreparedSaveContinuationResolver.Result.Ready ->
+                ContinuationLookup.Ready(resolved.continuation)
+            is MetadataPreparedSaveContinuationResolver.Result.Refused ->
+                ContinuationLookup.Refused(resolved.code)
         }
     }
 
@@ -539,6 +569,10 @@ class MetadataSaveService internal constructor(
             if (!sameSource(uri, entry.originalSha256, expectedBytes))
                 return@withContext abort(entry, "El origen cambió antes de escribir")
             if (!hasExactWriteAccess(uri)) {
+                if (!owners.write(entry, canonicalTarget))
+                    return@withContext Outcome.Blocked(
+                        "No se pudo persistir la evidencia del propietario",
+                    )
                 val consent = runCatching {
                     MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
                 }.getOrNull()
