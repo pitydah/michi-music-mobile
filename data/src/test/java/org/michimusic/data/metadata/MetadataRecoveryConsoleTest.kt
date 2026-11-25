@@ -94,7 +94,7 @@ class MetadataRecoveryConsoleTest {
         try {
             scratch.writeText("cut in private sandbox")
             val console=MetadataRecoveryConsole(context)
-            assertEquals(MetadataRecoveryConsole.Status.ProtectedKeepBackup(entry.phase),
+            assertEquals(MetadataRecoveryConsole.Status.ProtectedKeepBackup(entry.phase, entry.id),
                 console.inspect(owner,track,uri,true))
             assertEquals(MetadataRecoveryConsole.DiscardResult.PRIVATE_CLEANUP_INCOMPLETE,
                 console.discardPrivatePreparation(owner,track,uri,entry.id,true))
