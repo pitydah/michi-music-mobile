@@ -64,3 +64,45 @@ object MediaStoreMp3TextProfile {
         capabilityEvidenceId = EVIDENCE_ID,
     )
 }
+
+/** FLAC / Vorbis Comment scalar profile on the local MediaStore provider. */
+object MediaStoreFlacTextProfile {
+    const val ID = "MS_LOCAL_FLAC_VORBIS_TEXT_V1"
+    const val EVIDENCE_ID = "ME15_MEDIASTORE_FLAC_VORBIS_TEXT_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.FLAC),
+        tagRevisions = setOf(1),
+        supportedFields = setOf(
+            MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+            MetadataField.ALBUM_ARTIST, MetadataField.GENRE, MetadataField.COMPOSER,
+            MetadataField.RELEASE_DATE, MetadataField.TRACK_NUMBER,
+            MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER,
+            MetadataField.DISC_TOTAL, MetadataField.LABEL,
+            MetadataField.CATALOG_NUMBER, MetadataField.ISRC, MetadataField.BPM,
+            MetadataField.MUSICAL_KEY, MetadataField.COMMENT,
+            MetadataField.COPYRIGHT, MetadataField.LYRICIST,
+            MetadataField.PRODUCER, MetadataField.PERFORMER,
+            MetadataField.CONDUCTOR, MetadataField.LYRICS,
+        ),
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
+object MetadataWriteProfileRegistry {
+    fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
+        MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
+        MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
+        else -> null
+    }
+    fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
+        when (container) {
+            MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                MediaStoreMp3TextProfile.profile
+            MetadataAudioContainer.FLAC -> MediaStoreFlacTextProfile.profile
+            else -> null
+        }
+}

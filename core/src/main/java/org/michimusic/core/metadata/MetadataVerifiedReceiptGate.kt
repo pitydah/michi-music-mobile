@@ -92,8 +92,8 @@ object MetadataVerifiedReceiptGate {
             evidence.candidateSha256 != expectedStageSha256 ||
             !digest.matches(evidence.originalSha256) ||
             !digest.matches(evidence.candidateSha256) ||
-            evidence.profileId != MediaStoreMp3TextProfile.ID ||
-            evidence.evidenceId != MediaStoreMp3TextProfile.EVIDENCE_ID ||
+            MetadataWriteProfileRegistry.byId(evidence.profileId)
+                ?.capabilityEvidenceId != evidence.evidenceId ||
             evidence.sourceId != "lib_device_local" ||
             evidence.trackId.isBlank() ||
             !evidence.uri.startsWith("content://media/") ||

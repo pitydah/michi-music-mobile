@@ -72,6 +72,8 @@ class MetadataSaveService internal constructor(
     private val intents = MetadataCommitIntentStore(journal)
     private val committedSnapshots = MetadataVerifiedCommittedSnapshotReader(context)
     private val profile = MediaStoreMp3TextProfile.profile
+    private fun profileFor(format: org.michimusic.core.metadata.MetadataAudioContainer) =
+        org.michimusic.core.metadata.MetadataWriteProfileRegistry.forContainer(format)
 
     fun eligibility(uriString: String): Eligibility {
         val uri = runCatching { Uri.parse(uriString) }.getOrNull()
@@ -80,10 +82,12 @@ class MetadataSaveService internal constructor(
             return Eligibility.UnsupportedProfile("El archivo no pertenece a MediaStore")
         val display = query(uri, OpenableColumns.DISPLAY_NAME)
             ?: return Eligibility.UnsupportedProfile("No se puede leer el nombre del archivo")
-        if (!display.endsWith(".mp3", ignoreCase = true))
-            return Eligibility.UnsupportedProfile("Solo se admiten archivos MP3 en este perfil")
+        val isMp3 = display.endsWith(".mp3", ignoreCase = true)
+        val isFlac = display.endsWith(".flac", ignoreCase = true)
+        if (!isMp3 && !isFlac)
+            return Eligibility.UnsupportedProfile("Solo se admiten MP3 y FLAC en este perfil")
         val mime = context.contentResolver.getType(uri)
-        if (mime != null && mime != "audio/mpeg" && mime != "audio/mp3")
+        if (mime != null && mime !in setOf("audio/mpeg", "audio/mp3", "audio/flac", "audio/x-flac"))
             return Eligibility.UnsupportedProfile("Contenedor no admitido")
         // Any pending journal forbids a fresh edit until the user resolves it:
         // the physical bytes of the old transaction are still uncertain.
@@ -265,6 +269,7 @@ class MetadataSaveService internal constructor(
         val revision = when (container) {
             MetadataAudioContainer.ID3_V23 -> 3
             MetadataAudioContainer.ID3_V24 -> 4
+            MetadataAudioContainer.FLAC -> 1
             else -> return null
         }
         return MetadataWritePermit(
@@ -272,7 +277,10 @@ class MetadataSaveService internal constructor(
             trackId = entry.trackId, uri = entry.uri,
             originalSha256 = entry.originalSha256,
             candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-            profileId = profile.id, evidenceId = profile.capabilityEvidenceId,
+            profileId = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+                .forContainer(container)?.id ?: return null,
+            evidenceId = org.michimusic.core.metadata.MetadataWriteProfileRegistry
+                .forContainer(container)?.capabilityEvidenceId ?: return null,
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
             explicitUserAction = true,
@@ -342,13 +350,16 @@ class MetadataSaveService internal constructor(
                 return@withContext Outcome.Blocked("El archivo cambió de tamaño")
             val observed = observeTag(sourceCopy)
                 ?: return@withContext Outcome.Blocked("El origen no tiene un ID3 compatible")
+            val container = observed.format.toContainer()
             val revision = when (observed.format) {
                 MetadataArtworkLyricsProbe.Format.ID3_V23 -> 3
                 MetadataArtworkLyricsProbe.Format.ID3_V24 -> 4
-                else -> return@withContext Outcome.Blocked("Solo se admite ID3v2.3/2.4")
+                MetadataArtworkLyricsProbe.Format.FLAC -> 1
             }
+            val activeProfile = profileFor(container)
+                ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
             val fields = review.diffs.mapTo(linkedSetOf()) { it.field }
-            if (!profile.supports(observed.format.toContainer(), revision, fields, emptySet(), false))
+            if (!activeProfile.supports(container, revision, fields, emptySet(), false))
                 return@withContext Outcome.Blocked("Perfil de escritura no certificado")
 
             var pending = journal.inspect()
@@ -506,7 +517,7 @@ class MetadataSaveService internal constructor(
                 transactionId = entry.id, sourceId = entry.sourceId, trackId = entry.trackId,
                 uri = entry.uri, originalSha256 = entry.originalSha256,
                 candidateSha256 = entry.stageSha256, stageBytes = entry.stageBytes,
-                profileId = profile.id, evidenceId = profile.capabilityEvidenceId,
+                profileId = activeProfile.id, evidenceId = activeProfile.capabilityEvidenceId,
                 container = entry.format, revision = revision, fields = fields,
                 explicitUserAction = true,
             )
@@ -697,6 +708,8 @@ class MetadataSaveService internal constructor(
                 org.michimusic.core.metadata.MetadataAudioContainer.ID3_V23
             MetadataArtworkLyricsProbe.Format.ID3_V24 ->
                 org.michimusic.core.metadata.MetadataAudioContainer.ID3_V24
+            MetadataArtworkLyricsProbe.Format.FLAC ->
+                org.michimusic.core.metadata.MetadataAudioContainer.FLAC
             else -> org.michimusic.core.metadata.MetadataAudioContainer.UNKNOWN
         }
 

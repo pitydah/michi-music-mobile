@@ -1,7 +1,7 @@
 package org.michimusic.data.metadata
 
 import kotlinx.coroutines.CancellationException
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataCommitCertification
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
 import org.michimusic.core.metadata.MetadataRecoveryPhase
@@ -41,10 +41,17 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
     ): Result {
         val delta=(prepared as? MetadataSourceIndexDelta.Result.PreparedForExternalCas)?.delta
             ?: return Result.Blocked(Refusal.SOURCE_UNVERIFIED)
-        val scoped = permit != null && permit.explicitUserAction &&
-            permit.profileId == MediaStoreMp3TextProfile.ID &&
-            permit.evidenceId == MediaStoreMp3TextProfile.EVIDENCE_ID &&
-            permit.revision in setOf(3, 4) && permit.fields.isNotEmpty() &&
+        val profile = permit?.let { MetadataWriteProfileRegistry.byId(it.profileId) }
+        val scoped = permit != null && profile != null && permit.explicitUserAction &&
+            permit.evidenceId == profile.capabilityEvidenceId &&
+            profile.containers.any { it.name == permit.container } &&
+            (when (profile.id) {
+                org.michimusic.core.metadata.MediaStoreMp3TextProfile.ID ->
+                    permit.revision in setOf(3, 4)
+                org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
+                    permit.revision == 1
+                else -> false
+            }) && permit.fields.isNotEmpty() &&
             permit.transactionId == delta.transactionId &&
             permit.candidateSha256 == delta.sourceSha256 &&
             permit.stageBytes == delta.candidateBytes &&

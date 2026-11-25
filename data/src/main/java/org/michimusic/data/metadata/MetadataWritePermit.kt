@@ -1,7 +1,7 @@
 package org.michimusic.data.metadata
 
 import org.michimusic.core.metadata.CertifiedWriteEvidence
-import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataField
 
 /**
@@ -37,10 +37,19 @@ internal data class MetadataWritePermit(
             originalSha256 == entry.originalSha256 &&
             candidateSha256 == entry.stageSha256 &&
             stageBytes == entry.stageBytes &&
-            profileId == MediaStoreMp3TextProfile.ID &&
-            evidenceId == MediaStoreMp3TextProfile.EVIDENCE_ID &&
-            container == entry.format &&
-            revision in setOf(3, 4) &&
-            fields.isNotEmpty() && fields.all { it in MediaStoreMp3TextProfile.profile.supportedFields } &&
-            entry.uri.startsWith("content://media/")
+            MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
+                evidenceId == profile.capabilityEvidenceId &&
+                    container == entry.format &&
+                    fields.isNotEmpty() &&
+                    fields.all { it in profile.supportedFields } &&
+                    profile.containers.any { it.name == container } &&
+                    (when (profile.id) {
+                        org.michimusic.core.metadata.MediaStoreMp3TextProfile.ID ->
+                            revision in setOf(3, 4)
+                        org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
+                            revision == 1
+                        else -> false
+                    }) &&
+                    entry.uri.startsWith("content://media/")
+            } == true
 }

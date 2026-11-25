@@ -82,7 +82,7 @@ object MetadataPrivateBundleStage {
             Region(bytes,at)
         } else throw Rejected(Reason.FORMAT_UNSUPPORTED)
     }
-    private fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
+    internal fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
         val region=metadataRegion(file)
         val result=MetadataArtworkLyricsProbe.inspect(region.metadata)
             as? MetadataArtworkLyricsProbe.Result.Ready
