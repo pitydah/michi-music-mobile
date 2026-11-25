@@ -9,8 +9,8 @@ import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 
 /**
  * ME-13 S5: an exact, transaction-bound authorization to restore the journal
- * backup of a local MediaStore MP3. It replaces the two global provider/writer
- * booleans ONLY for this precise transaction; SAF, FLAC and MP4 cannot use it.
+ * backup of one certified local MediaStore item. It replaces the two global
+ * provider/writer booleans ONLY for this precise transaction; SAF cannot use it.
  *
  * The permit is not a receipt and not a Room authorization. It is minted from a
  * durable intent + journal pair, and the coordinator re-reads the journal, the
@@ -108,6 +108,7 @@ internal data class MetadataRestorePermit(
                 MetadataAudioContainer.ID3_V23 -> 3
                 MetadataAudioContainer.ID3_V24 -> 4
                 MetadataAudioContainer.FLAC -> 1
+                MetadataAudioContainer.MP4_M4A -> 1
                 else -> return null
             }
             return MetadataRestorePermit(

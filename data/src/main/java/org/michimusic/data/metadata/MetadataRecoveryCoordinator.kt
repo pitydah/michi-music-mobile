@@ -261,6 +261,7 @@ class MetadataRecoveryCoordinator internal constructor(
             MetadataAudioContainer.ID3_V23 -> 3
             MetadataAudioContainer.ID3_V24 -> 4
             MetadataAudioContainer.FLAC -> 1
+            MetadataAudioContainer.MP4_M4A -> 1
             else -> return null
         }
         if (intent.container != container) return null

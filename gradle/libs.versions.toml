@@ -26,6 +26,7 @@ junit = "4.13.2"
 bouncycastle = "1.77"
 camerax = "1.6.2"
 zxing = "3.5.3"
+jaudiotagger = "3.0.1"
 
 
 [libraries]
@@ -94,6 +95,7 @@ camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.
 camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+jaudiotagger = { group = "net.jthink", name = "jaudiotagger", version.ref = "jaudiotagger" }
 
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }

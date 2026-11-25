@@ -51,6 +51,8 @@ internal data class MetadataWritePermit(
                             revision in setOf(3, 4)
                         org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
                             revision == 1
+                        org.michimusic.core.metadata.MediaStoreM4aTextProfile.ID ->
+                            revision == 1
                         else -> false
                     }) &&
                     entry.uri.startsWith("content://media/")

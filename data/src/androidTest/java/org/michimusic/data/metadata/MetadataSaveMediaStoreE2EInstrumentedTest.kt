@@ -21,6 +21,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.jaudiotagger.audio.mp4.Mp4FileReader
+import org.jaudiotagger.tag.FieldKey
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
@@ -381,6 +383,144 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertTrue(
             MetadataRecoveryJournalV1(
                 java.io.File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
+    @Test fun saveM4aTitleUsesMatureEnginePreservesMediaAndPublishesRoom() = runBlocking {
+        val resolver = context.contentResolver
+        val fixture = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me14-audio-only.m4a").use { it.readBytes() }
+        val beforeFile = File(context.cacheDir, "me14-before-${UUID.randomUUID()}.m4a")
+        val beforeEvidence = try {
+            beforeFile.writeBytes(fixture)
+            val inspected = beforeFile.inputStream().use {
+                MetadataM4aAudioOnlyInspector.inspect(it.channel)
+            }
+            (inspected as MetadataM4aAudioOnlyInspector.Result.AudioOnly).evidence
+        } finally {
+            beforeFile.delete()
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-m4a-${UUID.randomUUID()}.m4a")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable M4A MediaStore item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(fixture)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val m4aTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        val originalSha = sha(fixture)
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = m4aTrackId,
+                    title = "M4A Original",
+                    artist = "Michi Fixture",
+                    album = "Michi Test Album",
+                    size = observedSize,
+                    format = "m4a",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, m4aTrackId, uri.toString(), observedSize, originalSha,
+            1_700_000_000_000L, "sha256",
+        )
+        val originalRevision = database.trackDao()
+            .getTrackBySource(sourceId, m4aTrackId)!!.metadataRevision
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, m4aTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected M4A fixture: $read")
+        }
+        assertEquals(listOf("M4A Original"), original.known[MetadataField.TITLE])
+        val review = MetadataEditPreview.review(
+            original,
+            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf("M4A Renombrada"))),
+        )
+        assertTrue(review is MetadataReview.Ready)
+
+        val outcome = MetadataSaveService(context, database.trackDao(), database).save(
+            sourceId = sourceId,
+            trackId = m4aTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            reviewInput = review as MetadataReview.Ready,
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+
+        assertTrue(
+            "Mature-engine M4A title save must verify and publish, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val saved = outcome as MetadataSaveService.Outcome.Saved
+        val after = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        val afterSha = sha(after)
+        val afterFile = File(context.cacheDir, "me14-after-${UUID.randomUUID()}.m4a")
+        try {
+            afterFile.writeBytes(after)
+            val afterInspection = afterFile.inputStream().use {
+                MetadataM4aAudioOnlyInspector.inspect(it.channel)
+            } as MetadataM4aAudioOnlyInspector.Result.AudioOnly
+            assertEquals(beforeEvidence.mediaPayloadBytes, afterInspection.evidence.mediaPayloadBytes)
+            assertEquals(beforeEvidence.mediaPayloadSha256, afterInspection.evidence.mediaPayloadSha256)
+            val audio = Mp4FileReader().read(afterFile)
+            assertEquals("M4A Renombrada", audio.tag.getFirst(FieldKey.TITLE))
+            assertEquals("Michi Fixture", audio.tag.getFirst(FieldKey.ARTIST))
+            assertEquals("Michi Test Album", audio.tag.getFirst(FieldKey.ALBUM))
+            assertEquals("preserve-me", audio.tag.getFirst(FieldKey.COMMENT))
+        } finally {
+            afterFile.delete()
+        }
+        val row = database.trackDao().getTrackBySource(sourceId, m4aTrackId)!!
+        assertEquals("M4A Renombrada", row.title)
+        assertEquals(after.size.toLong(), row.size)
+        assertTrue(row.metadataRevision > originalRevision)
+        val change = checkNotNull(saved.libraryChange)
+        assertEquals(setOf(MetadataField.TITLE), change.changedFields)
+        assertEquals(afterSha, change.committedSha256)
+        assertEquals(after.size.toLong(), change.committedBytes)
+        val marker = checkNotNull(
+            database.trackDao().getAppliedMetadataTransaction(change.transactionId),
+        )
+        assertEquals(originalRevision, marker.originalRevision)
+        assertEquals(row.metadataRevision, marker.committedRevision)
+        assertEquals(afterSha, marker.candidateSha256)
+        assertEquals(after.size.toLong(), marker.candidateBytes)
+        val reopened = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, m4aTrackId, uri.toString(), after.size.toLong(),
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening saved M4A failed: $read")
+        }
+        assertEquals(listOf("M4A Renombrada"), reopened.known[MetadataField.TITLE])
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
             ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
         )
     }

@@ -92,10 +92,14 @@ class MetadataSaveService internal constructor(
             ?: return Eligibility.UnsupportedProfile("No se puede leer el nombre del archivo")
         val isMp3 = display.endsWith(".mp3", ignoreCase = true)
         val isFlac = display.endsWith(".flac", ignoreCase = true)
-        if (!isMp3 && !isFlac)
-            return Eligibility.UnsupportedProfile("Solo se admiten MP3 y FLAC en este perfil")
+        val isM4a = display.endsWith(".m4a", ignoreCase = true)
+        if (!isMp3 && !isFlac && !isM4a)
+            return Eligibility.UnsupportedProfile("Solo se admiten MP3, FLAC y M4A en este perfil")
         val mime = context.contentResolver.getType(uri)
-        if (mime != null && mime !in setOf("audio/mpeg", "audio/mp3", "audio/flac", "audio/x-flac"))
+        if (mime != null && mime !in setOf(
+                "audio/mpeg", "audio/mp3", "audio/flac", "audio/x-flac",
+                "audio/mp4", "audio/m4a", "audio/x-m4a",
+            ))
             return Eligibility.UnsupportedProfile("Contenedor no admitido")
         // Any pending journal forbids a fresh edit until the user resolves it:
         // the physical bytes of the old transaction are still uncertain.
@@ -345,6 +349,7 @@ class MetadataSaveService internal constructor(
             MetadataAudioContainer.ID3_V23 -> 3
             MetadataAudioContainer.ID3_V24 -> 4
             MetadataAudioContainer.FLAC -> 1
+            MetadataAudioContainer.MP4_M4A -> 1
             else -> return null
         }
         return MetadataWritePermit(
@@ -425,12 +430,11 @@ class MetadataSaveService internal constructor(
                 return@withContext Outcome.Blocked("El archivo cambió de tamaño")
             val observed = observeTag(sourceCopy)
                 ?: return@withContext Outcome.Blocked("El contenedor de metadatos no es compatible")
-            val container = observed.format.toContainer()
-            val revision = when (observed.format) {
-                MetadataArtworkLyricsProbe.Format.ID3_V23 -> 3
-                MetadataArtworkLyricsProbe.Format.ID3_V24 -> 4
-                MetadataArtworkLyricsProbe.Format.FLAC -> 1
-            }
+            val container = observed.container
+            val revision = observed.revision
+            if (container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A &&
+                resourceEdits.isNotEmpty())
+                return@withContext Outcome.Blocked("Los recursos M4A no están certificados")
             val activeProfile = profileFor(container)
                 ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
             val fields = review?.diffs.orEmpty().mapTo(linkedSetOf()) { it.field }
@@ -476,18 +480,8 @@ class MetadataSaveService internal constructor(
                 val intent = persisted.receipt
                 val pendingFields = review?.diffs.orEmpty().map { it.field }.sortedBy { it.name }
                 val expectedIntent = runCatching {
-                    MetadataCommitIntentManifest.createBundle(
-                        transactionId = entry.id,
-                        target = canonicalTarget,
-                        review = review,
-                        resources = observed,
-                        edits = resourceEdits,
-                        provider = MetadataDocumentProvider.MEDIASTORE,
-                        container = observed.format.toContainer(),
-                        originalBytes = entry.expectedBytes,
-                        originalSha256 = entry.originalSha256,
-                        candidateBytes = entry.stageBytes,
-                        candidateSha256 = entry.stageSha256,
+                    createIntent(
+                        entry, canonicalTarget, review, observed, resourceEdits,
                     )
                 }.getOrNull() ?: return@withContext Outcome.Blocked(
                     "La revisión no coincide con la intención persistida",
@@ -497,7 +491,7 @@ class MetadataSaveService internal constructor(
                     intent.candidateBytes != entry.stageBytes ||
                     intent.changes.map { it.field } != pendingFields ||
                     intent.resources != expectedIntent.resources ||
-                    intent.container != observed.format.toContainer() ||
+                    intent.container != observed.container ||
                     intent.provider != MetadataDocumentProvider.MEDIASTORE ||
                     intent.ownerSha256 !=
                     org.michimusic.core.metadata.MetadataPrivateSessionIdentity.digest(
@@ -523,7 +517,7 @@ class MetadataSaveService internal constructor(
                     id = UUID.randomUUID().toString(), phase = MetadataRecoveryPhase.SNAPSHOTTING,
                     sourceId = sourceId, trackId = trackId, uri = uriString,
                     expectedBytes = expectedBytes, expectedModifiedAt = stamp,
-                    format = observed.format.name,
+                    format = observed.container.name,
                     ownerEvidenceToken = canonicalTarget.evidenceToken,
                 )
                 journal.start(entry)
@@ -538,29 +532,17 @@ class MetadataSaveService internal constructor(
                 checkpoints.reach(MetadataSaveCheckpoint.AFTER_BACKUP_DURABLE)
                 val backupEntry = entry
                 candidate = journal.stage(entry)
-                val receipt = MetadataPrivateBundleStage.stage(
-                    backup, candidate,
-                    MetadataPrivateBundleStage.Request(
-                        sourceSha, observed, review, resourceEdits,
-                    ),
+                val staged = stagePrivate(
+                    backup, candidate, sourceSha, expectedBytes, review,
+                    observed, resourceEdits,
                 )
                 entry = backupEntry.copy(phase = MetadataRecoveryPhase.STAGE_READY,
-                    stageSha256 = receipt.candidateSha256, stageBytes = receipt.candidateBytes,
-                    format = observed.format.name)
+                    stageSha256 = staged.candidateSha256, stageBytes = staged.candidateBytes,
+                    format = observed.container.name)
                 journal.advance(backupEntry, entry)
                 checkpoints.reach(MetadataSaveCheckpoint.AFTER_STAGE_READY)
-                val manifest = MetadataCommitIntentManifest.createBundle(
-                    transactionId = entry.id,
-                    target = canonicalTarget,
-                    review = review,
-                    resources = observed,
-                    edits = resourceEdits,
-                    provider = MetadataDocumentProvider.MEDIASTORE,
-                    container = observed.format.toContainer(),
-                    originalBytes = entry.expectedBytes,
-                    originalSha256 = entry.originalSha256,
-                    candidateBytes = entry.stageBytes,
-                    candidateSha256 = entry.stageSha256,
+                val manifest = createIntent(
+                    entry, canonicalTarget, review, observed, resourceEdits,
                 )
                 if (!activeProfile.supports(manifest.resources)) {
                     journal.discardPrepared(entry.id)
@@ -632,7 +614,10 @@ class MetadataSaveService internal constructor(
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            android.util.Log.d("MichiSave", "prepare_failure=${error.javaClass.simpleName}")
+            android.util.Log.d(
+                "MichiSave",
+                "prepare_failure=${error.javaClass.simpleName}:${error.message}",
+            )
             val pending = (journal.inspect() as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
             if (pending != null && pending.sourceId == sourceId &&
                 pending.trackId == trackId && pending.uri == uriString &&
@@ -718,19 +703,6 @@ class MetadataSaveService internal constructor(
         )
     }
 
-    private fun publicationCode(result: MetadataFinalizedIndexPublicationCoordinator.Result): String =
-        when (result) {
-            is MetadataFinalizedIndexPublicationCoordinator.Result.Blocked ->
-                "BLOCKED_${result.reason.name}"
-            is MetadataFinalizedIndexPublicationCoordinator.Result.SelectiveRefreshRequired ->
-                "SELECTIVE_REFRESH"
-            is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly -> "INDEXED"
-            is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed -> "INDEXED"
-            is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleIndexed -> "INDEXED"
-            is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredPeopleAndGenreIndexed ->
-                "INDEXED"
-        }
-
     private fun abort(entry: MetadataRecoveryJournalV1.Entry, reason: String): Outcome {
         if (entry.phase in setOf(MetadataRecoveryPhase.SNAPSHOTTING,
                 MetadataRecoveryPhase.BACKUP_DURABLE, MetadataRecoveryPhase.STAGE_READY))
@@ -738,19 +710,125 @@ class MetadataSaveService internal constructor(
         return Outcome.Blocked(reason)
     }
 
-    private fun MetadataArtworkLyricsProbe.Format.toContainer() =
-        when (this) {
-            MetadataArtworkLyricsProbe.Format.ID3_V23 ->
-                org.michimusic.core.metadata.MetadataAudioContainer.ID3_V23
-            MetadataArtworkLyricsProbe.Format.ID3_V24 ->
-                org.michimusic.core.metadata.MetadataAudioContainer.ID3_V24
-            MetadataArtworkLyricsProbe.Format.FLAC ->
-                org.michimusic.core.metadata.MetadataAudioContainer.FLAC
-            else -> org.michimusic.core.metadata.MetadataAudioContainer.UNKNOWN
-        }
+    private data class ObservedTag(
+        val container: org.michimusic.core.metadata.MetadataAudioContainer,
+        val revision: Int,
+        val resources: MetadataArtworkLyricsProbe.Snapshot?,
+    )
 
-    private fun observeTag(file: File): MetadataArtworkLyricsProbe.Snapshot? =
-        runCatching { MetadataPrivateBundleStage.observeFile(file) }.getOrNull()
+    private data class StagedCandidate(
+        val candidateBytes: Long,
+        val candidateSha256: String,
+    )
+
+    private fun observeTag(file: File): ObservedTag? = runCatching {
+        val report = java.nio.channels.FileChannel.open(
+            file.toPath(),
+            java.nio.file.StandardOpenOption.READ,
+            java.nio.file.LinkOption.NOFOLLOW_LINKS,
+        ).use(org.michimusic.core.metadata.MetadataColdFieldParser::observe)
+        when (report.container) {
+            org.michimusic.core.metadata.MetadataPhysicalContainer.ID3_V23 ->
+                ObservedTag(
+                    org.michimusic.core.metadata.MetadataAudioContainer.ID3_V23,
+                    3,
+                    MetadataPrivateBundleStage.observeFile(file),
+                )
+            org.michimusic.core.metadata.MetadataPhysicalContainer.ID3_V24 ->
+                ObservedTag(
+                    org.michimusic.core.metadata.MetadataAudioContainer.ID3_V24,
+                    4,
+                    MetadataPrivateBundleStage.observeFile(file),
+                )
+            org.michimusic.core.metadata.MetadataPhysicalContainer.FLAC ->
+                ObservedTag(
+                    org.michimusic.core.metadata.MetadataAudioContainer.FLAC,
+                    1,
+                    MetadataPrivateBundleStage.observeFile(file),
+                )
+            org.michimusic.core.metadata.MetadataPhysicalContainer.MP4_M4A -> {
+                val audioOnly = java.nio.channels.FileChannel.open(
+                    file.toPath(),
+                    java.nio.file.StandardOpenOption.READ,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                ).use(MetadataM4aAudioOnlyInspector::inspect)
+                if (audioOnly !is MetadataM4aAudioOnlyInspector.Result.AudioOnly)
+                    error("M4A_NOT_AUDIO_ONLY")
+                ObservedTag(
+                    org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A,
+                    1,
+                    null,
+                )
+            }
+            else -> error("UNSUPPORTED_CONTAINER")
+        }
+    }.getOrNull()
+
+    private fun stagePrivate(
+        backup: File,
+        candidate: File,
+        sourceSha: String,
+        expectedBytes: Long,
+        review: MetadataReview.Ready?,
+        observed: ObservedTag,
+        resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
+    ): StagedCandidate = when (observed.container) {
+        org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A -> {
+            require(review != null && resourceEdits.isEmpty()) { "M4A_SCALAR_ONLY" }
+            val receipt = MetadataM4aPrivateStage.stage(
+                backup,
+                candidate,
+                MetadataM4aPrivateStage.Request(sourceSha, expectedBytes, review),
+            )
+            StagedCandidate(receipt.candidateBytes, receipt.candidateSha256)
+        }
+        else -> {
+            val resources = requireNotNull(observed.resources) { "RESOURCE_SNAPSHOT_MISSING" }
+            val receipt = MetadataPrivateBundleStage.stage(
+                backup,
+                candidate,
+                MetadataPrivateBundleStage.Request(
+                    sourceSha, resources, review, resourceEdits,
+                ),
+            )
+            StagedCandidate(receipt.candidateBytes, receipt.candidateSha256)
+        }
+    }
+
+    private fun createIntent(
+        entry: MetadataRecoveryJournalV1.Entry,
+        target: org.michimusic.core.metadata.MetadataTarget,
+        review: MetadataReview.Ready?,
+        observed: ObservedTag,
+        resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
+    ): MetadataCommitIntentManifest.Receipt =
+        if (observed.container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A) {
+            require(review != null && resourceEdits.isEmpty()) { "M4A_SCALAR_ONLY" }
+            MetadataCommitIntentManifest.create(
+                transactionId = entry.id,
+                review = review,
+                provider = MetadataDocumentProvider.MEDIASTORE,
+                container = observed.container,
+                originalBytes = entry.expectedBytes,
+                originalSha256 = entry.originalSha256,
+                candidateBytes = entry.stageBytes,
+                candidateSha256 = entry.stageSha256,
+            )
+        } else {
+            MetadataCommitIntentManifest.createBundle(
+                transactionId = entry.id,
+                target = target,
+                review = review,
+                resources = requireNotNull(observed.resources),
+                edits = resourceEdits,
+                provider = MetadataDocumentProvider.MEDIASTORE,
+                container = observed.container,
+                originalBytes = entry.expectedBytes,
+                originalSha256 = entry.originalSha256,
+                candidateBytes = entry.stageBytes,
+                candidateSha256 = entry.stageSha256,
+            )
+        }
 
     private fun sameSource(uri: Uri, sha: String, bytes: Long): Boolean {
         if (longQuery(uri, OpenableColumns.SIZE) != bytes) return false

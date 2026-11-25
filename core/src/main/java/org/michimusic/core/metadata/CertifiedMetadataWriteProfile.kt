@@ -120,10 +120,32 @@ object MediaStoreFlacTextProfile {
     )
 }
 
+/**
+ * Audio-only M4A title rewrite through the pinned JAudiotagger engine.
+ *
+ * Evidence covers API 36 MediaStore mutation, exact AAC `mdat` preservation,
+ * unrelated standard atom preservation, cold readback and atomic Room publish.
+ */
+object MediaStoreM4aTextProfile {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = setOf(MetadataField.TITLE),
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
 object MetadataWriteProfileRegistry {
     fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
         MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
         MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
+        MediaStoreM4aTextProfile.ID -> MediaStoreM4aTextProfile.profile
         else -> null
     }
     fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
@@ -131,6 +153,7 @@ object MetadataWriteProfileRegistry {
             MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
                 MediaStoreMp3TextProfile.profile
             MetadataAudioContainer.FLAC -> MediaStoreFlacTextProfile.profile
+            MetadataAudioContainer.MP4_M4A -> MediaStoreM4aTextProfile.profile
             else -> null
         }
 }

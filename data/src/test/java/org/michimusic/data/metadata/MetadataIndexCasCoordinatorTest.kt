@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MediaStoreM4aTextProfile
 import org.michimusic.core.metadata.MetadataArtworkEvidence
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataField
@@ -123,5 +124,51 @@ class MetadataIndexCasCoordinatorTest {
             coordinator.attempt(source, delta, MetadataRecoveryPhase.POSTCHECK_VERIFIED,
                 receipt, true, { true }, permit))
         assertEquals(0, requests)
+    }
+
+    @Test fun m4aPermitRequiresExactProfileRevisionAndTitleField() {
+        val entry = MetadataRecoveryJournalV1.Entry(
+            id = tx,
+            phase = MetadataRecoveryPhase.STAGE_READY,
+            sourceId = source.sourceId,
+            trackId = source.trackId,
+            uri = source.uri,
+            expectedBytes = 100,
+            expectedModifiedAt = 1,
+            originalSha256 = source.observedSourceSha256,
+            stageSha256 = sha,
+            stageBytes = 120,
+            format = "MP4_M4A",
+        )
+        fun permit(
+            revision: Int = 1,
+            fields: Set<MetadataField> = setOf(MetadataField.TITLE),
+            profileId: String = MediaStoreM4aTextProfile.ID,
+        ) = MetadataWritePermit(
+            transactionId = tx,
+            sourceId = source.sourceId,
+            trackId = source.trackId,
+            uri = source.uri,
+            originalSha256 = source.observedSourceSha256,
+            candidateSha256 = sha,
+            stageBytes = 120,
+            profileId = profileId,
+            evidenceId = MediaStoreM4aTextProfile.EVIDENCE_ID,
+            container = "MP4_M4A",
+            revision = revision,
+            fields = fields,
+            explicitUserAction = true,
+        )
+
+        assertEquals(true, permit().matches(entry))
+        assertEquals(false, permit(revision = 2).matches(entry))
+        assertEquals(
+            false,
+            permit(fields = setOf(MetadataField.ARTIST)).matches(entry),
+        )
+        assertEquals(
+            false,
+            permit(profileId = MediaStoreMp3TextProfile.ID).matches(entry),
+        )
     }
 }

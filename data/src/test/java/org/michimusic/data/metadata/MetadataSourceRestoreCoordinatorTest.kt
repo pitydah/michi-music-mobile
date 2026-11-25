@@ -31,6 +31,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowContentResolver
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MediaStoreFlacTextProfile
+import org.michimusic.core.metadata.MediaStoreM4aTextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
@@ -250,6 +251,43 @@ class MetadataSourceRestoreCoordinatorTest {
         assertEquals(1, permit.revision)
     }
 
+    @Test fun m4aRestorePermitIsBoundToTitleOnlyAudioProfile() {
+        val m4aIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX, review = review,
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.MP4_M4A,
+            originalBytes = original.size.toLong(), originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
+        )
+        val entry = MetadataRecoveryJournalV1.Entry(
+            TX, MetadataRecoveryPhase.STAGE_READY, sourceId, trackId, uri,
+            original.size.toLong(), 777L, originalSha256 = originalSha,
+            stageSha256 = candidateSha, stageBytes = candidate.size.toLong(),
+            format = MetadataAudioContainer.MP4_M4A.name,
+            ownerEvidenceToken = token,
+        )
+
+        val permit = MetadataRestorePermit.fromDurable(entry, m4aIntent, target, true)
+
+        assertTrue(permit != null)
+        assertEquals(MediaStoreM4aTextProfile.ID, permit!!.profileId)
+        assertEquals(MediaStoreM4aTextProfile.EVIDENCE_ID, permit.evidenceId)
+        assertEquals(1, permit.revision)
+
+        val artistIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX,
+            review = reviewField(MetadataField.ARTIST, "Before", "After"),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.MP4_M4A,
+            originalBytes = original.size.toLong(), originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
+        )
+        assertEquals(
+            null,
+            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true),
+        )
+    }
+
     private fun writePermit(entry: MetadataRecoveryJournalV1.Entry) = MetadataWritePermit(
         transactionId = entry.id, sourceId = entry.sourceId, trackId = entry.trackId,
         uri = entry.uri, originalSha256 = entry.originalSha256,
@@ -261,13 +299,21 @@ class MetadataSourceRestoreCoordinatorTest {
     )
 
     private fun review(before: String, after: String): org.michimusic.core.metadata.MetadataReview.Ready {
+        return reviewField(MetadataField.TITLE, before, after)
+    }
+
+    private fun reviewField(
+        field: MetadataField,
+        before: String,
+        after: String,
+    ): org.michimusic.core.metadata.MetadataReview.Ready {
         val snapshot = MetadataSnapshot(
             target = target, tagsVerified = true,
-            known = mapOf(MetadataField.TITLE to listOf(before)),
-            verifiedFields = setOf(MetadataField.TITLE),
+            known = mapOf(field to listOf(before)),
+            verifiedFields = setOf(field),
         )
         return MetadataEditPreview.review(snapshot,
-            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf(after))))
+            listOf(MetadataChange.Replace(field, listOf(after))))
             as org.michimusic.core.metadata.MetadataReview.Ready
     }
 

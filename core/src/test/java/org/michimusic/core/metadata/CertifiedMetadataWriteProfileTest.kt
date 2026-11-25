@@ -75,4 +75,23 @@ class CertifiedMetadataWriteProfileTest {
                 flac.supportedResourceOperations,
         )
     }
+
+    @Test fun m4aProfileAuthorizesOnlyAudioOnlyProductionE2eCertifiedTitle() {
+        val m4a = MediaStoreM4aTextProfile.profile
+        assertTrue(m4a.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.TITLE), emptySet(), false,
+        ))
+        assertFalse(m4a.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.ARTIST), emptySet(), false,
+        ))
+        assertFalse(m4a.permitsArtwork)
+        assertTrue(m4a.permitsMultiValue.isEmpty())
+        assertTrue(m4a.supportedResourceOperations.isEmpty())
+        assertTrue(MetadataWriteProfileRegistry.byId(m4a.id) === m4a)
+        assertTrue(MetadataWriteProfileRegistry.forContainer(
+            MetadataAudioContainer.MP4_M4A,
+        ) === m4a)
+    }
 }

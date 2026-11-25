@@ -497,7 +497,8 @@ internal fun MichiMetadataEditorPreviewContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pilotEligible) {
                         Text(
-                            "Perfil MediaStore certificado: texto básico MP3, título FLAC, " +
+                            "Perfil MediaStore certificado: texto básico MP3, título FLAC y " +
+                                "título M4A de solo audio, " +
                                 "reemplazo de carátula existente MP3/FLAC y reemplazo o " +
                                 "borrado de COMM/USLT existentes en MP3.",
                             color = TertiaryCyan,
@@ -511,8 +512,9 @@ internal fun MichiMetadataEditorPreviewContent(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Añadir o quitar carátulas, crear comentarios o letras, texto " +
-                                "descrito FLAC, varios valores por campo y SAF permanecen bloqueados.",
+                            "Vídeo MP4, recursos u otros campos M4A, añadir o quitar carátulas, " +
+                                "crear comentarios o letras, texto descrito FLAC, varios valores " +
+                                "por campo y SAF permanecen bloqueados.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )

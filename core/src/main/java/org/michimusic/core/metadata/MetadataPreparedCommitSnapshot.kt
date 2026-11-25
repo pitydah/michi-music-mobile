@@ -73,10 +73,9 @@ object MetadataPreparedCommitSnapshot {
             MetadataAudioContainer.APE.name -> MetadataAudioContainer.APE
             MetadataAudioContainer.WAV.name -> MetadataAudioContainer.WAV
             MetadataAudioContainer.AIFF.name -> MetadataAudioContainer.AIFF
-            // OGG and MP4 are stage-only containers in this patch: their
-            // rewriters remux the container, so they carry no certified
-            // in-place writer and must never enter the source-mutation
-            // preflight. Do not guess support from the file extension.
+            MetadataAudioContainer.MP4_M4A.name -> MetadataAudioContainer.MP4_M4A
+            // OGG remains stage-only. MP4/M4A is admitted only after a mature
+            // private engine and audio-only production path produced evidence.
             else -> return Decision.Refused(Reason.UNSUPPORTED_FORMAT)
         }
         return Decision.Candidate(Evidence(input.transactionId, input.sourceId, input.trackId,

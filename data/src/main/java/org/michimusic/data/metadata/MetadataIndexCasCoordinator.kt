@@ -50,6 +50,8 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
                     permit.revision in setOf(3, 4)
                 org.michimusic.core.metadata.MediaStoreFlacTextProfile.ID ->
                     permit.revision == 1
+                org.michimusic.core.metadata.MediaStoreM4aTextProfile.ID ->
+                    permit.revision == 1
                 else -> false
             }) &&
             (permit.fields.isNotEmpty() || permit.resources.isNotEmpty()) &&
