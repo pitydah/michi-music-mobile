@@ -3,6 +3,7 @@ package org.michimusic.data.metadata
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -16,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
+import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.data.cache.CachedTrack
@@ -90,6 +92,28 @@ class MetadataTrackDaoCasPortTest {
         assertEquals("Antes", after.title)
         assertEquals(8L, after.verifiedAt)
         assertEquals(100L, after.size)
+    }
+
+    @Test fun durablePreimageIsTheCasAuthorityNotTheLiveRow() = runBlocking {
+        val root = Files.createTempDirectory("me14-cas-preimage-").toFile()
+        try {
+            val entry = MetadataRecoveryJournalV1.Entry(
+                tx, MetadataRecoveryPhase.STAGE_READY, sourceId, trackId, uri,
+                100L, 7L, originalSha256 = originalSha,
+                stageSha256 = candidateSha, stageBytes = 120L,
+                format = "ID3_V24", ownerEvidenceToken = "me14:owner")
+            val store = MetadataIndexPreimageStore(root)
+            dao.insertAll(listOf(row()))
+            assertTrue(store.write(entry, row().asMetadataPreimage()))
+            val port = MetadataTrackDaoCasPort(dao, permit, store)
+            val expected = port.current(sourceId, trackId)!!
+            // A live row change after the durable preimage must not become the
+            // CAS previous values.
+            dao.insertAll(listOf(row().copy(title = "Cambio ajeno")))
+            assertFalse(port.updateIfVersion(expected, delta))
+            assertEquals("Cambio ajeno", dao.getTrackBySource(sourceId, trackId)!!.title)
+            assertEquals(100L, dao.getTrackBySource(sourceId, trackId)!!.size)
+        } finally { root.deleteRecursively() }
     }
 
     @Test fun aDifferentOwnerOrUriCannotMutate() = runBlocking {

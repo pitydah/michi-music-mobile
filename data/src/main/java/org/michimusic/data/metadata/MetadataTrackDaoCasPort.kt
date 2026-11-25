@@ -3,6 +3,7 @@ package org.michimusic.data.metadata
 import org.michimusic.core.metadata.MetadataCommitCertification
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
+import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataUnverifiedIndexRowPolicy
 import org.michimusic.data.cache.CachedTrack
@@ -21,6 +22,7 @@ import org.michimusic.data.cache.TrackDao
 internal class MetadataTrackDaoCasPort(
     private val dao: TrackDao,
     private val permit: MetadataWritePermit? = null,
+    private val preimageStore: MetadataIndexPreimageStore? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val hex=Regex("[a-f0-9]{64}")
 
@@ -61,10 +63,65 @@ internal class MetadataTrackDaoCasPort(
         val row=dao.getTrackBySource(expected.sourceId,expected.trackId) ?: return false
         if (row.filepath != expected.uri) return false
         val candidate=MetadataTrackIndexProjection.propose(row,delta) ?: return false
+        val durable = preimageStore?.let { store ->
+            val probe = MetadataRecoveryJournalV1.Entry(
+                permit!!.transactionId, MetadataRecoveryPhase.CLEANUP_SAFE,
+                expected.sourceId, expected.trackId, expected.uri, 0L, 0L,
+            )
+            val stored = when (val read = store.read(probe)) {
+                is MetadataIndexPreimageStore.Result.Read -> read.preimage
+                is MetadataIndexPreimageStore.Result.Refused -> return false
+            }
+            if (stored !is MetadataIndexPreimage.Existing) return false
+            // The live row may only prove that the captured preimage is still
+            // current; it may never supply the previous values of the CAS.
+            if (row.asMetadataPreimage() != stored) return false
+            stored
+        }
+        if (durable != null) {
+            if (durable.sourceId != expected.sourceId || durable.trackId != expected.trackId ||
+                durable.uri != expected.uri || durable.size <= 0L) return false
+            val verified = durable.verifiedAt > 0L &&
+                durable.verifiedSha256 == expected.observedSourceSha256 &&
+                durable.verifiedSize == durable.size &&
+                durable.verifiedAlgorithm.lowercase() == "sha256"
+            val unhashed = durable.verifiedAt == 0L && durable.verifiedSha256.isEmpty() &&
+                durable.verifiedSize == 0L && durable.verifiedAlgorithm.isEmpty()
+            if (!verified && !unhashed) return false
+            if (unhashed) {
+                if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty())
+                    return false
+                return dao.commitMetadataAfterVerifiedWriteUnhashed(
+                    sourceId = durable.sourceId, trackId = durable.trackId,
+                    filepath = durable.uri, previousSize = durable.size,
+                    previousTitle = durable.title, previousArtist = durable.artist,
+                    previousAlbum = durable.album, previousAlbumArtist = durable.albumArtist,
+                    previousGenre = durable.genre, previousTrackNumber = durable.trackNumber,
+                    previousYear = durable.year, newSize = delta.candidateBytes,
+                    newTitle = candidate.title, newArtist = candidate.artist,
+                    newAlbum = candidate.album, newAlbumArtist = candidate.albumArtist,
+                    newGenre = candidate.genre, newTrackNumber = candidate.trackNumber,
+                    newYear = candidate.year,
+                )
+            }
+            if (durable.verifiedAt != expected.version ||
+                durable.verifiedSha256 != expected.observedSourceSha256) return false
+            return dao.commitMetadataAfterVerifiedWrite(
+                sourceId = durable.sourceId, trackId = durable.trackId,
+                filepath = durable.uri, previousSize = durable.size,
+                previousVerifiedAt = durable.verifiedAt,
+                previousSha256 = durable.verifiedSha256,
+                previousTitle = durable.title, previousArtist = durable.artist,
+                previousAlbum = durable.album, previousAlbumArtist = durable.albumArtist,
+                previousGenre = durable.genre, previousTrackNumber = durable.trackNumber,
+                previousYear = durable.year, newSize = delta.candidateBytes,
+                newTitle = candidate.title, newArtist = candidate.artist,
+                newAlbum = candidate.album, newAlbumArtist = candidate.albumArtist,
+                newGenre = candidate.genre, newTrackNumber = candidate.trackNumber,
+                newYear = candidate.year,
+            )
+        }
         if (missingHistoricProof(row)) {
-            // source origin proof is not stored in Room: the journal exact
-            // original SHA must be revalidated by the caller. The port only
-            // accepts the empty-index identity and never invents a hash.
             if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty()) return false
             return dao.commitMetadataAfterVerifiedWriteUnhashed(
                 sourceId=row.sourceId,trackId=row.id,filepath=row.filepath,

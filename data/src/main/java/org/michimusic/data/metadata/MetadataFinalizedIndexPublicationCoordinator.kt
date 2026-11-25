@@ -32,10 +32,12 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
     private val journal=MetadataRecoveryJournalV1(
         File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
     private val intentStore=MetadataCommitIntentStore(journal)
+    private val preimages=MetadataIndexPreimageStore(
+        File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
     private val finalizer=MetadataPostMutationFinalizationCoordinator(context)
     private val bytes=MetadataCurrentBytesReader(context)
     private fun index(permit: MetadataWritePermit) =
-        MetadataIndexCasCoordinator(MetadataTrackDaoCasPort(dao, permit))
+        MetadataIndexCasCoordinator(MetadataTrackDaoCasPort(dao, permit, preimages))
     private val genreIndex=MetadataIndexCasCoordinator(
         MetadataSelectiveGenreCasPort(context,dao))
     private val peopleIndex=MetadataIndexCasCoordinator(
