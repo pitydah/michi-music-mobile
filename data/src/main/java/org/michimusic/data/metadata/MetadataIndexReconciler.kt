@@ -111,9 +111,17 @@ class MetadataIndexReconciler internal constructor(
         if (!ownerStillCurrent() || !playbackDescriptorClosed())
             return@withContext Report(emptyList())
         val root = journalRoot
-        Report(MetadataIndexReconciliationReceipt.list(root).map { file ->
+        val report = Report(MetadataIndexReconciliationReceipt.list(root).map { file ->
             reconcileFile(file, ownerStillCurrent, playbackDescriptorClosed)
         })
+        try {
+            MetadataAppliedMarkerRetention(journal, dao, root).prune()
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            // Retention is maintenance; a failure never hides the reconciliation report.
+        }
+        report
     }
 
     suspend fun reconcileForTrack(

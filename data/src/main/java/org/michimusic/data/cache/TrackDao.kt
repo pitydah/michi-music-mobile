@@ -348,6 +348,18 @@ interface TrackDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAppliedMetadataTransaction(marker: MetadataAppliedTransaction)
 
+    @Query("DELETE FROM metadata_applied_transaction WHERE appliedAt < :cutoff")
+    suspend fun pruneAppliedTransactionsBefore(cutoff: Long): Int
+
+    @Query(
+        "DELETE FROM metadata_applied_transaction WHERE appliedAt < :cutoff " +
+            "AND transactionId NOT IN (:protectedIds)",
+    )
+    suspend fun pruneAppliedTransactionsBeforeExcept(
+        cutoff: Long,
+        protectedIds: List<String>,
+    ): Int
+
     @Query(
         "UPDATE cached_tracks SET title=:newTitle,artist=:newArtist,album=:newAlbum," +
             "albumArtist=:newAlbumArtist,genre=:newGenre,trackNumber=:newTrackNumber," +

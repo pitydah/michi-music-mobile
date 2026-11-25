@@ -96,6 +96,14 @@ abstract class MichiDatabase : RoomDatabase() {
                 END
             """.trimIndent())
             db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_before_update`
+                BEFORE UPDATE ON `cached_tracks`
+                WHEN NEW.`metadataRevision` < OLD.`metadataRevision`
+                BEGIN
+                    SELECT RAISE(ABORT, 'METADATA_REVISION_REGRESSION');
+                END
+            """.trimIndent())
+            db.execSQL("""
                 CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_update`
                 AFTER UPDATE ON `cached_tracks`
                 WHEN NEW.`metadataRevision`=OLD.`metadataRevision`
