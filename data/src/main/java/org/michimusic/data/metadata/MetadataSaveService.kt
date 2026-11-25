@@ -546,9 +546,10 @@ class MetadataSaveService internal constructor(
                 journal.start(entry)
                 val snapshotEntry = entry
                 val backup = journal.backup(entry)
-                sourceCopy.copyTo(backup, overwrite = false)
-                if (sha(backup) != sourceSha)
-                    return@withContext abort(entry, "La copia privada no coincide")
+                if (!MetadataDurableFile.copyExact(
+                        sourceCopy, backup, sourceCopy.length(), sourceSha,
+                    )
+                ) return@withContext abort(entry, "La copia privada no es durable")
                 entry = snapshotEntry.copy(phase = MetadataRecoveryPhase.BACKUP_DURABLE,
                     originalSha256 = sourceSha)
                 journal.advance(snapshotEntry, entry)
@@ -559,6 +560,8 @@ class MetadataSaveService internal constructor(
                     backup, candidate, sourceSha, expectedBytes, review,
                     observed, resourceEdits,
                 )
+                if (!MetadataDurableFile.forceExact(candidate))
+                    return@withContext abort(entry, "El candidato no es durable")
                 entry = backupEntry.copy(phase = MetadataRecoveryPhase.STAGE_READY,
                     stageSha256 = staged.candidateSha256, stageBytes = staged.candidateBytes,
                     format = observed.container.name)

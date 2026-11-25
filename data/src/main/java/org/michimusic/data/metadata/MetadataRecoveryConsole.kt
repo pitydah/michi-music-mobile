@@ -59,6 +59,7 @@ class MetadataRecoveryConsole(
         MUTATION_MAY_HAVE_OCCURRED,
         CORRUPT_OR_UNREADABLE,
         PRIVATE_CLEANUP_INCOMPLETE,
+        IN_PROGRESS,
     }
 
     private fun sameTrack(entry: MetadataRecoveryJournalV1.Entry,
@@ -148,8 +149,22 @@ class MetadataRecoveryConsole(
         explicitlyConfirmed: Boolean,
         ownerStillCurrent: () -> Boolean,
         playbackClosed: () -> Boolean,
+    ): RestoreResult {
+        if (!explicitlyConfirmed) return RestoreResult.ActionRequired
+        return MetadataSaveLocks.tryRun(
+            onBusy = { RestoreResult.Blocked("IN_PROGRESS") },
+        ) {
+            restoreOriginalUnlocked(
+                sourceId, trackId, uri, ownerStillCurrent, playbackClosed,
+            )
+        }
+    }
+
+    private suspend fun restoreOriginalUnlocked(
+        sourceId: String, trackId: String, uri: String,
+        ownerStillCurrent: () -> Boolean,
+        playbackClosed: () -> Boolean,
     ): RestoreResult = withContext(Dispatchers.IO) {
-        if (!explicitlyConfirmed) return@withContext RestoreResult.ActionRequired
         try {
             val bound = journal.withExclusiveSnapshot { state ->
                 val pending = (state as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
@@ -213,8 +228,19 @@ class MetadataRecoveryConsole(
     suspend fun discardPrivatePreparation(
         sourceId: String, trackId: String, uri: String,
         transactionId: String, explicitlyConfirmed: Boolean,
+    ): DiscardResult {
+        if (!explicitlyConfirmed) return DiscardResult.NO_EXPLICIT_CONFIRMATION
+        return MetadataSaveLocks.tryRun(
+            onBusy = { DiscardResult.IN_PROGRESS },
+        ) {
+            discardPrivatePreparationUnlocked(sourceId, trackId, uri, transactionId)
+        }
+    }
+
+    private suspend fun discardPrivatePreparationUnlocked(
+        sourceId: String, trackId: String, uri: String,
+        transactionId: String,
     ): DiscardResult = withContext(Dispatchers.IO) {
-        if (!explicitlyConfirmed) return@withContext DiscardResult.NO_EXPLICIT_CONFIRMATION
         try {
             lateinit var entry: MetadataRecoveryJournalV1.Entry
             val observation = journal.withExclusiveSnapshot { state ->

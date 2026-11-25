@@ -102,4 +102,15 @@ class MetadataRecoveryConsoleTest {
         } finally { scratch.delete(); trials.delete() }
     }
 
+    @Test fun restoreAndDiscardCannotRunWhileAnotherMetadataMutationHoldsTheLock() = runBlocking {
+        begin()
+        val console = MetadataRecoveryConsole(context)
+        MetadataSaveLocks.tryRun(onBusy = { error("outer lock must be acquired") }) {
+            assertEquals(MetadataRecoveryConsole.DiscardResult.IN_PROGRESS,
+                console.discardPrivatePreparation(owner, track, uri, id, true))
+            assertEquals(MetadataRecoveryConsole.RestoreResult.Blocked("IN_PROGRESS"),
+                console.restoreOriginal(owner, track, uri, true, { true }, { true }))
+        }
+    }
+
 }

@@ -67,18 +67,36 @@ class MetadataTrackDaoCasPortTest {
     )
 
     @Test fun exactVerifiedCasUpdatesTheRowAndInvalidatesEvidence() = runBlocking {
+        val root = Files.createTempDirectory("me14-cas-exact-").toFile()
+        try {
+            val entry = MetadataRecoveryJournalV1.Entry(
+                tx, MetadataRecoveryPhase.STAGE_READY, sourceId, trackId, uri,
+                100L, 7L, originalSha256 = originalSha,
+                stageSha256 = candidateSha, stageBytes = 120L,
+                format = "ID3_V24", ownerEvidenceToken = "me14:owner")
+            val store = MetadataIndexPreimageStore(root)
+            dao.insertAll(listOf(row()))
+            assertTrue(store.write(entry, row().asMetadataPreimage()))
+            val port = MetadataTrackDaoCasPort(dao, permit, store)
+            val expected = port.current(sourceId, trackId)!!
+            assertEquals(7L, expected.version)
+            assertEquals(originalSha, expected.observedSourceSha256)
+            assertTrue(port.updateIfVersion(expected, delta))
+            val after = dao.getTrackBySource(sourceId, trackId)!!
+            assertEquals("Después", after.title)
+            assertEquals(120L, after.size)
+            assertEquals(0L, after.verifiedAt)
+            assertEquals("", after.verifiedSha256)
+            assertEquals(0L, after.verifiedSize)
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun authorizedCasRequiresADurablePreimage() = runBlocking {
         dao.insertAll(listOf(row()))
         val port = MetadataTrackDaoCasPort(dao, permit)
         val expected = port.current(sourceId, trackId)!!
-        assertEquals(7L, expected.version)
-        assertEquals(originalSha, expected.observedSourceSha256)
-        assertTrue(port.updateIfVersion(expected, delta))
-        val after = dao.getTrackBySource(sourceId, trackId)!!
-        assertEquals("Después", after.title)
-        assertEquals(120L, after.size)
-        assertEquals(0L, after.verifiedAt)
-        assertEquals("", after.verifiedSha256)
-        assertEquals(0L, after.verifiedSize)
+        assertFalse(port.updateIfVersion(expected, delta))
+        assertEquals("Antes", dao.getTrackBySource(sourceId, trackId)!!.title)
     }
 
     @Test fun concurrentVerificationChangeIsRejectedWithoutOverwrite() = runBlocking {

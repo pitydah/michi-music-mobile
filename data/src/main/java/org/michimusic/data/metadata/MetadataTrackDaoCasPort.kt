@@ -106,13 +106,9 @@ internal class MetadataTrackDaoCasPort(
                 durable.verifiedSha256 != expected.observedSourceSha256) return false
             return apply(durable, candidate, delta, evidence)
         }
-        if (missingHistoricProof(row)) {
-            if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty()) return false
-            return apply(row.asMetadataPreimage(), candidate, delta, evidence)
-        }
-        if (!supportedRow(row) || row.verifiedAt != expected.version ||
-            row.verifiedSha256 != expected.observedSourceSha256) return false
-        return apply(row.asMetadataPreimage(), candidate, delta, evidence)
+        // No durable preimage: an authorized publication must never derive the
+        // previous values from the live row. Keep the journal actionable.
+        return false
     }
 
     private suspend fun apply(
