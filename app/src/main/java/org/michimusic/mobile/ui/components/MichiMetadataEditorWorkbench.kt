@@ -86,6 +86,7 @@ import org.michimusic.mobile.ui.metadata.MetadataLibraryRefreshSignal
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataReview
+import org.michimusic.core.metadata.MetadataSelectiveAssetStage
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.fieldReviewSummary
 import org.michimusic.data.metadata.MetadataSaveService
@@ -246,11 +247,13 @@ internal fun MichiMetadataEditorPreviewContent(
         if (artLyrics.artwork != null || artLyrics.artworkEdit != null) 1 else 0
     val canRevert = certifiedDirty || effectiveEditCount > 0 ||
         provisionalCount > 0 || artLyrics.isDirty
-    val saveableReview = draft.review as? MetadataReview.Ready
-    val pilotArtworkBlocked = artLyrics.artwork != null || artLyrics.artworkEdit != null
-    val canSave = pilotEligible && !saving && saveableReview != null &&
-        fieldSummary.effectiveFields > 0 && !pilotArtworkBlocked &&
-        textEffectiveCount == 0 && provisionalCount == 0 &&
+    val saveBundle = MetadataWorkbenchSaveBundlePolicy.build(
+        scalarReview = draft.review,
+        artLyrics = artLyrics,
+        provisionalCount = provisionalCount,
+    )
+    val canSave = pilotEligible && !saving &&
+        saveBundle is MetadataWorkbenchSaveBundlePolicy.Result.Ready &&
         stillOwnsPrivateSource() && playbackDescriptorClosed()
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     fun requestExit() {
@@ -333,22 +336,35 @@ internal fun MichiMetadataEditorPreviewContent(
             IntentSenderRequest.Builder(intent.intentSender).build(),
         )
     }
-    fun performPilotSave(review: MetadataReview.Ready) {
+    fun performPilotSave() {
         val writer = pilotWriter ?: return
+        val bundle = saveBundle as? MetadataWorkbenchSaveBundlePolicy.Result.Ready ?: return
         if (saving) return
         if (!stillOwnsPrivateSource() || !playbackDescriptorClosed()) {
             saveMessage = "El archivo está en reproducción o cambió de propietario."
             return
         }
+        val frozenResources = bundle.resourceEdits.map { edit ->
+            when (edit) {
+                is MetadataSelectiveAssetStage.Edit.Picture -> edit.copy(
+                    proposal = edit.proposal.copy(
+                        proposedBytes = edit.proposal.proposedBytes.copyOf(),
+                    ),
+                )
+                is MetadataSelectiveAssetStage.Edit.DescribedText -> edit
+            }
+        }
         saving = true
         saveMessage = null
         scope.launch {
-            when (val outcome = writer.save(
+            when (val outcome = writer.saveBundle(
                 sourceId = indexSourceId.ifBlank { target.sourceId },
                 trackId = target.trackId,
                 uriString = target.uri,
                 expectedBytes = committedSize,
-                reviewInput = review,
+                targetInput = committedBase.target,
+                reviewInput = bundle.scalarReview,
+                resourceEdits = frozenResources,
                 ownerCurrent = stillOwnsPrivateSource,
                 playbackClosed = playbackDescriptorClosed,
             )) {
@@ -460,8 +476,9 @@ internal fun MichiMetadataEditorPreviewContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pilotEligible) {
                         Text(
-                            "Perfil MP3 de texto: MediaStore + ID3v2.3/2.4 para " +
-                                "TITLE, ARTIST, ALBUM y GENRE.",
+                            "Perfil MediaStore certificado: texto básico MP3, título FLAC, " +
+                                "reemplazo de carátula existente MP3/FLAC y reemplazo o " +
+                                "borrado de COMM/USLT existentes en MP3.",
                             color = TertiaryCyan,
                         )
                         Text(
@@ -473,8 +490,8 @@ internal fun MichiMetadataEditorPreviewContent(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Carátulas, letras, varios valores por campo, FLAC y SAF quedan " +
-                                "fuera de este perfil.",
+                            "Añadir o quitar carátulas, crear comentarios o letras, texto " +
+                                "descrito FLAC, varios valores por campo y SAF permanecen bloqueados.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -496,8 +513,9 @@ internal fun MichiMetadataEditorPreviewContent(
                             color = TextSecondary,
                         )
                         Text(
-                            "El perfil certificado solo admite archivos MP3 de MediaStore con " +
-                                "etiquetas ID3v2.3/2.4. No se ha modificado ningún archivo.",
+                            "La ruta certificada requiere un archivo MediaStore compatible y " +
+                                "una operación admitida por su perfil exacto. No se ha modificado " +
+                                "ningún archivo.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -985,7 +1003,7 @@ internal fun MichiMetadataEditorPreviewContent(
                         )
                     }
                     Button(
-                        onClick = { saveableReview?.let(::performPilotSave) },
+                        onClick = ::performPilotSave,
                         enabled = canSave,
                         modifier = Modifier.weight(1f).heightIn(min = 50.dp)
                             .testTag("metadata_save_file"),
@@ -999,10 +1017,26 @@ internal fun MichiMetadataEditorPreviewContent(
                         saving -> "Guardando…"
                         saveMessage != null -> saveMessage!!
                         recoveryPending -> "Recuperación necesaria antes de editar"
-                        pilotEligible && pilotArtworkBlocked ->
-                            "La carátula no se puede guardar en este perfil todavía"
+                        pilotEligible &&
+                            saveBundle is MetadataWorkbenchSaveBundlePolicy.Result.Blocked ->
+                            when (saveBundle.reason) {
+                                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_ADD ->
+                                    "Añadir una carátula aún no está certificado"
+                                MetadataWorkbenchSaveBundlePolicy.Reason.UNSUPPORTED_ARTWORK_REMOVE ->
+                                    "Quitar una carátula aún no está certificado"
+                                MetadataWorkbenchSaveBundlePolicy.Reason.INVALID_DESCRIBED_TEXT,
+                                MetadataWorkbenchSaveBundlePolicy.Reason.RESOURCES_NOT_INSPECTED ->
+                                    "Inspecciona y corrige comentarios o letras antes de guardar"
+                                MetadataWorkbenchSaveBundlePolicy.Reason.PROVISIONAL_FIELDS ->
+                                    "Hay campos sin evidencia física; descártalos antes de guardar"
+                                MetadataWorkbenchSaveBundlePolicy.Reason.NO_EFFECTIVE_CHANGES ->
+                                    "Sin cambios"
+                                else -> "La propuesta no se puede guardar de forma segura"
+                            }
                         pilotEligible && effectiveEditCount == 0 -> "Sin cambios"
-                        pilotEligible && saveableReview != null -> "Listo para guardar en el archivo"
+                        pilotEligible &&
+                            saveBundle is MetadataWorkbenchSaveBundlePolicy.Result.Ready ->
+                            "Listo para guardar y verificar el archivo"
                         else -> "No se puede guardar este tipo de archivo todavía"
                     }
                     Text(
