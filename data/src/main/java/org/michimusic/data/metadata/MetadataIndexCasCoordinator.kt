@@ -23,6 +23,15 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
         /** Must perform an ATOMIC compare/version check in one Room transaction. */
         suspend fun updateIfVersion(expected: MetadataIndexPublicationPolicy.IndexIdentity,
                                     delta: MetadataSourceIndexDelta.Delta): Boolean
+        /**
+         * Scoped variant used by structured CAS ports. The default keeps the
+         * historical two-argument port contract for scalar ports and tests.
+         */
+        suspend fun updateIfVersion(
+            expected: MetadataIndexPublicationPolicy.IndexIdentity,
+            delta: MetadataSourceIndexDelta.Delta,
+            scopedPermit: MetadataWritePermit?,
+        ): Boolean = updateIfVersion(expected, delta)
     }
     enum class Refusal { NOT_CERTIFIED, NO_VERIFIED_RECEIPT, STALE_INDEX,
         OWNER_MISMATCH, SOURCE_UNVERIFIED, PROVIDER_FAILURE, ATOMIC_CAS_REFUSED }
@@ -88,7 +97,7 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
                 ?: return Result.Blocked(Refusal.STALE_INDEX)
             if (!ownerCurrent() || now != expected)
                 return Result.Blocked(Refusal.STALE_INDEX)
-            if (!port.updateIfVersion(expected,delta))
+            if (!port.updateIfVersion(expected,delta,permit))
                 Result.Blocked(Refusal.ATOMIC_CAS_REFUSED)
             else Result.AppliedToIndexOnly(delta.transactionId)
         } catch (cancel: CancellationException) { throw cancel }

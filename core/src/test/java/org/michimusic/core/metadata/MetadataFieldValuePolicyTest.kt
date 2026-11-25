@@ -6,7 +6,9 @@ import org.junit.Test
 
 class MetadataFieldValuePolicyTest {
     @Test fun positiveTrackNumberAndZeroRejection() {
-        assertNull(MetadataFieldValuePolicy.inspect(MetadataField.TRACK_NUMBER,listOf("001")))
+        assertNull(MetadataFieldValuePolicy.inspect(MetadataField.TRACK_NUMBER,listOf("1")))
+        assertEquals(MetadataFieldValuePolicy.Failure.NUMBER_OUT_OF_RANGE,
+            MetadataFieldValuePolicy.inspect(MetadataField.TRACK_NUMBER,listOf("001")))
         assertEquals(MetadataFieldValuePolicy.Failure.NUMBER_OUT_OF_RANGE,
             MetadataFieldValuePolicy.inspect(MetadataField.TRACK_NUMBER,listOf("0")))
     }

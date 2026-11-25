@@ -208,9 +208,23 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
         }
         val review = MetadataEditPreview.review(
             original,
-            listOf(MetadataChange.Replace(
-                MetadataField.TITLE, listOf("SAF Renombrada"),
-            )),
+            listOf(
+                MetadataChange.Replace(
+                    MetadataField.TITLE, listOf("SAF Renombrada"),
+                ),
+                MetadataChange.Replace(
+                    MetadataField.COMPOSER, listOf("SAF Compositora"),
+                ),
+                MetadataChange.Replace(
+                    MetadataField.RELEASE_DATE, listOf("2025"),
+                ),
+                MetadataChange.Replace(
+                    MetadataField.TRACK_NUMBER, listOf("2"),
+                ),
+                MetadataChange.Replace(
+                    MetadataField.TRACK_TOTAL, listOf("5"),
+                ),
+            ),
         )
         assertTrue(review is MetadataReview.Ready)
 
@@ -236,13 +250,17 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
 
         val row = database.trackDao().getTrackBySource(sourceId, trackId)!!
         assertEquals("SAF Renombrada", row.title)
+        assertEquals(2025, row.year)
+        assertEquals(2, row.trackNumber)
         assertEquals(committed.size.toLong(), row.size)
         assertTrue(row.metadataRevision > beforeRevision)
         val change = checkNotNull(saved.libraryChange)
         assertEquals(sourceId, change.sourceId)
         assertEquals(trackId, change.trackId)
         assertEquals(uri.toString(), change.uri)
-        assertEquals(setOf(MetadataField.TITLE), change.changedFields)
+        assertEquals(setOf(MetadataField.TITLE, MetadataField.COMPOSER,
+            MetadataField.RELEASE_DATE, MetadataField.TRACK_NUMBER,
+            MetadataField.TRACK_TOTAL), change.changedFields)
         assertEquals(saved.committedSha256, change.committedSha256)
 
         val marker = database.trackDao()
@@ -263,6 +281,18 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
             else -> error("Production cold reopen rejected saved SAF document: $read")
         }
         assertEquals(listOf("SAF Renombrada"), reopened.known[MetadataField.TITLE])
+        assertEquals(listOf("SAF Compositora"),
+            reopened.known[MetadataField.COMPOSER])
+        assertEquals(listOf("2025"), reopened.known[MetadataField.RELEASE_DATE])
+        assertEquals(listOf("2"), reopened.known[MetadataField.TRACK_NUMBER])
+        assertEquals(listOf("5"), reopened.known[MetadataField.TRACK_TOTAL])
+        val evidence = database.trackDao()
+            .getCurrentExtendedTagEvidence(sourceId, trackId)
+            ?: throw AssertionError("SAF extended evidence must be published")
+        assertEquals("SAF Compositora", evidence.composer)
+        assertEquals(2, evidence.trackNumber)
+        assertEquals(5, evidence.trackTotal)
+        assertEquals("2025", evidence.date)
         assertTrue(
             MetadataRecoveryJournalV1(
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),

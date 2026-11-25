@@ -36,8 +36,25 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
     private val finalizer=MetadataPostMutationFinalizationCoordinator(context)
     private val bytes=MetadataCurrentBytesReader(context)
-    private fun index(permit: MetadataWritePermit) =
-        MetadataIndexCasCoordinator(MetadataTrackDaoCasPort(dao, permit, preimages))
+    private val stamps=MetadataExactSourceStampReader(context)
+    private fun index(permit: MetadataWritePermit): MetadataIndexCasCoordinator {
+        val needsEvidence = permit.fields.any {
+            it in MetadataEmbeddedEvidence.nonProjectedFields
+        }
+        val port = if (!needsEvidence) {
+            MetadataTrackDaoCasPort(dao, permit, preimages)
+        } else {
+            MetadataTrackDaoCasPort(dao, permit, preimages,
+                evidenceFor = { delta ->
+                    val stamp = stamps.read(delta.target.sourceId,
+                        delta.target.uri, delta.candidateBytes)
+                    if (stamp == null) null
+                    else MetadataEmbeddedEvidence.fromDelta(
+                        delta, stamp.modifiedAtProviderUnits)
+                })
+        }
+        return MetadataIndexCasCoordinator(port)
+    }
     private val genreIndex=MetadataIndexCasCoordinator(
         MetadataSelectiveGenreCasPort(context,dao))
     private val peopleIndex=MetadataIndexCasCoordinator(
@@ -206,9 +223,10 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
                     peopleOnly -> peopleIndex
                     else -> combinedIndex
                 }
-                return@withContext when (chosen.attempt(expectedIndex,delta,
+                val cas = chosen.attempt(expectedIndex,delta,
                     MetadataRecoveryPhase.POSTCHECK_VERIFIED,certified,playbackDescriptorClosed(),
-                    ownerStillCurrent)) {
+                    ownerStillCurrent, permit)
+                return@withContext when (cas) {
                     is MetadataIndexCasCoordinator.Result.AppliedToIndexOnly ->
                         when {
                             genreOnly -> Result.StructuredGenreIndexed(entry.id)

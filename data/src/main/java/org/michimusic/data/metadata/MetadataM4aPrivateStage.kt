@@ -13,6 +13,8 @@ import org.jaudiotagger.audio.mp4.Mp4FileReader
 import org.jaudiotagger.audio.mp4.Mp4FileWriter
 import org.jaudiotagger.tag.FieldKey
 import org.jaudiotagger.tag.TagOptionSingleton
+import org.jaudiotagger.tag.mp4.field.Mp4DiscNoField
+import org.jaudiotagger.tag.mp4.field.Mp4TrackField
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCandidateSemanticPolicy
 import org.michimusic.core.metadata.MetadataColdFieldParser
@@ -34,6 +36,32 @@ import org.michimusic.core.metadata.MetadataReview
  */
 internal object MetadataM4aPrivateStage {
     private const val MAX_BYTES = 1024L * 1024L * 1024L
+    private val scalarKeys = mapOf(
+        MetadataField.TITLE to FieldKey.TITLE,
+        MetadataField.ARTIST to FieldKey.ARTIST,
+        MetadataField.ALBUM to FieldKey.ALBUM,
+        MetadataField.ALBUM_ARTIST to FieldKey.ALBUM_ARTIST,
+        MetadataField.GENRE to FieldKey.GENRE,
+        MetadataField.COMPOSER to FieldKey.COMPOSER,
+        MetadataField.RELEASE_DATE to FieldKey.YEAR,
+        MetadataField.COMMENT to FieldKey.COMMENT,
+        MetadataField.LYRICS to FieldKey.LYRICS,
+        MetadataField.GROUPING to FieldKey.GROUPING,
+    )
+    private data class Composite(
+        val number: MetadataField,
+        val total: MetadataField,
+        val key: FieldKey,
+    )
+    private val composites = listOf(
+        Composite(MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL, FieldKey.TRACK),
+        Composite(MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL, FieldKey.DISC_NO),
+    )
+    private val compositeFields = composites.flatMapTo(linkedSetOf()) {
+        listOf(it.number, it.total)
+    }
+    private val supported = scalarKeys.keys + compositeFields
+    private val canonicalNumber = Regex("[1-9][0-9]{0,3}")
 
     data class Request(
         val sourceSha256: String,
@@ -52,7 +80,9 @@ internal object MetadataM4aPrivateStage {
         require(request.sourceSha256.matches(Regex("[a-f0-9]{64}")))
         require(request.expectedBytes in 24..MAX_BYTES)
         require(request.review.diffs.isNotEmpty())
-        require(request.review.diffs.all { it.field == MetadataField.TITLE })
+        require(request.review.diffs.all { it.field in supported }) {
+            "UNSUPPORTED_M4A_FIELD"
+        }
         require(
             MetadataEditPreview.review(
                 request.review.original,
@@ -76,7 +106,7 @@ internal object MetadataM4aPrivateStage {
             "SOURCE_FINGERPRINT_MISMATCH"
         }
 
-        val beforeAudio = FileChannel.open(
+        val beforeState = FileChannel.open(
             sourcePath,
             StandardOpenOption.READ,
             LinkOption.NOFOLLOW_LINKS,
@@ -88,14 +118,18 @@ internal object MetadataM4aPrivateStage {
             request.review.diffs.forEach { diff ->
                 val observed = report.observation(diff.field)
                 require(
-                    observed is MetadataFieldObservation.Present &&
-                        observed.values == diff.before,
+                    (observed is MetadataFieldObservation.Present &&
+                        observed.values == diff.before) ||
+                        (observed == MetadataFieldObservation.VerifiedAbsent &&
+                            diff.before.isEmpty()),
                 ) { "SOURCE_REVIEW_MISMATCH" }
             }
-            MetadataM4aAudioOnlyInspector.inspect(channel) as?
+            report to (MetadataM4aAudioOnlyInspector.inspect(channel) as?
                 MetadataM4aAudioOnlyInspector.Result.AudioOnly
-                ?: error("SOURCE_NOT_AUDIO_ONLY")
+                ?: error("SOURCE_NOT_AUDIO_ONLY"))
         }
+        val beforeReport = beforeState.first
+        val beforeAudio = beforeState.second
 
         val temporary = File(destination.parentFile, ".${destination.name}.${UUID.randomUUID()}.tmp")
         try {
@@ -106,10 +140,60 @@ internal object MetadataM4aPrivateStage {
                 }
             }
             TagOptionSingleton.getInstance().isAndroid = true
+            TagOptionSingleton.getInstance().isWriteMp4GenresAsText = true
             val audioFile = Mp4FileReader().read(temporary)
-            request.review.diffs.forEach { diff ->
-                require(diff.after.size == 1) { "M4A_SINGLE_VALUE_ONLY" }
-                audioFile.tag.setField(FieldKey.TITLE, diff.after.single())
+            val tag = requireNotNull(audioFile.tag) { "M4A_TAG_UNAVAILABLE" }
+            val changes = request.review.diffs.associateBy { it.field }
+            fun original(field: MetadataField): List<String> =
+                (beforeReport.observation(field) as?
+                    MetadataFieldObservation.Present)?.values.orEmpty()
+            val applied = mutableSetOf<FieldKey>()
+            for (diff in request.review.diffs) {
+                require(diff.after.size <= 1) { "M4A_SINGLE_VALUE_ONLY" }
+                val composite = composites.firstOrNull {
+                    it.number == diff.field || it.total == diff.field
+                }
+                if (composite != null) {
+                    if (!applied.add(composite.key)) continue
+                    val number = changes[composite.number]?.after?.singleOrNull()
+                        ?: original(composite.number).firstOrNull()
+                    val total = changes[composite.total]?.after?.singleOrNull()
+                        ?: original(composite.total).firstOrNull()
+                    require(number == null || canonicalNumber.matches(number)) {
+                        "M4A_INVALID_NUMBER"
+                    }
+                    require(total == null || canonicalNumber.matches(total)) {
+                        "M4A_INVALID_NUMBER"
+                    }
+                    require(number != null || total == null) {
+                        "M4A_INVALID_NUMBER_PAIR"
+                    }
+                    if (number == null) {
+                        runCatching { tag.deleteField(composite.key) }
+                    } else {
+                        runCatching {
+                            val n = number.toInt()
+                            val t = total?.toInt() ?: 0
+                            if (composite.key == FieldKey.TRACK)
+                                tag.setField(Mp4TrackField(n, t))
+                            else tag.setField(Mp4DiscNoField(n, t))
+                        }.getOrElse {
+                            throw IllegalArgumentException(
+                                "M4A_FIELD_FAILED:${diff.field}", it)
+                        }
+                    }
+                } else {
+                    val key = scalarKeys.getValue(diff.field)
+                    val value = diff.after.singleOrNull().orEmpty()
+                    if (value.isEmpty()) {
+                        runCatching { tag.deleteField(key) }
+                    } else {
+                        runCatching { tag.setField(key, value) }.getOrElse {
+                            throw IllegalArgumentException(
+                                "M4A_FIELD_FAILED:${diff.field}", it)
+                        }
+                    }
+                }
             }
             Mp4FileWriter().write(audioFile)
             FileChannel.open(temporary.toPath(), StandardOpenOption.WRITE).use {
@@ -125,8 +209,8 @@ internal object MetadataM4aPrivateStage {
                 LinkOption.NOFOLLOW_LINKS,
             ).use { channel ->
                 val report = MetadataColdFieldParser.observe(channel)
-                require(MetadataFieldReadbackPolicy.check(request.review, report) ==
-                    MetadataFieldReadbackPolicy.Result.VERIFIED) {
+                val readback = MetadataFieldReadbackPolicy.check(request.review, report)
+                require(readback == MetadataFieldReadbackPolicy.Result.VERIFIED) {
                     "CANDIDATE_READBACK_MISMATCH"
                 }
                 MetadataM4aAudioOnlyInspector.inspect(channel) as?

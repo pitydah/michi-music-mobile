@@ -138,6 +138,40 @@ class MetadataSaveMediaStoreFieldsInstrumentedTest {
         assertEquals("ME13 Opaque Nuevo", result.row.title)
     }
 
+    @Test fun t07AdvancedTextAndPairsPublishExactRoomEvidence() = runBlocking {
+        val original = Mp3FixtureTags.build(
+            4, "ME13 T07", "Artista ME13", "Album ME13", "Rock", audioPayload)
+        val changes = listOf(
+            MetadataChange.Replace(MetadataField.COMPOSER, listOf("Compositora ME19")),
+            MetadataChange.Replace(MetadataField.RELEASE_DATE, listOf("2025-11-25")),
+            MetadataChange.Replace(MetadataField.TRACK_NUMBER, listOf("4")),
+            MetadataChange.Replace(MetadataField.TRACK_TOTAL, listOf("11")),
+            MetadataChange.Replace(MetadataField.DISC_NUMBER, listOf("1")),
+            MetadataChange.Replace(MetadataField.DISC_TOTAL, listOf("2")),
+        )
+        val result = save(original, changes)
+        assertEquals(listOf("Compositora ME19"),
+            result.reopened.known[MetadataField.COMPOSER])
+        assertEquals(listOf("2025-11-25"),
+            result.reopened.known[MetadataField.RELEASE_DATE])
+        assertEquals(listOf("4"), result.reopened.known[MetadataField.TRACK_NUMBER])
+        assertEquals(listOf("11"), result.reopened.known[MetadataField.TRACK_TOTAL])
+        assertEquals(listOf("1"), result.reopened.known[MetadataField.DISC_NUMBER])
+        assertEquals(listOf("2"), result.reopened.known[MetadataField.DISC_TOTAL])
+        assertEquals(2025, result.row.year)
+        assertEquals(4, result.row.trackNumber)
+        val evidence = database.trackDao()
+            .getCurrentExtendedTagEvidence(sourceId, trackId)
+            ?: throw AssertionError("extended tag evidence must be published")
+        assertEquals("Compositora ME19", evidence.composer)
+        assertEquals(4, evidence.trackNumber)
+        assertEquals(11, evidence.trackTotal)
+        assertEquals(1, evidence.discNumber)
+        assertEquals(2, evidence.discTotal)
+        assertEquals("2025-11-25", evidence.date)
+        assertTrue(evidence.modifiedAt > 0L)
+    }
+
     @Test fun stalePreimageKeepsTheRowAndWritesActionableV2() = runBlocking {
         val original = Mp3FixtureTags.build(
             4, "ME13 Stale", "Artista ME13", "Album ME13", "Rock", audioPayload)

@@ -101,14 +101,14 @@ object MetadataOpaquePreservationAudit {
         // Field identity, not the coarse four-character frame ID, determines
         // which entry is intentionally edited. TXXX descriptors and COMM/USLT
         // language/description identities are independently validated below.
+        val version = if (format == MetadataAudioContainer.ID3_V23) 3 else 4
         val edited = changes.filterNot { it in MetadataMusicBrainzTagMap.id3Fields ||
             it in MetadataId3DescribedTagCodec.fields }.map {
-            MetadataId3StageRewriter.preservationFrameId(it)
+            MetadataId3StageRewriter.preservationFrameId(it, version)
                 ?: throw Stop(Refusal.UNSUPPORTED_EDIT)
         }.toSet()
         val editedTxxx = changes.intersect(MetadataMusicBrainzTagMap.id3Fields)
         val editedDescribed = changes.intersect(MetadataId3DescribedTagCodec.fields)
-        val version = if (format == MetadataAudioContainer.ID3_V23) 3 else 4
         // The stage writer rejects ID3v1; this audit also rejects a drift into it.
         if (reader.length >= 128 &&
             String(reader.take(reader.length - 128, 3), StandardCharsets.US_ASCII) == "TAG")

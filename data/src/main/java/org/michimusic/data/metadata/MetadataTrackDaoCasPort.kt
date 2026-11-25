@@ -7,6 +7,7 @@ import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import org.michimusic.core.metadata.MetadataUnverifiedIndexRowPolicy
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.MetadataTrackTransactionRequest
 import org.michimusic.data.cache.MetadataTrackTransactionResult
 import org.michimusic.data.cache.TrackDao
@@ -25,6 +26,8 @@ internal class MetadataTrackDaoCasPort(
     private val dao: TrackDao,
     private val permit: MetadataWritePermit? = null,
     private val preimageStore: MetadataIndexPreimageStore? = null,
+    private val evidenceFor:
+        (suspend (MetadataSourceIndexDelta.Delta) -> EmbeddedTagEvidence?)? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val hex=Regex("[a-f0-9]{64}")
 
@@ -66,6 +69,8 @@ internal class MetadataTrackDaoCasPort(
         if (row.filepath != expected.uri || row.metadataRevision != expected.metadataRevision)
             return false
         val candidate=MetadataTrackIndexProjection.propose(row,delta) ?: return false
+        val evidence = if (evidenceFor == null) null else
+            (evidenceFor.invoke(delta) ?: return false)
         val durable = preimageStore?.let { store ->
             val probe = MetadataRecoveryJournalV1.Entry(
                 permit!!.transactionId, MetadataRecoveryPhase.CLEANUP_SAFE,
@@ -95,25 +100,26 @@ internal class MetadataTrackDaoCasPort(
             if (unhashed) {
                 if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty())
                     return false
-                return apply(durable, candidate, delta)
+                return apply(durable, candidate, delta, evidence)
             }
             if (durable.verifiedAt != expected.version ||
                 durable.verifiedSha256 != expected.observedSourceSha256) return false
-            return apply(durable, candidate, delta)
+            return apply(durable, candidate, delta, evidence)
         }
         if (missingHistoricProof(row)) {
             if (expected.version != 0L || expected.observedSourceSha256.isNotEmpty()) return false
-            return apply(row.asMetadataPreimage(), candidate, delta)
+            return apply(row.asMetadataPreimage(), candidate, delta, evidence)
         }
         if (!supportedRow(row) || row.verifiedAt != expected.version ||
             row.verifiedSha256 != expected.observedSourceSha256) return false
-        return apply(row.asMetadataPreimage(), candidate, delta)
+        return apply(row.asMetadataPreimage(), candidate, delta, evidence)
     }
 
     private suspend fun apply(
         previous: MetadataIndexPreimage.Existing,
         candidate: MetadataTrackIndexProjection.Fields,
         delta: MetadataSourceIndexDelta.Delta,
+        evidence: EmbeddedTagEvidence?,
     ): Boolean {
         val request = MetadataTrackTransactionRequest(
             transactionId = delta.transactionId,
@@ -143,7 +149,9 @@ internal class MetadataTrackDaoCasPort(
             candidateBytes = delta.candidateBytes,
             appliedAt = System.currentTimeMillis().coerceAtLeast(1L),
         )
-        return when (dao.applyMetadataTransaction(request)) {
+        val result = if (evidence == null) dao.applyMetadataTransaction(request)
+            else dao.applyMetadataTransactionWithGenreEvidence(request, evidence)
+        return when (result) {
             is MetadataTrackTransactionResult.Applied,
             is MetadataTrackTransactionResult.AlreadyApplied -> true
             MetadataTrackTransactionResult.Conflict -> false

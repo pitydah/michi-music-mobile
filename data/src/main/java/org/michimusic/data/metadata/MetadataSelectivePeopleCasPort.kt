@@ -32,26 +32,38 @@ internal class MetadataSelectivePeopleCasPort(
     override suspend fun updateIfVersion(
         expected: MetadataIndexPublicationPolicy.IndexIdentity,
         delta: MetadataSourceIndexDelta.Delta,
+    ): Boolean = updateIfVersion(expected, delta, null)
+
+    override suspend fun updateIfVersion(
+        expected: MetadataIndexPublicationPolicy.IndexIdentity,
+        delta: MetadataSourceIndexDelta.Delta,
+        scopedPermit: MetadataWritePermit?,
     ): Boolean {
-        if (!MetadataCommitCertification.mayMutateOriginal() ||
+        if ((!MetadataCommitCertification.mayMutateOriginal() &&
+                scopedPermit?.authorizes(delta) != true) ||
             expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri)
             return false
-        val prepared = MetadataStructuredPeopleRefreshPolicy.inspect(delta)
-            as? MetadataStructuredPeopleRefreshPolicy.Result.Prepared ?: return false
-        val indexed = dao.getTrackBySource(expected.sourceId, expected.trackId) ?: return false
+        val inspected = MetadataStructuredPeopleRefreshPolicy.inspect(delta)
+        val prepared = inspected as? MetadataStructuredPeopleRefreshPolicy.Result.Prepared
+            ?: return false
+        val indexed = dao.getTrackBySource(expected.sourceId, expected.trackId)
+            ?: return false
         if (indexed.filepath != expected.uri) return false
         val scalarDelta = delta.copy(observedValues = delta.observedValues + mapOf(
             MetadataField.ARTIST to listOfNotNull(prepared.artist.takeIf { it.isNotEmpty() }),
             MetadataField.ALBUM_ARTIST to listOfNotNull(prepared.albumArtist.takeIf { it.isNotEmpty() }),
         ))
-        val next = MetadataTrackIndexProjection.propose(indexed, scalarDelta) ?: return false
-        val before = stamps.read(expected.sourceId, expected.uri, delta.candidateBytes) ?: return false
+        val next = MetadataTrackIndexProjection.propose(indexed, scalarDelta)
+            ?: return false
+        val before = stamps.read(expected.sourceId, expected.uri, delta.candidateBytes)
+            ?: return false
         val physical = bytes.read(expected.sourceId, expected.uri, delta.candidateBytes)
             as? MetadataCurrentBytesReader.Result.Read ?: return false
         if (physical.fingerprint.bytes != delta.candidateBytes ||
             physical.fingerprint.sha256 != delta.sourceSha256) return false
-        val after = stamps.read(expected.sourceId, expected.uri, delta.candidateBytes) ?: return false
+        val after = stamps.read(expected.sourceId, expected.uri, delta.candidateBytes)
+            ?: return false
         if (after != before) return false
         val evidence = MetadataPersonEvidence(
             indexed.sourceId, indexed.id, delta.candidateBytes,

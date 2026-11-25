@@ -67,10 +67,29 @@ enum class SaveBlock {
 }
 
 /**
- * MP3 / ID3v2.3-v2.4 on the local MediaStore provider, single-value text only.
- * Evidence: ME-13 disposable MediaStore fixtures (TITLE/ARTIST/ALBUM/GENRE),
- * cold reread and audio payload equality.
+ * MP3 / ID3v2.3-v2.4 text and representable multivalue on the local MediaStore
+ * provider. Scope expansion is backed by cold-reader support for every field:
+ * track/disc pairs, version-specific dates, credits and described canonical text.
+ * Multivalue is limited to fields the cold parser accepts as ordered lists.
  */
+private val id3ProfileFields: Set<MetadataField> = linkedSetOf(
+    MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+    MetadataField.ALBUM_ARTIST, MetadataField.GENRE, MetadataField.COMPOSER,
+    MetadataField.SUBTITLE, MetadataField.LABEL, MetadataField.ISRC,
+    MetadataField.BPM, MetadataField.MUSICAL_KEY, MetadataField.GROUPING,
+    MetadataField.COPYRIGHT, MetadataField.LANGUAGE, MetadataField.ORIGINAL_ARTIST,
+    MetadataField.LYRICIST, MetadataField.CONDUCTOR, MetadataField.REMIXER,
+    MetadataField.RELEASE_DATE, MetadataField.TRACK_NUMBER,
+    MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+    MetadataField.COMMENT, MetadataField.LYRICS,
+) + MetadataMusicBrainzTagMap.id3Fields
+
+private val id3ProfileMultiValue: Set<MetadataField> = setOf(
+    MetadataField.ARTIST, MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+    MetadataField.COMPOSER, MetadataField.ORIGINAL_ARTIST,
+    MetadataField.LYRICIST, MetadataField.CONDUCTOR,
+)
+
 object MediaStoreMp3TextProfile {
     const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_RESOURCES_V3"
     const val EVIDENCE_ID = "ME16_MEDIASTORE_MP3_ID3_RESOURCES_V3"
@@ -80,12 +99,9 @@ object MediaStoreMp3TextProfile {
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
         containers = setOf(MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24),
         tagRevisions = setOf(3, 4),
-        supportedFields = setOf(
-            MetadataField.TITLE, MetadataField.ARTIST,
-            MetadataField.ALBUM, MetadataField.GENRE,
-        ),
+        supportedFields = id3ProfileFields,
         permitsArtwork = false,
-        permitsMultiValue = emptySet(),
+        permitsMultiValue = id3ProfileMultiValue,
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.ID3_APIC_REPLACE,
@@ -110,9 +126,18 @@ object MediaStoreFlacTextProfile {
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
         containers = setOf(MetadataAudioContainer.FLAC),
         tagRevisions = setOf(1),
-        supportedFields = setOf(MetadataField.TITLE),
+        supportedFields = MetadataCapabilityRegistry.flacStageFields,
         permitsArtwork = false,
-        permitsMultiValue = emptySet(),
+        permitsMultiValue = setOf(
+            MetadataField.ARTIST, MetadataField.ALBUM_ARTIST,
+            MetadataField.GENRE, MetadataField.COMPOSER,
+            MetadataField.ORCHESTRA, MetadataField.ENSEMBLE,
+            MetadataField.SOLOIST, MetadataField.INSTRUMENT,
+            MetadataField.ORIGINAL_ARTIST, MetadataField.LYRICIST,
+            MetadataField.ARRANGER, MetadataField.PERFORMER,
+            MetadataField.CONDUCTOR, MetadataField.PRODUCER,
+            MetadataField.MUSICBRAINZ_ARTIST_ID, MetadataField.MUSICBRAINZ_LABEL_ID,
+        ).intersect(MetadataCapabilityRegistry.flacStageFields),
         capabilityEvidenceId = EVIDENCE_ID,
         supportedResourceOperations = setOf(
             MetadataResourceOperation.FLAC_PICTURE_REPLACE,
@@ -121,10 +146,11 @@ object MediaStoreFlacTextProfile {
 }
 
 /**
- * Audio-only M4A title rewrite through the pinned JAudiotagger engine.
+ * Audio-only M4A text rewrite through the pinned JAudiotagger engine.
  *
  * Evidence covers API 36 MediaStore mutation, exact AAC `mdat` preservation,
- * unrelated standard atom preservation, cold readback and atomic Room publish.
+ * unrelated standard atom preservation, add/clear of representable text,
+ * track/disc pairs, cold readback and atomic Room publication.
  */
 object MediaStoreM4aTextProfile {
     const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
@@ -134,7 +160,15 @@ object MediaStoreM4aTextProfile {
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
         containers = setOf(MetadataAudioContainer.MP4_M4A),
         tagRevisions = setOf(1),
-        supportedFields = setOf(MetadataField.TITLE),
+        supportedFields = setOf(
+            MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+            MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+            MetadataField.COMPOSER, MetadataField.RELEASE_DATE,
+            MetadataField.COMMENT, MetadataField.LYRICS,
+            MetadataField.GROUPING,
+            MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+            MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+        ),
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
@@ -142,8 +176,8 @@ object MediaStoreM4aTextProfile {
 }
 
 /**
- * MP3 title rewrite on a local SAF document with an exact persisted write
- * grant. This evidence is deliberately separate from MediaStore authority.
+ * MP3 text and representable multivalue rewrite on a local SAF document with an
+ * exact persisted write grant. Evidence is deliberately separate from MediaStore.
  */
 object SafLocalMp3TitleProfile {
     const val ID = "SAF_LOCAL_MP3_ID3_V23V24_TITLE_V1"
@@ -153,9 +187,9 @@ object SafLocalMp3TitleProfile {
         provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
         containers = setOf(MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24),
         tagRevisions = setOf(3, 4),
-        supportedFields = setOf(MetadataField.TITLE),
+        supportedFields = id3ProfileFields,
         permitsArtwork = false,
-        permitsMultiValue = emptySet(),
+        permitsMultiValue = id3ProfileMultiValue,
         capabilityEvidenceId = EVIDENCE_ID,
     )
 }

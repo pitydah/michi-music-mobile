@@ -456,7 +456,10 @@ class MetadataSaveService internal constructor(
             val activeProfile = profileFor(provider, container)
                 ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
             val fields = review?.diffs.orEmpty().mapTo(linkedSetOf()) { it.field }
-            if (!activeProfile.supports(container, revision, fields, emptySet(), false))
+            val multiValue = review?.diffs.orEmpty()
+                .filter { it.after.size > 1 }
+                .mapTo(linkedSetOf()) { it.field }
+            if (!activeProfile.supports(container, revision, fields, multiValue, false))
                 return@withContext Outcome.Blocked("Perfil de escritura no certificado")
 
             var pending = journal.inspect()

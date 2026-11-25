@@ -253,7 +253,7 @@ class MetadataSourceRestoreCoordinatorTest {
         assertEquals(1, permit.revision)
     }
 
-    @Test fun m4aRestorePermitIsBoundToTitleOnlyAudioProfile() {
+    @Test fun m4aRestorePermitIsBoundToTheExactAudioTextProfile() {
         val m4aIntent = MetadataCommitIntentManifest.create(
             transactionId = TX, review = review,
             provider = MetadataDocumentProvider.MEDIASTORE,
@@ -284,9 +284,20 @@ class MetadataSourceRestoreCoordinatorTest {
             originalBytes = original.size.toLong(), originalSha256 = originalSha,
             candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
         )
+        assertTrue(
+            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true) != null,
+        )
+        val unsupportedIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX,
+            review = reviewField(MetadataField.MEDIA_FORMAT, "Before", "After"),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.MP4_M4A,
+            originalBytes = original.size.toLong(), originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
+        )
         assertEquals(
             null,
-            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true),
+            MetadataRestorePermit.fromDurable(entry, unsupportedIntent, target, true),
         )
     }
 

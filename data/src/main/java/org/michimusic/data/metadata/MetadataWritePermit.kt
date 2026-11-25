@@ -5,6 +5,7 @@ import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
+import org.michimusic.core.metadata.MetadataSourceIndexDelta
 import java.net.URI
 
 /**
@@ -27,6 +28,13 @@ internal data class MetadataWritePermit(
     val explicitUserAction: Boolean,
     val resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList(),
 ) {
+    /** Exact binding to one independently derived index delta. */
+    fun authorizes(delta: MetadataSourceIndexDelta.Delta): Boolean =
+        explicitUserAction && transactionId == delta.transactionId &&
+            candidateSha256 == delta.sourceSha256 && stageBytes == delta.candidateBytes &&
+            uri == delta.target.uri && sourceId == delta.target.sourceId &&
+            trackId == delta.target.trackId
+
     fun evidence(): CertifiedWriteEvidence = CertifiedWriteEvidence(
         transactionId = transactionId, profileId = profileId, evidenceId = evidenceId,
         sourceId = sourceId, trackId = trackId, uri = uri,

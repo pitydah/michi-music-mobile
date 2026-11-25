@@ -165,7 +165,12 @@ class MetadataIndexCasCoordinatorTest {
         assertEquals(false, permit(revision = 2).matches(entry))
         assertEquals(
             false,
-            permit(fields = setOf(MetadataField.ARTIST)).matches(entry),
+            permit(fields = setOf(MetadataField.SUBTITLE)).matches(entry),
+        )
+        assertEquals(
+            true,
+            permit(fields = setOf(MetadataField.ARTIST, MetadataField.TRACK_TOTAL))
+                .matches(entry),
         )
         assertEquals(
             false,
@@ -217,7 +222,12 @@ class MetadataIndexCasCoordinatorTest {
         assertEquals(false, permit(revision = 4).matches(entry))
         assertEquals(
             false,
-            permit(fields = setOf(MetadataField.ARTIST)).matches(entry),
+            permit(fields = setOf(MetadataField.SYNCED_LYRICS)).matches(entry),
+        )
+        assertEquals(
+            true,
+            permit(fields = setOf(MetadataField.ARTIST, MetadataField.COMPOSER))
+                .matches(entry),
         )
         assertEquals(
             false,

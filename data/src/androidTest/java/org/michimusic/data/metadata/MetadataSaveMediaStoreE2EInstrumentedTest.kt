@@ -456,7 +456,23 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertEquals(listOf("M4A Original"), original.known[MetadataField.TITLE])
         val review = MetadataEditPreview.review(
             original,
-            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf("M4A Renombrada"))),
+            listOf(
+                MetadataChange.Replace(MetadataField.TITLE, listOf("M4A Renombrada")),
+                MetadataChange.Replace(MetadataField.ARTIST, listOf("M4A Artista")),
+                MetadataChange.Replace(MetadataField.ALBUM, listOf("M4A Album")),
+                MetadataChange.Replace(MetadataField.ALBUM_ARTIST,
+                    listOf("M4A Album Artist")),
+                MetadataChange.Replace(MetadataField.GENRE, listOf("Jazz")),
+                MetadataChange.Replace(MetadataField.COMPOSER, listOf("M4A Compositora")),
+                MetadataChange.Replace(MetadataField.RELEASE_DATE, listOf("2025-11-25")),
+                MetadataChange.Replace(MetadataField.COMMENT, listOf("M4A Comentario")),
+                MetadataChange.Replace(MetadataField.LYRICS, listOf("M4A Letra")),
+                MetadataChange.Replace(MetadataField.GROUPING, listOf("M4A Grupo")),
+                MetadataChange.Replace(MetadataField.TRACK_NUMBER, listOf("3")),
+                MetadataChange.Replace(MetadataField.TRACK_TOTAL, listOf("9")),
+                MetadataChange.Replace(MetadataField.DISC_NUMBER, listOf("1")),
+                MetadataChange.Replace(MetadataField.DISC_TOTAL, listOf("2")),
+            ),
         )
         assertTrue(review is MetadataReview.Ready)
 
@@ -487,18 +503,40 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             assertEquals(beforeEvidence.mediaPayloadSha256, afterInspection.evidence.mediaPayloadSha256)
             val audio = Mp4FileReader().read(afterFile)
             assertEquals("M4A Renombrada", audio.tag.getFirst(FieldKey.TITLE))
-            assertEquals("Michi Fixture", audio.tag.getFirst(FieldKey.ARTIST))
-            assertEquals("Michi Test Album", audio.tag.getFirst(FieldKey.ALBUM))
-            assertEquals("preserve-me", audio.tag.getFirst(FieldKey.COMMENT))
+            assertEquals("M4A Artista", audio.tag.getFirst(FieldKey.ARTIST))
+            assertEquals("M4A Album", audio.tag.getFirst(FieldKey.ALBUM))
+            assertEquals("M4A Album Artist", audio.tag.getFirst(FieldKey.ALBUM_ARTIST))
+            assertEquals("Jazz", audio.tag.getFirst(FieldKey.GENRE))
+            assertEquals("M4A Compositora", audio.tag.getFirst(FieldKey.COMPOSER))
+            assertEquals("2025-11-25", audio.tag.getFirst(FieldKey.YEAR))
+            assertEquals("M4A Comentario", audio.tag.getFirst(FieldKey.COMMENT))
+            assertEquals("M4A Letra", audio.tag.getFirst(FieldKey.LYRICS))
+            assertEquals("M4A Grupo", audio.tag.getFirst(FieldKey.GROUPING))
+            assertEquals("3", audio.tag.getFirst(FieldKey.TRACK))
+            assertEquals("9", audio.tag.getFirst(FieldKey.TRACK_TOTAL))
+            assertEquals("1", audio.tag.getFirst(FieldKey.DISC_NO))
+            assertEquals("2", audio.tag.getFirst(FieldKey.DISC_TOTAL))
         } finally {
             afterFile.delete()
         }
         val row = database.trackDao().getTrackBySource(sourceId, m4aTrackId)!!
         assertEquals("M4A Renombrada", row.title)
+        assertEquals("M4A Artista", row.artist)
+        assertEquals("M4A Album", row.album)
+        assertEquals("M4A Album Artist", row.albumArtist)
+        assertEquals("Jazz", row.genre)
+        assertEquals(3, row.trackNumber)
+        assertEquals(2025, row.year)
         assertEquals(after.size.toLong(), row.size)
         assertTrue(row.metadataRevision > originalRevision)
         val change = checkNotNull(saved.libraryChange)
-        assertEquals(setOf(MetadataField.TITLE), change.changedFields)
+        assertEquals(setOf(MetadataField.TITLE, MetadataField.ARTIST,
+            MetadataField.ALBUM, MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+            MetadataField.COMPOSER, MetadataField.RELEASE_DATE,
+            MetadataField.COMMENT, MetadataField.LYRICS, MetadataField.GROUPING,
+            MetadataField.TRACK_NUMBER,
+            MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER,
+            MetadataField.DISC_TOTAL), change.changedFields)
         assertEquals(afterSha, change.committedSha256)
         assertEquals(after.size.toLong(), change.committedBytes)
         val marker = checkNotNull(
@@ -518,6 +556,31 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             else -> error("Reopening saved M4A failed: $read")
         }
         assertEquals(listOf("M4A Renombrada"), reopened.known[MetadataField.TITLE])
+        assertEquals(listOf("M4A Artista"), reopened.known[MetadataField.ARTIST])
+        assertEquals(listOf("M4A Album"), reopened.known[MetadataField.ALBUM])
+        assertEquals(listOf("M4A Album Artist"),
+            reopened.known[MetadataField.ALBUM_ARTIST])
+        assertEquals(listOf("Jazz"), reopened.known[MetadataField.GENRE])
+        assertEquals(listOf("M4A Compositora"),
+            reopened.known[MetadataField.COMPOSER])
+        assertEquals(listOf("2025-11-25"),
+            reopened.known[MetadataField.RELEASE_DATE])
+        assertEquals(listOf("M4A Comentario"), reopened.known[MetadataField.COMMENT])
+        assertEquals(listOf("M4A Letra"), reopened.known[MetadataField.LYRICS])
+        assertEquals(listOf("M4A Grupo"), reopened.known[MetadataField.GROUPING])
+        assertEquals(listOf("3"), reopened.known[MetadataField.TRACK_NUMBER])
+        assertEquals(listOf("9"), reopened.known[MetadataField.TRACK_TOTAL])
+        assertEquals(listOf("1"), reopened.known[MetadataField.DISC_NUMBER])
+        assertEquals(listOf("2"), reopened.known[MetadataField.DISC_TOTAL])
+        val evidence = database.trackDao()
+            .getCurrentExtendedTagEvidence(sourceId, m4aTrackId)
+            ?: throw AssertionError("M4A extended evidence must be published")
+        assertEquals("M4A Compositora", evidence.composer)
+        assertEquals(3, evidence.trackNumber)
+        assertEquals(9, evidence.trackTotal)
+        assertEquals(1, evidence.discNumber)
+        assertEquals(2, evidence.discTotal)
+        assertEquals("2025-11-25", evidence.date)
         assertTrue(
             MetadataRecoveryJournalV1(
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),

@@ -20,13 +20,21 @@ class CertifiedMetadataWriteProfileTest {
         assertFalse(profile.supports(MetadataAudioContainer.FLAC, 4, text, emptySet(), false))
         assertFalse(profile.supports(MetadataAudioContainer.ID3_V24, 3, text, emptySet(), false))
         assertFalse(profile.supports(MetadataAudioContainer.ID3_V24, 4,
-            text + MetadataField.COMPOSER, emptySet(), false))
+            setOf(MetadataField.SYNCED_LYRICS), emptySet(), false))
+        assertTrue(profile.supports(MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.COMPOSER, MetadataField.TRACK_TOTAL,
+                MetadataField.DISC_NUMBER, MetadataField.RELEASE_DATE),
+            emptySet(), false))
     }
 
-    @Test fun rejectsArtworkAndMultivalueUntilSeparatelyCertified() {
-        assertFalse(profile.supports(MetadataAudioContainer.ID3_V24, 4, text, emptySet(), true))
+    @Test fun id3MultivalueIsLimitedToFieldsTheColdReaderOrders() {
+        assertTrue(profile.supports(MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.ARTIST, MetadataField.GENRE),
+            setOf(MetadataField.ARTIST, MetadataField.GENRE), false))
+        assertFalse(profile.supports(MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.REMIXER), setOf(MetadataField.REMIXER), false))
         assertFalse(profile.supports(MetadataAudioContainer.ID3_V24, 4, text,
-            setOf(MetadataField.ARTIST), false))
+            emptySet(), true))
     }
 
     @Test fun profileIdentityIsExplicit() {
@@ -54,18 +62,24 @@ class CertifiedMetadataWriteProfileTest {
         )
     }
 
-    @Test fun flacProfileAuthorizesOnlyProductionE2eCertifiedTitleAndPictureReplacement() {
+    @Test fun flacProfileAuthorizesItsColdVerifiedTextAndMultivalueSurface() {
         val flac = MediaStoreFlacTextProfile.profile
         assertTrue(flac.supports(
             MetadataAudioContainer.FLAC, 1,
-            setOf(MetadataField.TITLE), emptySet(), false,
+            setOf(MetadataField.TITLE, MetadataField.COMPOSER,
+                MetadataField.TRACK_TOTAL, MetadataField.LYRICS),
+            emptySet(), false,
+        ))
+        assertTrue(flac.supports(
+            MetadataAudioContainer.FLAC, 1,
+            setOf(MetadataField.ARTIST, MetadataField.GENRE),
+            setOf(MetadataField.ARTIST, MetadataField.GENRE), false,
         ))
         assertFalse(flac.supports(
             MetadataAudioContainer.FLAC, 1,
-            setOf(MetadataField.COMPOSER), emptySet(), false,
+            setOf(MetadataField.SYNCED_LYRICS), emptySet(), false,
         ))
         assertFalse(flac.permitsArtwork)
-        assertTrue(flac.permitsMultiValue.isEmpty())
         assertTrue(
             MetadataResourceOperation.FLAC_PICTURE_REPLACE in
                 flac.supportedResourceOperations,
@@ -84,7 +98,14 @@ class CertifiedMetadataWriteProfileTest {
         ))
         assertFalse(m4a.supports(
             MetadataAudioContainer.MP4_M4A, 1,
-            setOf(MetadataField.ARTIST), emptySet(), false,
+            setOf(MetadataField.SUBTITLE), emptySet(), false,
+        ))
+        assertTrue(m4a.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.ARTIST, MetadataField.COMPOSER,
+                MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER,
+                MetadataField.LYRICS),
+            emptySet(), false,
         ))
         assertFalse(m4a.permitsArtwork)
         assertTrue(m4a.permitsMultiValue.isEmpty())
@@ -112,11 +133,17 @@ class CertifiedMetadataWriteProfileTest {
         assertTrue(saf.capabilityEvidenceId != MediaStoreMp3TextProfile.EVIDENCE_ID)
         assertTrue(saf.supports(
             MetadataAudioContainer.ID3_V24, 4,
-            setOf(MetadataField.TITLE), emptySet(), false,
+            setOf(MetadataField.TITLE, MetadataField.COMPOSER,
+                MetadataField.DISC_TOTAL),
+            emptySet(), false,
+        ))
+        assertTrue(saf.supports(
+            MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.ARTIST), setOf(MetadataField.ARTIST), false,
         ))
         assertFalse(saf.supports(
             MetadataAudioContainer.ID3_V24, 4,
-            setOf(MetadataField.ARTIST), emptySet(), false,
+            setOf(MetadataField.SYNCED_LYRICS), emptySet(), false,
         ))
         assertTrue(
             MetadataWriteProfileRegistry.forProviderAndContainer(

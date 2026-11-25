@@ -35,8 +35,15 @@ internal class MetadataSelectiveCombinedCasPort(
     override suspend fun updateIfVersion(
         expected: MetadataIndexPublicationPolicy.IndexIdentity,
         delta: MetadataSourceIndexDelta.Delta,
+    ): Boolean = updateIfVersion(expected, delta, null)
+
+    override suspend fun updateIfVersion(
+        expected: MetadataIndexPublicationPolicy.IndexIdentity,
+        delta: MetadataSourceIndexDelta.Delta,
+        scopedPermit: MetadataWritePermit?,
     ): Boolean {
-        if (!MetadataCommitCertification.mayMutateOriginal() ||
+        if ((!MetadataCommitCertification.mayMutateOriginal() &&
+                scopedPermit?.authorizes(delta) != true) ||
             expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri)
             return false

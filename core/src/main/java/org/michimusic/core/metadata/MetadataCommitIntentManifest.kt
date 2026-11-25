@@ -253,9 +253,10 @@ object MetadataCommitIntentManifest {
                 c.beforeCount != -1 && c.afterCount != -1 &&
                 (c.field.multiple || (c.beforeCount <= 1 && c.afterCount <= 1)) &&
                 (when (r.container) {
+                    MetadataAudioContainer.MP4_M4A ->
+                        c.beforeCount <= 1 && c.afterCount <= 1
                     MetadataAudioContainer.WAV, MetadataAudioContainer.AIFF,
-                    MetadataAudioContainer.MP4_M4A, MetadataAudioContainer.OGG_OPUS,
-                    MetadataAudioContainer.OGG_VORBIS ->
+                    MetadataAudioContainer.OGG_OPUS, MetadataAudioContainer.OGG_VORBIS ->
                         c.beforeCount == 1 && c.afterCount == 1
                     MetadataAudioContainer.ID3_V23 ->
                         c.beforeCount <= 1 && c.afterCount <= 1

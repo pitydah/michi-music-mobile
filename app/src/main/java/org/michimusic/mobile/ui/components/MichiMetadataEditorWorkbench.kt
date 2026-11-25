@@ -498,11 +498,11 @@ internal fun MichiMetadataEditorPreviewContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (pilotEligible) {
                         Text(
-                            "Perfiles certificados: texto básico MP3 en MediaStore, título MP3 " +
-                                "en un documento SAF local con permiso persistente, título FLAC y " +
-                                "título M4A de solo audio en MediaStore, " +
-                                "reemplazo de carátula existente MP3/FLAC y reemplazo o " +
-                                "borrado de COMM/USLT existentes en MP3.",
+                            "Perfiles certificados: texto MP3 con fecha, pista/disco, créditos y " +
+                                "multivalor representable en MediaStore y en un documento SAF " +
+                                "local con permiso persistente; texto FLAC completo y multivalor; " +
+                                "título M4A de solo audio en MediaStore; reemplazo de carátula " +
+                                "existente MP3/FLAC y reemplazo o borrado de COMM/USLT existentes en MP3.",
                             color = TertiaryCyan,
                         )
                         Text(
@@ -514,10 +514,10 @@ internal fun MichiMetadataEditorPreviewContent(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Proveedores SAF remotos, recursos u otros campos mediante SAF, " +
-                                "vídeo MP4, recursos u otros campos M4A, añadir o quitar carátulas, " +
-                                "crear comentarios o letras, texto descrito FLAC, varios valores " +
-                                "por campo permanecen bloqueados.",
+                            "Proveedores SAF remotos, recursos mediante SAF, vídeo MP4, recursos " +
+                                "u otros campos M4A, añadir o quitar carátulas, crear comentarios " +
+                                "o letras descritos nuevos, texto descrito FLAC, campos FLAC no " +
+                                "representables y multivalor no representable permanecen bloqueados.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
