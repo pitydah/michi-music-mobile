@@ -202,29 +202,29 @@ class MetadataLibraryDurableOverlayTest {
 
     @Test
     fun safReopenAttachesTheWholeOrderedGenreListFromMatchingEvidence() {
-        val row = durable(genre = "Rock; Jazz; Blues")
+        val row = durable(genre = "Rock")
         val overlaid = MetadataLibraryDurableOverlay.attachDurableGenres(
             listOf(durableTrack(row)),
             listOf(row),
-            listOf(evidence(genre = "Rock; Jazz; Blues", values = listOf("Rock", "Jazz", "Blues"))),
+            listOf(evidence(genre = "Rock", values = listOf("Rock", "Jazz", "Blues"))),
         ).single()
 
-        assertEquals("Rock; Jazz; Blues", overlaid.genre)
+        assertEquals("Rock", overlaid.genre)
         assertEquals(listOf("Rock", "Jazz", "Blues"), overlaid.genreValues)
     }
 
     @Test
     fun safReopenIgnoresStaleOrForeignEvidence() {
-        val row = durable(genre = "Rock; Jazz")
+        val row = durable(genre = "Rock")
         val stale = evidence(
             modifiedAt = providerModifiedSeconds - 5L,
             parserVersion = EmbeddedTagEvidence.CURRENT_PARSER_VERSION - 1,
-            genre = "Rock; Jazz",
+            genre = "Rock",
             values = listOf("Rock", "Jazz"),
         )
         val foreign = evidence(
             sourceId = "another-library",
-            genre = "Rock; Jazz",
+            genre = "Rock",
             values = listOf("Rock", "Jazz"),
         )
 
@@ -234,14 +234,28 @@ class MetadataLibraryDurableOverlayTest {
             listOf(stale, foreign),
         ).single()
 
-        assertEquals("Rock; Jazz", overlaid.genre)
+        assertEquals("Rock", overlaid.genre)
         assertEquals(emptyList<String>(), overlaid.genreValues)
     }
 
     @Test
     fun keepsRockJazzBluesInTagOrderAndScalarCompatibilityValue() {
+        val durable = durable(genre = "Rock")
+        val evidence = evidence(genre = "Rock", values = listOf("Rock", "Jazz", "Blues"))
+
+        val overlaid = overlay(track(), durable, evidenceRows = listOf(evidence))
+
+        assertEquals("Rock", overlaid.genre)
+        assertEquals(listOf("Rock", "Jazz", "Blues"), overlaid.genreValues)
+    }
+
+    @Test
+    fun legacyFullJoinSidecarRemainsCompatible() {
         val durable = durable(genre = "Rock; Jazz; Blues")
-        val evidence = evidence(genre = "Rock; Jazz; Blues", values = listOf("Rock", "Jazz", "Blues"))
+        val evidence = evidence(
+            genre = "Rock; Jazz; Blues",
+            values = listOf("Rock", "Jazz", "Blues"),
+        )
 
         val overlaid = overlay(track(), durable, evidenceRows = listOf(evidence))
 
@@ -251,19 +265,19 @@ class MetadataLibraryDurableOverlayTest {
 
     @Test
     fun keepsMetalRockInTagOrder() {
-        val durable = durable(genre = "Metal; Rock")
-        val evidence = evidence(genre = "Metal; Rock", values = listOf("Metal", "Rock"))
+        val durable = durable(genre = "Metal")
+        val evidence = evidence(genre = "Metal", values = listOf("Metal", "Rock"))
 
         val overlaid = overlay(track(), durable, evidenceRows = listOf(evidence))
 
-        assertEquals("Metal; Rock", overlaid.genre)
+        assertEquals("Metal", overlaid.genre)
         assertEquals(listOf("Metal", "Rock"), overlaid.genreValues)
     }
 
     @Test
     fun removingOneGenreUsesTheNewOrderedEvidence() {
-        val durable = durable(genre = "Metal; Rock")
-        val evidence = evidence(genre = "Metal; Rock", values = listOf("Metal", "Rock"))
+        val durable = durable(genre = "Metal")
+        val evidence = evidence(genre = "Metal", values = listOf("Metal", "Rock"))
 
         val overlaid = overlay(
             track(genre = "Rock; Jazz"),
@@ -271,7 +285,7 @@ class MetadataLibraryDurableOverlayTest {
             evidenceRows = listOf(evidence),
         )
 
-        assertEquals("Metal; Rock", overlaid.genre)
+        assertEquals("Metal", overlaid.genre)
         assertEquals(listOf("Metal", "Rock"), overlaid.genreValues)
     }
 
@@ -307,26 +321,27 @@ class MetadataLibraryDurableOverlayTest {
 
     @Test
     fun reorderedGenresKeepTheEvidenceOrder() {
-        val durable = durable(genre = "Blues; Jazz; Rock")
-        val evidence = evidence(genre = "Blues; Jazz; Rock", values = listOf("Blues", "Jazz", "Rock"))
+        val durable = durable(genre = "Blues")
+        val evidence = evidence(genre = "Blues", values = listOf("Blues", "Jazz", "Rock"))
 
         val overlaid = overlay(track(), durable, evidenceRows = listOf(evidence))
 
+        assertEquals("Blues", overlaid.genre)
         assertEquals(listOf("Blues", "Jazz", "Rock"), overlaid.genreValues)
     }
 
     @Test
     fun staleEvidenceFromAnOlderRevisionIsNeverReused() {
-        val durable = durable(genre = "Metal; Rock")
+        val durable = durable(genre = "Metal")
         val stale = evidence(
             modifiedAt = providerModifiedSeconds - 30L,
-            genre = "Rock; Jazz; Blues",
-            values = listOf("Rock", "Jazz", "Blues"),
+            genre = "Metal",
+            values = listOf("Metal", "Rock"),
         )
 
         val overlaid = overlay(track(genre = "Rock"), durable, evidenceRows = listOf(stale))
 
-        assertEquals("Metal; Rock", overlaid.genre)
+        assertEquals("Metal", overlaid.genre)
         assertEquals(emptyList<String>(), overlaid.genreValues)
     }
 
@@ -361,16 +376,16 @@ class MetadataLibraryDurableOverlayTest {
 
     @Test
     fun providerValuesArePreservedOnlyWhenTheyDescribeTheDurableScalar() {
-        val durable = durable(genre = "Rock; Jazz")
-        val matching = track(genre = "Rock; Jazz", genreValues = listOf("Rock", "Jazz"))
-        val different = track(genre = "Pop; Jazz", genreValues = listOf("Pop", "Jazz"))
+        val durable = durable(genre = "Rock")
+        val matching = track(genre = "Rock", genreValues = listOf("Rock", "Jazz"))
+        val different = track(genre = "Pop", genreValues = listOf("Pop", "Jazz"))
 
         val kept = overlay(matching, durable, evidenceRows = emptyList())
         val notKept = overlay(different, durable, evidenceRows = emptyList())
 
         assertEquals(listOf("Rock", "Jazz"), kept.genreValues)
         assertEquals(emptyList<String>(), notKept.genreValues)
-        assertEquals("Rock; Jazz", notKept.genre)
+        assertEquals("Rock", notKept.genre)
     }
 
     @Test
@@ -412,6 +427,66 @@ class MetadataLibraryDurableOverlayTest {
         assertEquals(
             MetadataLibraryDurableOverlay.Refusal.STALE_PUBLICATION,
             refusal(original, durable(revision = 3L), publications = listOf(older), evidenceRows = listOf(evidence())),
+        )
+    }
+
+    @Test
+    fun duplicateExactMarkersAreRefusedAsAmbiguous() {
+        val original = track()
+        val duplicate = marker(transactionId = "0f0e0d0c-0b0a-4908-8706-050403020101")
+
+        val overlaid = overlay(
+            original,
+            durable(),
+            publications = listOf(marker(), duplicate),
+            evidenceRows = listOf(evidence()),
+        )
+
+        assertSame(original, overlaid)
+        assertEquals(
+            MetadataLibraryDurableOverlay.Refusal.PUBLICATION_MISMATCH,
+            refusal(original, durable(), publications = listOf(marker(), duplicate), evidenceRows = listOf(evidence())),
+        )
+    }
+
+    @Test
+    fun malformedMarkerShapeIsRefused() {
+        val original = track()
+        val malformed = marker(candidateSha256 = "not-a-sha")
+
+        val overlaid = overlay(
+            original,
+            durable(),
+            publications = listOf(malformed),
+            evidenceRows = listOf(evidence()),
+        )
+
+        assertSame(original, overlaid)
+        assertEquals(
+            MetadataLibraryDurableOverlay.Refusal.PUBLICATION_MISMATCH,
+            refusal(original, durable(), publications = listOf(malformed), evidenceRows = listOf(evidence())),
+        )
+    }
+
+    @Test
+    fun safModifiedAfterPublicationIsRefused() {
+        val original = track()
+        val afterPublication = observation(
+            modifiedAt = appliedAt + 1L,
+            capability = MetadataLibraryDurableOverlay.ProviderCapability.SAF_LOCAL,
+        )
+
+        val overlaid = overlay(
+            original,
+            durable(),
+            evidenceRows = listOf(evidence()),
+            observations = listOf(afterPublication),
+        )
+
+        assertSame(original, overlaid)
+        assertEquals(
+            MetadataLibraryDurableOverlay.Refusal.SOURCE_CHANGED_SINCE_PUBLICATION,
+            refusal(original, durable(), evidenceRows = listOf(evidence()), observations = listOf(afterPublication)),
         )
     }
 
@@ -587,7 +662,7 @@ class MetadataLibraryDurableOverlayTest {
 
     @Test
     fun safWithATrustworthyProviderStampApplies() {
-        val durable = durable(genre = "Metal; Rock")
+        val durable = durable(genre = "Metal")
         val safObservation = observation(
             modifiedAt = appliedAt - 1_000L,
             capability = MetadataLibraryDurableOverlay.ProviderCapability.SAF_LOCAL,
@@ -599,26 +674,27 @@ class MetadataLibraryDurableOverlayTest {
             evidenceRows = listOf(
                 evidence(
                     modifiedAt = appliedAt - 1_000L,
-                    genre = "Metal; Rock",
+                    genre = "Metal",
                     values = listOf("Metal", "Rock"),
                 ),
             ),
             observations = listOf(safObservation),
         )
 
+        assertEquals("Metal", overlaid.genre)
         assertEquals(listOf("Metal", "Rock"), overlaid.genreValues)
     }
 
     @Test
     fun mediaStoreAnnouncementLagStillUsesTheCommittedRevision() {
-        val durable = durable(genre = "Metal; Rock", title = "Committed title")
+        val durable = durable(genre = "Metal", title = "Committed title")
         val laggingProvider = track(title = "Old provider title", genre = "Rock; Jazz")
-        val evidence = evidence(genre = "Metal; Rock", values = listOf("Metal", "Rock"))
+        val evidence = evidence(genre = "Metal", values = listOf("Metal", "Rock"))
 
         val overlaid = overlay(laggingProvider, durable, evidenceRows = listOf(evidence))
 
         assertEquals("Committed title", overlaid.title)
-        assertEquals("Metal; Rock", overlaid.genre)
+        assertEquals("Metal", overlaid.genre)
         assertEquals(listOf("Metal", "Rock"), overlaid.genreValues)
     }
 
@@ -705,10 +781,10 @@ class MetadataLibraryDurableOverlayTest {
             genre = "Rock",
             filepath = "content://media/external_primary/audio/media/2",
         )
-        val durableFirst = durable(id = "local_1", genre = "Rock; Jazz; Blues")
+        val durableFirst = durable(id = "local_1", genre = "Rock")
         val durableSecond = durable(
             id = "local_2",
-            genre = "Metal; Rock",
+            genre = "Metal",
             filepath = "content://media/external_primary/audio/media/2",
         )
         val markers = listOf(
@@ -720,10 +796,10 @@ class MetadataLibraryDurableOverlayTest {
             ),
         )
         val evidenceRows = listOf(
-            evidence(genre = "Rock; Jazz; Blues", values = listOf("Rock", "Jazz", "Blues")),
+            evidence(genre = "Rock", values = listOf("Rock", "Jazz", "Blues")),
             evidence(
                 trackId = "local_2",
-                genre = "Metal; Rock",
+                genre = "Metal",
                 values = listOf("Metal", "Rock"),
             ),
         )
@@ -752,6 +828,8 @@ class MetadataLibraryDurableOverlayTest {
             listOf("Metal", "Rock"),
             overlaid.first { it.id == "local_2" }.genreValues,
         )
+        assertEquals("Rock", overlaid.first { it.id == "local_1" }.genre)
+        assertEquals("Metal", overlaid.first { it.id == "local_2" }.genre)
     }
 
     @Test

@@ -10,6 +10,16 @@ class TrustedGenreEncodingTest {
         assertEquals(listOf("Jazz", "Fusion"), TrustedGenreEncoding.decode("Jazz; Fusion", "Jazz\u0000Fusion"))
         assertEquals(listOf("R&B/Soul"), TrustedGenreEncoding.decode("R&B/Soul", "R&B/Soul"))
     }
+    @Test fun activeWriterPrimaryScalarCarriesTheWholeOrderedList() {
+        assertEquals(
+            listOf("Rock", "Jazz", "Blues"),
+            TrustedGenreEncoding.decode("Rock", "Rock\u0000Jazz\u0000Blues"),
+        )
+        assertEquals(
+            listOf("Rock; Pop", "Jazz"),
+            TrustedGenreEncoding.decode("Rock; Pop", "Rock; Pop\u0000Jazz"),
+        )
+    }
     @Test fun neverTruncatesThirtyThreeValues() {
         val values = (1..33).map { "Style $it" }
         assertTrue(TrustedGenreEncoding.decode(values.joinToString("; "), values.joinToString("\u0000")).isEmpty())
@@ -18,6 +28,7 @@ class TrustedGenreEncodingTest {
     }
     @Test fun corruptOrContradictorySidecarsFailClosed() {
         assertTrue(TrustedGenreEncoding.decode("Rock", "Jazz").isEmpty())
+        assertTrue(TrustedGenreEncoding.decode("Jazz", "Rock\u0000Jazz").isEmpty())
         assertTrue(TrustedGenreEncoding.decode("Rock", "Rock\u0000").isEmpty())
         assertTrue(TrustedGenreEncoding.decode("Rock", "Rock\uFFFD").isEmpty())
         assertTrue(TrustedGenreEncoding.decode("", "Rock").isEmpty())

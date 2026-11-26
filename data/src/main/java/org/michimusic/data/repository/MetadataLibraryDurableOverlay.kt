@@ -371,17 +371,17 @@ object MetadataLibraryDurableOverlay {
         }
         val values = TrustedGenreEncoding.decode(evidence.genre, evidence.genreValues)
         if (values.isEmpty()) return EvidenceUse.Unavailable
-        // Never invent a singleton or split a literal semicolon: the complete
-        // ordered set must reproduce the durable compatibility scalar exactly.
-        if (values.joinToString("; ") != durableGenre) return EvidenceUse.Unavailable
+        // The decoder already proved that the scalar describes either the
+        // active primary-genre representation or the legacy full-join one.
         return EvidenceUse.Values(values)
     }
 
     /**
      * A provider row read in the same snapshot may already carry a trusted
-     * ordered list. It is reused only when it describes exactly the durable
-     * scalar and passes the same lossless decoder; otherwise the honest answer
-     * is the legacy scalar with no structured list.
+     * ordered list. It is reused only when its scalar describes that list under
+     * either committed representation (active primary genre or legacy "; " join)
+     * and passes the same lossless decoder; otherwise the honest answer is the
+     * legacy scalar with no structured list.
      */
     private fun trustedProviderValues(track: Track, durableGenre: String): List<String> {
         if (track.genre != durableGenre || track.genreValues.isEmpty()) return emptyList()

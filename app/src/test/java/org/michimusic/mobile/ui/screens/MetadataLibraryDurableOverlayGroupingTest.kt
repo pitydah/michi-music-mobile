@@ -26,17 +26,19 @@ class MetadataLibraryDurableOverlayGroupingTest {
         val overlaid = MetadataLibraryDurableOverlay.apply(
             listOf(first, second),
             listOf(
-                durable("local_1", "Rock; Jazz; Blues"),
-                durable("local_2", "Metal; Rock"),
+                durable("local_1", "Rock"),
+                durable("local_2", "Metal"),
             ),
             listOf(marker("local_1"), marker("local_2")),
             listOf(
-                evidence("local_1", "Rock; Jazz; Blues", listOf("Rock", "Jazz", "Blues")),
-                evidence("local_2", "Metal; Rock", listOf("Metal", "Rock")),
+                evidence("local_1", "Rock", listOf("Rock", "Jazz", "Blues")),
+                evidence("local_2", "Metal", listOf("Metal", "Rock")),
             ),
             listOf(observation("local_1"), observation("local_2")),
         )
 
+        assertEquals("Rock", overlaid.first { it.id == "local_1" }.genre)
+        assertEquals("Metal", overlaid.first { it.id == "local_2" }.genre)
         val genres = groupLibraryGenres(overlaid)
         val counts = genres.associate { it.title to it.tracks.size }
 
