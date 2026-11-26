@@ -16,6 +16,7 @@ import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.metadata.MetadataCommittedLibraryChange
+import org.michimusic.core.metadata.MetadataReadAccessPolicy
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.EmbeddedTagEvidence
@@ -715,6 +716,10 @@ open class LocalMediaRepository(
         val pendingTracks = mutableListOf<PendingTrack>()
         var needsGenreMembershipRecovery = !genreProjected
         var genreReadBudget = MAX_EMBEDDED_GENRE_READS_PER_QUERY
+        val durableOwner = durableLibrarySource(root)
+        val providerKind = providerCapability(durableOwner, primaryAudio)
+        val providerObservations =
+            ArrayList<MetadataLibraryDurableOverlay.ProviderObservation>()
         val scanFromRow = nextGenreScanRow
         var nextRow = scanFromRow
         val savedEvidence = try {
@@ -812,6 +817,16 @@ open class LocalMediaRepository(
                 // The cursor advances on each refresh, avoiding starvation after 1,024 entries.
                 val fileSize = c.getLong(sizeCol).coerceAtLeast(0L)
                 val modified = c.getLong(modifiedCol).coerceAtLeast(0L)
+                providerObservations.add(
+                    MetadataLibraryDurableOverlay.ProviderObservation(
+                        sourceId = durableOwner,
+                        trackId = trackId,
+                        uri = contentUri,
+                        sizeBytes = fileSize,
+                        modifiedAt = modified,
+                        capability = providerKind,
+                    ),
+                )
                 val needsProbe = TagEvidencePolicy.needsProbe(providerGenre, title, artist, album)
                 // Reuse an already-verified embedded tag even when MediaStore now
                 // reports all four basic fields. This adds no file I/O and stops a
@@ -903,20 +918,55 @@ open class LocalMediaRepository(
                 )
             }
         }
-        // MediaStore may lag the exact bytes this app just committed. Overlay the
-        // durable row only when its physical size still matches the provider row.
+        // MediaStore may lag the exact bytes this app just committed. The
+        // overlay only replays an exact Metadata Editor publication whose
+        // revision, owner, track, URI and candidate still bind this row. A
+        // missing or contradictory provider stamp is never substituted.
         val durable = try {
-            importedTrackDao?.getTracksForSource(durableLibrarySource(root))
+            importedTrackDao?.getTracksForSource(durableOwner)
                 ?.first().orEmpty()
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (_: Exception) {
             emptyList()
         }
+        val publications = if (durable.isEmpty()) emptyList() else try {
+            importedTrackDao?.getAppliedMetadataTransactionsForSource(durableOwner).orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val evidence = if (durable.isEmpty()) emptyList() else try {
+            importedTrackDao?.getTagEvidenceForSource(durableOwner).orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
         return MediaResult.Success(applyReplayGain(
-            MetadataLibraryDurableOverlay.apply(completed, durable),
+            MetadataLibraryDurableOverlay.apply(
+                completed,
+                durable,
+                publications,
+                evidence,
+                providerObservations,
+            ),
         ))
     }
+
+    private fun providerCapability(
+        sourceId: String,
+        uri: android.net.Uri,
+    ): MetadataLibraryDurableOverlay.ProviderCapability =
+        when (MetadataReadAccessPolicy.classify(sourceId, uri.scheme, uri.authority)) {
+            MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                MetadataLibraryDurableOverlay.ProviderCapability.MEDIASTORE
+            MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
+                MetadataLibraryDurableOverlay.ProviderCapability.SAF_LOCAL
+            MetadataReadAccessPolicy.Kind.REJECT ->
+                MetadataLibraryDurableOverlay.ProviderCapability.UNSUPPORTED
+        }
 
     private suspend fun customRootTracks(): MediaResult<List<Track>> {
         val ctx = context ?: return MediaResult.Success(emptyList())
@@ -942,7 +992,21 @@ open class LocalMediaRepository(
         } catch (_: Exception) {
             return MediaResult.QueryFailed(IllegalStateException("No se pudo leer la carpeta elegida"))
         }
-        val tracks = rows.map { it.toTrack() }
+        // SAF reopen reads the committed rows directly. Keep their complete
+        // ordered genre list when the same source-owned sidecar still matches;
+        // a missing/old sidecar leaves only the honest scalar value.
+        val evidence = try {
+            dao.getTagEvidenceForSource(sourceId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val tracks = MetadataLibraryDurableOverlay.attachDurableGenres(
+            rows.map { it.toTrack() },
+            rows,
+            evidence,
+        )
             .filter { track ->
                 !isLikelyNonMusicGenericAudio(
                     title = track.title,

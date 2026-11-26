@@ -35,11 +35,21 @@ object MetadataCommittedTrackProjection {
     val extendedFields: Set<MetadataField> =
         MetadataField.entries.filterNot { it in projectableFields }.toSet()
 
+    /**
+     * The only permitted owner alias: a blank local track belongs to the
+     * default device library. A non-blank track never borrows another owner.
+     */
+    fun sourceMatches(observedSourceId: String, committedSourceId: String): Boolean =
+        observedSourceId == committedSourceId ||
+            (observedSourceId.isBlank() &&
+                committedSourceId == MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID)
+
+    /** Exact owner, track and URI binding shared by live projection and reopen. */
+    fun targetMatches(track: Track, sourceId: String, trackId: String, uri: String): Boolean =
+        sourceMatches(track.sourceId, sourceId) && track.id == trackId && track.filepath == uri
+
     fun apply(track: Track, change: MetadataCommittedLibraryChange): Result {
-        val sourceMatches = track.sourceId == change.sourceId ||
-            (track.sourceId.isBlank() &&
-                change.sourceId == MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID)
-        if (!sourceMatches || track.id != change.trackId || track.filepath != change.uri) {
+        if (!targetMatches(track, change.sourceId, change.trackId, change.uri)) {
             return Result.Refused("TARGET_MISMATCH")
         }
         if (!change.snapshot.tagsVerified) return Result.Refused("SNAPSHOT_UNVERIFIED")

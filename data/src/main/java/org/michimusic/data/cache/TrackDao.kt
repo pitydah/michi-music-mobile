@@ -345,6 +345,15 @@ interface TrackDao {
         transactionId: String,
     ): MetadataAppliedTransaction?
 
+    /**
+     * One owner-scoped marker snapshot for reopen projection. The caller chooses
+     * the exact track/revision; this is never a scan of another library owner.
+     */
+    @Query("SELECT * FROM metadata_applied_transaction WHERE sourceId=:sourceId")
+    suspend fun getAppliedMetadataTransactionsForSource(
+        sourceId: String,
+    ): List<MetadataAppliedTransaction>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAppliedMetadataTransaction(marker: MetadataAppliedTransaction)
 
