@@ -34,6 +34,7 @@ object MetadataResourceSemanticPolicy {
             MetadataAudioContainer.ID3_V23 -> MetadataArtworkLyricsProbe.Format.ID3_V23
             MetadataAudioContainer.ID3_V24 -> MetadataArtworkLyricsProbe.Format.ID3_V24
             MetadataAudioContainer.FLAC -> MetadataArtworkLyricsProbe.Format.FLAC
+            MetadataAudioContainer.MP4_M4A -> MetadataArtworkLyricsProbe.Format.MP4
             else -> return if (intent.resources.isEmpty()) Verdict.ResourcesMatch(0)
                 else Verdict.Refused(Refusal.FORMAT_MISMATCH)
         }
@@ -136,6 +137,7 @@ object MetadataResourceSemanticPolicy {
             MetadataAudioContainer.ID3_V23 -> MetadataArtworkLyricsProbe.Format.ID3_V23
             MetadataAudioContainer.ID3_V24 -> MetadataArtworkLyricsProbe.Format.ID3_V24
             MetadataAudioContainer.FLAC -> MetadataArtworkLyricsProbe.Format.FLAC
+            MetadataAudioContainer.MP4_M4A -> MetadataArtworkLyricsProbe.Format.MP4
             else -> return if (intent.resources.isEmpty()) Verdict.ResourcesMatch(0)
                 else Verdict.Refused(Refusal.FORMAT_MISMATCH)
         }

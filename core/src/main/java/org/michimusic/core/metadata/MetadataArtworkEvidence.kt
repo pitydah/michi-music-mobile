@@ -11,7 +11,7 @@ import java.security.MessageDigest
  * structures are inspected under an explicit per-picture budget.
  */
 object MetadataArtworkEvidence {
-    enum class Format { ID3_APIC, FLAC_PICTURE }
+    enum class Format { ID3_APIC, FLAC_PICTURE, MP4_COVR }
     data class Picture(val format: Format, val type: Int, val mime: String,
         val bytes: Int, val sha256: String, val width: Int? = null, val height: Int? = null,
         val description: String = "")

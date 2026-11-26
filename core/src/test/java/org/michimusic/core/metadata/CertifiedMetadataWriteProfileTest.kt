@@ -109,7 +109,15 @@ class CertifiedMetadataWriteProfileTest {
         ))
         assertFalse(m4a.permitsArtwork)
         assertTrue(m4a.permitsMultiValue.isEmpty())
-        assertTrue(m4a.supportedResourceOperations.isEmpty())
+        assertTrue(m4a.supportedResourceOperations.containsAll(setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        )))
+        assertFalse(MetadataResourceOperation.ID3_APIC_REPLACE in
+            m4a.supportedResourceOperations)
+        assertFalse(MetadataResourceOperation.FLAC_PICTURE_REPLACE in
+            m4a.supportedResourceOperations)
         assertTrue(MetadataWriteProfileRegistry.byId(m4a.id) === m4a)
         assertTrue(MetadataWriteProfileRegistry.forContainer(
             MetadataAudioContainer.MP4_M4A,

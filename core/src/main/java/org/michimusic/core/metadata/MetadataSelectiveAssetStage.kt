@@ -495,6 +495,7 @@ object MetadataSelectiveAssetStage {
             MetadataArtworkLyricsProbe.Format.ID3_V23, MetadataArtworkLyricsProbe.Format.ID3_V24 ->
                 rewriteId3(originalRegion.bytes,edit)
             MetadataArtworkLyricsProbe.Format.FLAC -> rewriteFlac(originalRegion.bytes,edit)
+            MetadataArtworkLyricsProbe.Format.MP4 -> throw Rejected(Code.UNSUPPORTED_FORMAT)
         }
         val estimated=length-originalRegion.audioOffset+stagedRegion.size
         if(estimated>MAX_FILE || staging.parentFile?.usableSpace?.let{it>estimated+32L*1024*1024}!=true)

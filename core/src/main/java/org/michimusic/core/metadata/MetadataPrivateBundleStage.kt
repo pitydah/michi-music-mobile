@@ -308,6 +308,8 @@ object MetadataPrivateBundleStage {
                             MetadataFlacStageRewriter.stage(current,next,req.fields,current.length(),checkCancelled)
                         MetadataArtworkLyricsProbe.Format.ID3_V23,MetadataArtworkLyricsProbe.Format.ID3_V24 ->
                             MetadataId3StageRewriter.stage(current,next,req.fields,current.length(),checkCancelled)
+                        MetadataArtworkLyricsProbe.Format.MP4 ->
+                            throw Rejected(Reason.FORMAT_UNSUPPORTED)
                     }
                 } else {
                     val assetIndex=index-(if(req.fields!=null)1 else 0)

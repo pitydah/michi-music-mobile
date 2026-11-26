@@ -41,7 +41,10 @@ enum class MetadataResourceOperation {
     ID3_APIC_ADD,
     ID3_APIC_REMOVE,
     FLAC_PICTURE_ADD,
-    FLAC_PICTURE_REMOVE;
+    FLAC_PICTURE_REMOVE,
+    MP4_COVR_REPLACE,
+    MP4_COVR_ADD,
+    MP4_COVR_REMOVE;
 
     companion object {
         fun of(change: MetadataCommitIntentManifest.ResourceChange): MetadataResourceOperation =
@@ -50,16 +53,19 @@ enum class MetadataResourceOperation {
                     when (change.format) {
                         MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REPLACE
                         MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REPLACE
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_REPLACE
                     }
                 is MetadataCommitIntentManifest.ResourceChange.PictureAdd ->
                     when (change.format) {
                         MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_ADD
                         MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_ADD
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_ADD
                     }
                 is MetadataCommitIntentManifest.ResourceChange.PictureRemove ->
                     when (change.format) {
                         MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REMOVE
                         MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REMOVE
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_REMOVE
                     }
                 is MetadataCommitIntentManifest.ResourceChange.DescribedText ->
                     if (change.afterCount == 0) ID3_DESCRIBED_TEXT_CLEAR
@@ -194,6 +200,11 @@ object MediaStoreM4aTextProfile {
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
     )
 }
 

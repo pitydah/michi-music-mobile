@@ -205,6 +205,8 @@ object MetadataCommitIntentManifest {
                                 MetadataArtworkEvidence.Format.ID3_APIC
                             MetadataArtworkLyricsProbe.Format.FLAC ->
                                 MetadataArtworkEvidence.Format.FLAC_PICTURE
+                            MetadataArtworkLyricsProbe.Format.MP4 ->
+                                MetadataArtworkEvidence.Format.MP4_COVR
                         },
                         proposal.ordinal, proposal.type, proposal.description,
                         proposal.proposedMime, proposal.proposedSize,
@@ -338,6 +340,8 @@ object MetadataCommitIntentManifest {
                             MetadataArtworkEvidence.Format.ID3_APIC
                         MetadataAudioContainer.FLAC ->
                             MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        MetadataAudioContainer.MP4_M4A ->
+                            MetadataArtworkEvidence.Format.MP4_COVR
                         else -> null
                     }
                     expected == resource.format && resource.ordinal in 0..5 &&
@@ -358,6 +362,8 @@ object MetadataCommitIntentManifest {
                             MetadataArtworkEvidence.Format.ID3_APIC
                         MetadataAudioContainer.FLAC ->
                             MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        MetadataAudioContainer.MP4_M4A ->
+                            MetadataArtworkEvidence.Format.MP4_COVR
                         else -> null
                     }
                     expected == resource.format && resource.ordinal in 0..5 &&
@@ -374,6 +380,8 @@ object MetadataCommitIntentManifest {
                             MetadataArtworkEvidence.Format.ID3_APIC
                         MetadataAudioContainer.FLAC ->
                             MetadataArtworkEvidence.Format.FLAC_PICTURE
+                        MetadataAudioContainer.MP4_M4A ->
+                            MetadataArtworkEvidence.Format.MP4_COVR
                         else -> null
                     }
                     expected == resource.format && resource.ordinal in 0..5 &&
