@@ -4,7 +4,7 @@
 "A03","MP3 advanced fields","PASS","ME19 t07 @54461a35","Advanced text/date/track+disc pairs and Room evidence"
 "A04","MP3 multivalue","PARTIAL","ME19 FLAC people E2E; MP3 writer/profile unit tests","Real MP3 multivalue E2E pending; FLAC multivalue certified"
 "A05","MP3 APIC add/replace/remove","PASS","ME19 MP3 APIC E2E @4c47dd9f","Replacement, add and remove; unselected artwork preserved"
-"A06","MP3 lyrics/comments","PARTIAL","Canonical COMM/USLT replace/clear tests","Adding a new described identity is still blocked"
+"A06","MP3 lyrics/comments","PASS","ME-OMEGA MP3 COMM/USLT add/replace/clear E2E + Workbench add @db032ff6; core/app suites green","Unique verified-absent identities; SYLT and unselected text preserved"
 "A07","FLAC fields/multivalue","PASS","ME19 real FFmpeg FLAC E2E @bbbbdfb9","Advanced text and multivalue; encoded audio frames identical"
 "A08","FLAC pictures","PASS","ME19 real FLAC PICTURE E2E @4c47dd9f","Replacement, add and remove; unselected PICTURE preserved"
 "A09","FLAC lyrics/advanced","PASS","ME-OMEGA FLAC lyrics: production add/clear + Workbench scalar draft + PICTURE/audio preservation (runs 0041/0045/0046)","Scalar Vorbis LYRICS; resource described-text not applicable"
