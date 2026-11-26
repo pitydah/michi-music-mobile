@@ -56,6 +56,20 @@ abstract class MichiDatabase : RoomDatabase() {
     companion object {
         const val DEFAULT_DEVICE_LIBRARY_ID = "lib_device_local"
 
+        /**
+         * Installs, or re-installs, the durable metadata revision infrastructure.
+         *
+         * Invariant: for one `(sourceId, trackId)` the clock is never behind the cached row, and the
+         * next ordinary write always commits a revision strictly greater than both the row value and
+         * the clock. An explicit advance (CAS commit, recovery restore) raises the clock to the
+         * written revision instead of leaving it below the row, so a later ordinary write can never
+         * collide with, or regress behind, the revision already published to the row.
+         *
+         * Trigger definitions are code rather than data: they are dropped and recreated on open so
+         * already-shipped installations pick up the corrected bodies without migrating or rewriting
+         * a single cached row. The drift repair afterwards only ever raises a lagging clock; it is a
+         * no-op on a healthy database.
+         */
         private fun createMetadataRevisionInfrastructure(db: SupportSQLiteDatabase) {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS `metadata_revision_clock` (
@@ -79,14 +93,25 @@ abstract class MichiDatabase : RoomDatabase() {
                     PRIMARY KEY(`transactionId`)
                 )
             """.trimIndent())
+            // Trigger bodies changed, so existing installations must not keep the old definitions.
+            db.execSQL("DROP TRIGGER IF EXISTS `cached_tracks_revision_after_insert`")
+            db.execSQL("DROP TRIGGER IF EXISTS `cached_tracks_revision_after_update`")
+            db.execSQL("DROP TRIGGER IF EXISTS `cached_tracks_revision_after_explicit_advance`")
             db.execSQL("""
                 CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_insert`
                 AFTER INSERT ON `cached_tracks`
                 BEGIN
                     INSERT INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
-                    VALUES(NEW.`sourceId`,NEW.`id`,1)
+                    VALUES(
+                        NEW.`sourceId`,
+                        NEW.`id`,
+                        CASE WHEN NEW.`metadataRevision` > 0 THEN NEW.`metadataRevision` ELSE 1 END
+                    )
                     ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
-                    SET `revision`=`revision`+1;
+                    SET `revision`=CASE
+                        WHEN `revision` < excluded.`revision` THEN excluded.`revision`+1
+                        ELSE `revision`+1
+                    END;
                     UPDATE `cached_tracks`
                     SET `metadataRevision`=(
                         SELECT `revision` FROM `metadata_revision_clock`
@@ -106,18 +131,37 @@ abstract class MichiDatabase : RoomDatabase() {
             db.execSQL("""
                 CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_update`
                 AFTER UPDATE ON `cached_tracks`
-                WHEN NEW.`metadataRevision`=OLD.`metadataRevision`
+                WHEN NEW.`metadataRevision` <= OLD.`metadataRevision`
                 BEGIN
-                    INSERT INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
-                    VALUES(NEW.`sourceId`,NEW.`id`,1)
-                    ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
-                    SET `revision`=`revision`+1;
+                    INSERT OR IGNORE INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                    VALUES(NEW.`sourceId`,NEW.`id`,0);
+                    UPDATE `metadata_revision_clock`
+                    SET `revision`=CASE
+                        WHEN `revision` < OLD.`metadataRevision` THEN OLD.`metadataRevision`+1
+                        ELSE `revision`+1
+                    END
+                    WHERE `sourceId`=NEW.`sourceId` AND `trackId`=NEW.`id`;
                     UPDATE `cached_tracks`
                     SET `metadataRevision`=(
                         SELECT `revision` FROM `metadata_revision_clock`
                         WHERE `sourceId`=NEW.`sourceId` AND `trackId`=NEW.`id`
                     )
                     WHERE `sourceId`=NEW.`sourceId` AND `id`=NEW.`id`;
+                END
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TRIGGER IF NOT EXISTS `cached_tracks_revision_after_explicit_advance`
+                AFTER UPDATE ON `cached_tracks`
+                WHEN NEW.`metadataRevision` > OLD.`metadataRevision`
+                BEGIN
+                    INSERT OR IGNORE INTO `metadata_revision_clock`(`sourceId`,`trackId`,`revision`)
+                    VALUES(NEW.`sourceId`,NEW.`id`,0);
+                    UPDATE `metadata_revision_clock`
+                    SET `revision`=CASE
+                        WHEN `revision` < NEW.`metadataRevision` THEN NEW.`metadataRevision`
+                        ELSE `revision`
+                    END
+                    WHERE `sourceId`=NEW.`sourceId` AND `trackId`=NEW.`id`;
                 END
             """.trimIndent())
             db.execSQL("""
@@ -129,6 +173,20 @@ abstract class MichiDatabase : RoomDatabase() {
                     ON CONFLICT(`sourceId`,`trackId`) DO UPDATE
                     SET `revision`=`revision`+1;
                 END
+            """.trimIndent())
+            // Heal a clock that a previous trigger definition left behind the published row.
+            db.execSQL("""
+                UPDATE `metadata_revision_clock`
+                SET `revision`=(
+                    SELECT `t`.`metadataRevision` FROM `cached_tracks` AS `t`
+                    WHERE `t`.`sourceId`=`metadata_revision_clock`.`sourceId`
+                        AND `t`.`id`=`metadata_revision_clock`.`trackId`
+                )
+                WHERE `revision` < (
+                    SELECT `t`.`metadataRevision` FROM `cached_tracks` AS `t`
+                    WHERE `t`.`sourceId`=`metadata_revision_clock`.`sourceId`
+                        AND `t`.`id`=`metadata_revision_clock`.`trackId`
+                )
             """.trimIndent())
         }
 

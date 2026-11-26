@@ -378,6 +378,7 @@ class MetadataSaveService internal constructor(
             evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision,
             fields = intent.changes.mapTo(linkedSetOf()) { it.field },
+            multiValueFields = MetadataWritePermit.declaredMultiValueFields(intent),
             explicitUserAction = true,
             resources = intent.resources,
         )

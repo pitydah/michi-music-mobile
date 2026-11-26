@@ -11,6 +11,12 @@ import java.net.URI
 /**
  * ME-13: a typed, transaction-bound authorization. It is not a global gate and
  * cannot be reused for another URI, track, source hash, candidate or field set.
+ *
+ * [multiValueFields] is the multi-value scope of the durable intent this permit was reconstructed
+ * from: every field whose receipt recorded more than one value. It defaults to empty only for
+ * permits that carry no durable receipt at all; a permit rebuilt from a receipt must pass
+ * [multiValueFields] so [matches] can prove the profile represents that many values in that
+ * container and revision. Authorization never widens because the scope was left unstated.
  */
 internal data class MetadataWritePermit(
     val transactionId: String,
@@ -27,6 +33,7 @@ internal data class MetadataWritePermit(
     val fields: Set<MetadataField>,
     val explicitUserAction: Boolean,
     val resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList(),
+    val multiValueFields: Set<MetadataField> = emptySet(),
 ) {
     /** Exact binding to one independently derived index delta. */
     fun authorizes(delta: MetadataSourceIndexDelta.Delta): Boolean =
@@ -49,6 +56,9 @@ internal data class MetadataWritePermit(
             originalSha256 == entry.originalSha256 &&
             candidateSha256 == entry.stageSha256 &&
             stageBytes == entry.stageBytes &&
+            // The multi-value scope must stay inside the authorized field scope, and every such
+            // field must actually be a multi-valued one: a permit can never widen what it declares.
+            multiValueFields.all { it in fields && it.multiple } &&
             MetadataWriteProfileRegistry.byId(profileId)?.let { profile ->
                 val observedContainer = runCatching {
                     MetadataAudioContainer.valueOf(container)
@@ -61,7 +71,7 @@ internal data class MetadataWritePermit(
                         observedContainer,
                         revision,
                         fields,
-                        emptySet(),
+                        multiValueFields,
                         artworkChanged = false,
                     ) &&
                     profile.supports(resources) &&
@@ -71,4 +81,16 @@ internal data class MetadataWritePermit(
                         )?.profileProvider == profile.provider
                     } == true
             } == true
+
+    companion object {
+        /**
+         * Multi-value scope declared by a durable intent: every field whose recorded candidate
+         * carries more than one value. Reconstructed permits must derive the scope from here
+         * instead of assuming it empty.
+         */
+        fun declaredMultiValueFields(
+            intent: MetadataCommitIntentManifest.Receipt,
+        ): Set<MetadataField> =
+            intent.changes.filter { it.afterCount > 1 }.mapTo(linkedSetOf()) { it.field }
+    }
 }

@@ -387,6 +387,7 @@ class MetadataIndexReconciler internal constructor(
         }
         if (intent.container != container) return null
         val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
+        val multiValueFields = MetadataWritePermit.declaredMultiValueFields(intent)
         val parsed = runCatching { android.net.Uri.parse(entry.uri) }.getOrNull()
             ?: return null
         val provider = MetadataSourceProviderIdentity.classify(
@@ -403,6 +404,7 @@ class MetadataIndexReconciler internal constructor(
             profileId = profile.id,
             evidenceId = profile.capabilityEvidenceId,
             container = entry.format, revision = revision, fields = fields,
+            multiValueFields = multiValueFields,
             explicitUserAction = true,
             resources = intent.resources,
         ).takeIf { it.matches(entry) }
