@@ -12,6 +12,8 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
@@ -298,12 +300,23 @@ class MetadataSaveService internal constructor(
         }
         checkpoints.reach(MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE)
         checkpoints.reach(MetadataSaveCheckpoint.BEFORE_INDEX_CAS)
-        val published = publication.reconcile(
-            transactionId = entry.id, original = original,
-            expectedIndex = expectedIndex, explicitUserAction = true,
-            ownerStillCurrent = ownerCurrent,
-            playbackDescriptorClosed = playbackClosed, permit = permit,
-        )
+        val published = try {
+            publication.reconcile(
+                transactionId = entry.id, original = original,
+                expectedIndex = expectedIndex, explicitUserAction = true,
+                ownerStillCurrent = ownerCurrent,
+                playbackDescriptorClosed = playbackClosed, permit = permit,
+            )
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            // A closed Room instance can surface as a child JobCancellationException
+            // even though the save coroutine itself is still active. That is an
+            // unavailable index, not a user cancellation: the physical write is
+            // already durable, so keep the exact obligation for recovery.
+            if (!currentCoroutineContext().isActive) throw cancel
+            null
+        } catch (_: Exception) {
+            null
+        }
         checkpoints.reach(MetadataSaveCheckpoint.AFTER_INDEX_CAS)
         val indexed = published is MetadataFinalizedIndexPublicationCoordinator.Result.IndexedOnly ||
             published is MetadataFinalizedIndexPublicationCoordinator.Result.StructuredGenreIndexed ||

@@ -21,6 +21,18 @@ internal object MetadataDurableFile {
     private const val MAX_BYTES = 1024L * 1024 * 1024
     private const val CHUNK = 64 * 1024
 
+    /**
+     * TEST-ONLY fault injection seam. It is null in every production path and
+     * no production caller assigns it. Instrumented resilience tests may install
+     * a probe to make the durable private-write boundary fail exactly once, so a
+     * real IO failure (for example ENOSPC) can be exercised without replacing
+     * the production writer with a mock. A probe exception is handled by the
+     * same failure path as a real write error: the partial file is deleted and
+     * [copyExact] reports false.
+     */
+    @Volatile
+    internal var ioFaultProbe: ((File) -> Unit)? = null
+
     fun copyExact(
         source: File,
         target: File,
@@ -37,6 +49,7 @@ internal object MetadataDurableFile {
         ) return false
         var complete = false
         try {
+            ioFaultProbe?.invoke(target)
             FileChannel.open(
                 target.toPath(),
                 StandardOpenOption.CREATE_NEW,

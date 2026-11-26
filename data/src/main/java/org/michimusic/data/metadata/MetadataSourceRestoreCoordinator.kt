@@ -230,6 +230,9 @@ internal class MetadataSourceRestoreCoordinator(
                 MetadataExactWritePermission.Result.ExistingExactGrant -> true
                 else -> false
             }
+            // Cancellation at the consent/permission boundary must win before
+            // the durable rollback reservation and any destructive provider open.
+            job?.ensureActive()
 
             // Phase 3: durable ROLLBACK_PENDING reservation persisted BEFORE the first
             // destructive provider open. `advance` re-hashes the private artifacts
@@ -275,8 +278,15 @@ internal class MetadataSourceRestoreCoordinator(
             }
             val newSource = if (transferred ==
                 MetadataProviderMutationTransport.Result.BytesSentRequireColdReadback)
-                currentBytes.read(entry.sourceId,entry.uri,
-                    maxOf(entry.expectedBytes,entry.stageBytes)){ job?.ensureActive() }
+                when (val read = currentBytes.readCommittedCandidate(
+                    entry.sourceId, entry.uri, entry.expectedBytes, entry.originalSha256,
+                ) { job?.ensureActive() }) {
+                    is MetadataCurrentBytesReader.PostCommitRead.Exact ->
+                        MetadataCurrentBytesReader.Result.Read(
+                            MetadataPhysicalOutcomePolicy.Observed(
+                                read.actualSize, read.actualSha256))
+                    is MetadataCurrentBytesReader.PostCommitRead.Rejected -> null
+                }
             else null
             val post = if (newSource is MetadataCurrentBytesReader.Result.Read)
                 MetadataPhysicalOutcomePolicy.classify(
