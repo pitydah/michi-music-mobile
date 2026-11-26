@@ -29,3 +29,6 @@ include(":data")
 include(":player")
 include(":michi-link-client")
 include(":aircat-transfer")
+
+// A15/A16: test-only fixture application (never part of the distributed APK).
+include(":metadata-fixture")

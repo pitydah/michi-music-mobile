@@ -19,6 +19,7 @@ gradle.properties.txt
 /sync-client/build
 /remote/build
 /michi-link-client/build
+/metadata-fixture/build
 .kotlin
 __pycache__/
 *.py[cod]

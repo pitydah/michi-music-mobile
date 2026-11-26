@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A15/A16 TEST-ONLY fixture application manifest.
+
+  Installed exclusively by
+  org.michimusic.data.metadata.MetadataOtherUidConsentInstrumentedTest on an
+  isolated emulator. It is not referenced by the shipped APK: :data only copies
+  its debug APK into androidTest assets.
+
+  The command channel is intentionally a plain exported receiver because the app
+  under test must drive it across the process/UID boundary; the fixture validates
+  every grant target and only ever hands out read access to items it created.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="false"
+        android:label="Michi Metadata Fixture"
+        android:supportsRtl="false">
+
+        <receiver
+            android:name=".FixtureCommandReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="org.michimusic.metadata.fixture.COMMAND" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

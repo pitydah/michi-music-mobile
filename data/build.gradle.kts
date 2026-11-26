@@ -5,6 +5,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// A15/A16: the other-UID MediaStore consent instrumentation test installs an
+// auxiliary fixture application (`:metadata-fixture`) inside the isolated
+// emulator. The fixture debug APK is staged as an ANDROIDTEST asset, so it can
+// never reach the distributed application, a release variant or a peer node.
+val metadataFixtureAssetDir = layout.buildDirectory.dir("metadata-fixture-androidTest-assets")
+
 android {
     namespace = "org.michimusic.data"
     compileSdk = 36
@@ -16,6 +22,7 @@ android {
 
     sourceSets {
         getByName("test").assets.srcDir(files("$projectDir/schemas"))
+        getByName("androidTest").assets.srcDir(metadataFixtureAssetDir)
     }
 
     testOptions {
@@ -38,6 +45,25 @@ android {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Builds the auxiliary fixture application and copies ONLY its debug APK into
+// the androidTest assets consumed above. No product variant depends on it.
+val stageMetadataFixtureApk = tasks.register<Copy>("stageMetadataFixtureApk") {
+    dependsOn(":metadata-fixture:assembleDebug")
+    from(
+        project(":metadata-fixture").layout.buildDirectory.file(
+            "outputs/apk/debug/metadata-fixture-debug.apk",
+        ),
+    )
+    into(metadataFixtureAssetDir)
+    rename { "metadata-fixture-debug.apk" }
+}
+
+tasks.matching { task ->
+    task.name.startsWith("merge") && task.name.endsWith("AndroidTestAssets")
+}.configureEach {
+    dependsOn(stageMetadataFixtureApk)
 }
 
 dependencies {
