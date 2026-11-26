@@ -1,6 +1,8 @@
 package org.michimusic.core.metadata
 
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -108,6 +110,107 @@ class MetadataArtworkLyricsProbeMp4Test {
                 MetadataArtworkLyricsProbe.Reason.INVALID_STRUCTURE,
             ),
             result,
+        )
+    }
+
+    private fun observe(bytes: ByteArray): MetadataArtworkLyricsProbe.ChannelResult {
+        val file = File.createTempFile("michi-probe-mp4-", ".mp4")
+        try {
+            file.writeBytes(bytes)
+            return RandomAccessFile(file, "r").use { handle ->
+                handle.channel.use { MetadataArtworkLyricsProbe.inspectChannel(it) }
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun metadataOnlyMoov(png: ByteArray): ByteArray =
+        box("moov", box("udta", box("meta", ByteArray(4) +
+            box("ilst", box("covr", data(14, png))))))
+
+    @Test fun channelReaderSkipsMediaAndBoundsDepth() {
+        val png = png()
+        val media = ByteArray(2 * 1024 * 1024) { 7 }
+        val ftyp = box("ftyp", "M4A ".toByteArray(StandardCharsets.US_ASCII) + ByteArray(8))
+        val moov = metadataOnlyMoov(png)
+
+        val leading = ftyp + moov + box("mdat", media)
+        val leadingResult = observe(leading)
+        assertTrue(
+            "result=$leadingResult",
+            leadingResult is MetadataArtworkLyricsProbe.ChannelResult.Ready,
+        )
+        val observation =
+            (leadingResult as MetadataArtworkLyricsProbe.ChannelResult.Ready).observation
+        assertEquals(1, observation.snapshot.artworks.size)
+        assertEquals(MetadataArtworkLyricsProbe.Format.MP4, observation.snapshot.format)
+        assertTrue(observation.snapshot.artworks[0].image.contentEquals(png))
+        assertEquals(media.size.toLong(), observation.mediaBytesSkipped)
+        assertTrue(
+            "channel reader read ${observation.bytesRead} of ${leading.size} bytes",
+            observation.bytesRead < 64L * 1024L,
+        )
+
+        val trailing = ftyp + box("mdat", media) + moov
+        val trailingResult = observe(trailing)
+        assertTrue(
+            "result=$trailingResult",
+            trailingResult is MetadataArtworkLyricsProbe.ChannelResult.Ready,
+        )
+        val trailingObservation =
+            (trailingResult as MetadataArtworkLyricsProbe.ChannelResult.Ready).observation
+        assertEquals(1, trailingObservation.snapshot.artworks.size)
+        assertEquals(media.size.toLong(), trailingObservation.mediaBytesSkipped)
+        assertTrue(
+            "channel reader read ${trailingObservation.bytesRead} of ${trailing.size} bytes",
+            trailingObservation.bytesRead < 64L * 1024L,
+        )
+
+        var deep = box("ilst", box("covr", data(14, png)))
+        repeat(10) { deep = box("udta", deep) }
+        assertEquals(
+            MetadataArtworkLyricsProbe.ChannelResult.Blocked(
+                MetadataArtworkLyricsProbe.Reason.RESOURCE_LIMIT,
+            ),
+            observe(ftyp + box("moov", deep)),
+        )
+
+        val free = box("free", ByteArray(0))
+        val crowded = ByteArrayOutputStream().apply {
+            repeat(5_000) { write(free) }
+        }.toByteArray()
+        assertEquals(
+            MetadataArtworkLyricsProbe.ChannelResult.Blocked(
+                MetadataArtworkLyricsProbe.Reason.RESOURCE_LIMIT,
+            ),
+            observe(ftyp + box("moov", crowded)),
+        )
+    }
+
+    @Test fun inMemoryMp4RejectsOversizedInput() {
+        val oversized = ByteArray(MetadataArtworkLyricsProbe.MAX_TAG_BYTES + 1)
+        "ftyp".toByteArray(StandardCharsets.US_ASCII).copyInto(oversized, 4)
+        assertEquals(
+            MetadataArtworkLyricsProbe.Result.Blocked(
+                MetadataArtworkLyricsProbe.Reason.RESOURCE_LIMIT,
+            ),
+            MetadataArtworkLyricsProbe.inspect(oversized),
+        )
+    }
+
+    @Test fun inMemoryMp4RejectsDeepContainerNesting() {
+        var deep = box("covr", data(14, png()))
+        repeat(20) { deep = box("moov", deep) }
+        val ftyp = box(
+            "ftyp",
+            "M4A ".toByteArray(StandardCharsets.US_ASCII) + ByteArray(8),
+        )
+        assertEquals(
+            MetadataArtworkLyricsProbe.Result.Blocked(
+                MetadataArtworkLyricsProbe.Reason.INVALID_STRUCTURE,
+            ),
+            MetadataArtworkLyricsProbe.inspect(ftyp + deep),
         )
     }
 }

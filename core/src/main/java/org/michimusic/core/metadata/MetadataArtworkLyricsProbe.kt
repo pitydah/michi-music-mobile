@@ -1,5 +1,8 @@
 package org.michimusic.core.metadata
 
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
@@ -16,6 +19,7 @@ object MetadataArtworkLyricsProbe {
     private const val MAX_ART: Int = 6
     private const val MAX_TEXT_ENTRIES: Int = 64
     private const val MAX_PICTURE_BYTES: Int = 8 * 1024 * 1024
+    private const val MAX_CONTAINER_DEPTH: Int = 16
 
     enum class Format { ID3_V23, ID3_V24, FLAC, MP4 }
     enum class Reason {
@@ -54,10 +58,11 @@ object MetadataArtworkLyricsProbe {
         return (length + 10).takeIf { it in 20..MAX_TAG_BYTES }
     }
     fun inspect(bytes: ByteArray): Result {
+        // The cap must cover the in-memory MP4 branch too, not only ID3/FLAC.
+        if (bytes.size > MAX_TAG_BYTES) return Result.Blocked(Reason.RESOURCE_LIMIT)
         if (bytes.size >= 8 && bytes.copyOfRange(4,8)
                 .contentEquals("ftyp".toByteArray(StandardCharsets.US_ASCII)))
             return mp4(bytes)
-        if (bytes.size > MAX_TAG_BYTES) return Result.Blocked(Reason.RESOURCE_LIMIT)
         return when {
             bytes.size >= 10 && bytes.sliceArray(0..2).contentEquals("ID3".toByteArray()) -> id3(bytes)
             bytes.size >= 4 && bytes.copyOfRange(0,4).contentEquals("fLaC".toByteArray()) -> flac(bytes)
@@ -157,18 +162,24 @@ object MetadataArtworkLyricsProbe {
             u(image[image.size - 2]) == 0xFF && u(image[image.size - 1]) == 0xD9
         else -> false
     }
-    private fun validContainer(bytes: ByteArray, start: Int, end: Int): Boolean {
+    private fun validContainer(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+        depth: Int = 0,
+    ): Boolean {
+        if (depth > MAX_CONTAINER_DEPTH) return false
         var pos = start
         while (pos < end) {
             val child = box(bytes, pos, end) ?: return false
             pos = child.end
             when (child.type) {
                 "moov", "udta", "ilst", "covr" ->
-                    if (!validContainer(bytes, child.payload, child.end)) return false
+                    if (!validContainer(bytes, child.payload, child.end, depth + 1)) return false
                 "meta" -> {
                     val childStart = child.payload + 4
                     if (childStart > child.end ||
-                        !validContainer(bytes, childStart, child.end)
+                        !validContainer(bytes, childStart, child.end, depth + 1)
                     ) return false
                 }
             }
@@ -253,5 +264,163 @@ object MetadataArtworkLyricsProbe {
         }
         if (!sawEnd || pos != bytes.size) return Result.Blocked(Reason.TRUNCATED)
         return Result.Ready(Snapshot(Format.FLAC,images,emptyList()))
+    }
+
+    // ---------------------------------------------------------------------
+    // Positional MP4 observation over a FileChannel.
+    //
+    // The in-memory path above needs the caller to have already materialised
+    // the whole container. This path never does that: only atom headers and the
+    // `covr` leaf payload are read, every `mdat` payload is skipped by
+    // arithmetic, and both atom count and container depth are bounded.
+    // ---------------------------------------------------------------------
+
+    private const val MAX_MP4_BYTES: Long = 1024L * 1024L * 1024L
+    private const val MAX_CHANNEL_ATOMS: Int = 4096
+    private const val MAX_CHANNEL_DEPTH: Int = 8
+
+    private class ChannelRefusal(val reason: Reason) : Exception()
+
+    private class ChannelBox(val type: String, val payload: Long, val end: Long)
+
+    data class ChannelObservation(
+        val snapshot: Snapshot,
+        val atomsVisited: Int,
+        val maxDepth: Int,
+        val bytesRead: Long,
+        val mediaBytesSkipped: Long,
+    )
+
+    sealed interface ChannelResult {
+        data class Ready(val observation: ChannelObservation) : ChannelResult
+        data class Blocked(val reason: Reason) : ChannelResult
+    }
+
+    fun inspectChannel(channel: FileChannel): ChannelResult = try {
+        val size = channel.size()
+        if (size < 8L) throw ChannelRefusal(Reason.TRUNCATED)
+        if (size > MAX_MP4_BYTES) throw ChannelRefusal(Reason.RESOURCE_LIMIT)
+        var atoms = 0
+        var bytesRead = 0L
+        var maxDepth = 0
+        var mediaBytesSkipped = 0L
+
+        fun read(offset: Long, count: Int): ByteArray {
+            if (count < 0 || offset < 0L || count.toLong() > size - offset)
+                throw ChannelRefusal(Reason.TRUNCATED)
+            val buffer = ByteBuffer.allocate(count)
+            var at = offset
+            while (buffer.hasRemaining()) {
+                val got = channel.read(buffer, at)
+                if (got <= 0) throw ChannelRefusal(Reason.TRUNCATED)
+                at += got
+                bytesRead += got
+            }
+            return buffer.array()
+        }
+
+        fun next(at: Long, limit: Long): ChannelBox {
+            if (limit - at < 8L) throw ChannelRefusal(Reason.TRUNCATED)
+            if (++atoms > MAX_CHANNEL_ATOMS) throw ChannelRefusal(Reason.RESOURCE_LIMIT)
+            val head = read(at, 16.coerceAtMost((limit - at).toInt()))
+            val size32 = ByteBuffer.wrap(head, 0, 4).order(ByteOrder.BIG_ENDIAN)
+                .int.toLong() and 0xffffffffL
+            val type = String(head, 4, 4, StandardCharsets.US_ASCII)
+            var header = 8
+            var bytes = size32
+            if (size32 == 1L) {
+                if (head.size < 16) throw ChannelRefusal(Reason.TRUNCATED)
+                val wide = ByteBuffer.wrap(head, 8, 8).order(ByteOrder.BIG_ENDIAN).long
+                if (wide < 0L) throw ChannelRefusal(Reason.RESOURCE_LIMIT)
+                bytes = wide
+                header = 16
+            } else if (size32 == 0L) {
+                bytes = limit - at
+            }
+            if (bytes < header || bytes > limit - at)
+                throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+            return ChannelBox(type, at + header, at + bytes)
+        }
+
+        fun covrArtworks(box: ChannelBox): List<Artwork> {
+            val images = mutableListOf<Artwork>()
+            var at = box.payload
+            while (at < box.end) {
+                val data = next(at, box.end)
+                at = data.end
+                if (data.type != "data") continue
+                if (data.payload + 8L > data.end) throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+                if (images.size >= MAX_ART) throw ChannelRefusal(Reason.TOO_MANY_IMAGES)
+                if (data.end - data.payload - 8L > MAX_PICTURE_BYTES.toLong())
+                    throw ChannelRefusal(Reason.RESOURCE_LIMIT)
+                val head = read(data.payload, 8)
+                val mime = when (
+                    ByteBuffer.wrap(head, 0, 4).order(ByteOrder.BIG_ENDIAN).int
+                ) {
+                    13 -> "image/jpeg"
+                    14 -> "image/png"
+                    else -> throw ChannelRefusal(Reason.ARTWORK_UNSUPPORTED)
+                }
+                val length = (data.end - data.payload - 8L).toInt()
+                val image = read(data.payload + 8L, length)
+                if (!validMp4Image(mime, image))
+                    throw ChannelRefusal(Reason.ARTWORK_UNSUPPORTED)
+                val info = MetadataArtworkEvidence.Picture(
+                    MetadataArtworkEvidence.Format.MP4_COVR, 3, mime, image.size,
+                    sha256(image), description = "",
+                )
+                images += Artwork(images.size, info, image)
+            }
+            return images
+        }
+
+        var collected: List<Artwork>? = null
+        var sawMoov = false
+
+        fun walk(start: Long, end: Long, level: Int) {
+            if (level > MAX_CHANNEL_DEPTH) throw ChannelRefusal(Reason.RESOURCE_LIMIT)
+            if (level > maxDepth) maxDepth = level
+            var at = start
+            while (at < end) {
+                val box = next(at, end)
+                when (box.type) {
+                    "moov" -> {
+                        if (level != 0 || sawMoov)
+                            throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+                        sawMoov = true
+                        walk(box.payload, box.end, level + 1)
+                    }
+                    "udta", "ilst" -> walk(box.payload, box.end, level + 1)
+                    "meta" -> {
+                        if (box.payload + 4L > box.end)
+                            throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+                        walk(box.payload + 4L, box.end, level + 1)
+                    }
+                    "covr" -> {
+                        if (collected != null) throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+                        collected = covrArtworks(box)
+                    }
+                    "moof", "mfra" -> throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+                    "mdat" -> mediaBytesSkipped += box.end - box.payload
+                }
+                at = box.end
+            }
+        }
+
+        walk(0L, size, 0)
+        if (!sawMoov) throw ChannelRefusal(Reason.INVALID_STRUCTURE)
+        ChannelResult.Ready(
+            ChannelObservation(
+                snapshot = Snapshot(Format.MP4, collected ?: emptyList(), emptyList()),
+                atomsVisited = atoms,
+                maxDepth = maxDepth,
+                bytesRead = bytesRead,
+                mediaBytesSkipped = mediaBytesSkipped,
+            ),
+        )
+    } catch (refusal: ChannelRefusal) {
+        ChannelResult.Blocked(refusal.reason)
+    } catch (error: Exception) {
+        ChannelResult.Blocked(Reason.INVALID_STRUCTURE)
     }
 }

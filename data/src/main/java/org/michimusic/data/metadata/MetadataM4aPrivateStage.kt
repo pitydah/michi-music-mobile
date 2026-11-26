@@ -237,7 +237,10 @@ internal object MetadataM4aPrivateStage {
             require(beforeAudio.evidence.mediaPayloadBytes ==
                 afterAudio.evidence.mediaPayloadBytes &&
                 beforeAudio.evidence.mediaPayloadSha256 ==
-                afterAudio.evidence.mediaPayloadSha256) {
+                afterAudio.evidence.mediaPayloadSha256 &&
+                beforeAudio.evidence.codec == afterAudio.evidence.codec &&
+                beforeAudio.evidence.audioTracks == afterAudio.evidence.audioTracks &&
+                beforeAudio.evidence.samples == afterAudio.evidence.samples) {
                 "MEDIA_PAYLOAD_CHANGED"
             }
 
