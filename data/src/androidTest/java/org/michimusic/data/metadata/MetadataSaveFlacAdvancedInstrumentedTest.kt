@@ -237,6 +237,9 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
 
     @Test fun addsAndClearsFlacLyricsWhenAbsent() = runBlocking {
         val original = fixtureWithoutLyrics()
+        val picture = requireNotNull(flacPictureBlock(original)) {
+            "The FLAC lyrics fixture must contain a PICTURE block"
+        }
         val uri = insert(original)
         seedRow(original)
         val addReview = MetadataEditPreview.review(
@@ -256,6 +259,8 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
                 addOutcome.indexPublished)
         val afterAdd = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         assertFlacAudioFramesIdentical(original, afterAdd)
+        assertTrue("adding lyrics must preserve PICTURE",
+            afterAdd.containsBytes(picture))
         val reopened = coldRead(uri, afterAdd.size.toLong())
         assertEquals(listOf("Letra añadida"), reopened.known[MetadataField.LYRICS])
         assertEquals(listOf("ME19 FLAC Original"), reopened.known[MetadataField.TITLE])
@@ -276,10 +281,38 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
                 clearOutcome.indexPublished)
         val afterClear = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         assertFlacAudioFramesIdentical(original, afterClear)
+        assertTrue("clearing lyrics must preserve PICTURE",
+            afterClear.containsBytes(picture))
         val cleared = coldRead(uri, afterClear.size.toLong())
         assertEquals(null, cleared.known[MetadataField.LYRICS])
         assertTrue(MetadataRecoveryJournalV1(journalRoot).inspect() is
             MetadataRecoveryJournalV1.Inspection.Clear)
+    }
+
+    private fun flacPictureBlock(bytes: ByteArray): ByteArray? {
+        assertTrue("fLaC header", bytes.size > 4 &&
+            String(bytes, 0, 4, Charsets.US_ASCII) == "fLaC")
+        var p = 4
+        while (p + 4 <= bytes.size) {
+            val header = bytes[p].toInt() and 255
+            val last = header and 0x80 != 0
+            val length = ((bytes[p + 1].toInt() and 255) shl 16) or
+                ((bytes[p + 2].toInt() and 255) shl 8) or
+                (bytes[p + 3].toInt() and 255)
+            val next = p + 4 + length
+            if (next > bytes.size) return null
+            if ((header and 0x7F) == 6) return bytes.copyOfRange(p, next)
+            p = next
+            if (last) break
+        }
+        return null
+    }
+
+    private fun ByteArray.containsBytes(needle: ByteArray): Boolean {
+        if (needle.isEmpty() || needle.size > size) return false
+        return (0..size - needle.size).any { start ->
+            needle.indices.all { offset -> this[start + offset] == needle[offset] }
+        }
     }
 
     private fun assertFlacAudioFramesIdentical(before: ByteArray, after: ByteArray) {
