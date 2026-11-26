@@ -215,7 +215,10 @@ internal class MetadataSourceRestoreCoordinator(
             // above already verifies every selected and unselected resource.
             val opaqueOk = if (intent.container ==
                 org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A) {
-                m4aAudioPreserved(journal.backup(entry), journal.stage(entry))
+                m4aAudioPreserved(
+                    journal.backup(entry),
+                    journal.stage(entry),
+                ) { job?.ensureActive() }
             } else {
                 (MetadataOpaquePreservationAudit.compare(journal.backup(entry),
                     journal.stage(entry),intent.container,
@@ -317,19 +320,20 @@ internal class MetadataSourceRestoreCoordinator(
         }
     }
 
-    private fun m4aAudioPreserved(before: File, after: File): Boolean = try {
+    private fun m4aAudioPreserved(
+        before: File,
+        after: File,
+        checkCancellation: () -> Unit = {},
+    ): Boolean = try {
         fun evidence(file: File) = java.io.FileInputStream(file).use { input ->
-            (MetadataM4aAudioOnlyInspector.inspect(input.channel)
+            (MetadataM4aAudioOnlyInspector.inspect(input.channel, checkCancellation)
                 as? MetadataM4aAudioOnlyInspector.Result.AudioOnly)?.evidence
         }
         val left = evidence(before)
         val right = evidence(after)
         left != null && right != null &&
-            left.mediaPayloadBytes == right.mediaPayloadBytes &&
-            left.mediaPayloadSha256 == right.mediaPayloadSha256 &&
-            left.codec == right.codec &&
-            left.audioTracks == right.audioTracks &&
-            left.samples == right.samples
+            MetadataM4aAudioOnlyInspector.equivalent(left, right)
+    } catch (cancel: CancellationException) { throw cancel
     } catch (_: Exception) { false }
 
     private fun inspectPermission(

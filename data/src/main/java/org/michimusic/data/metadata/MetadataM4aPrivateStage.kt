@@ -44,7 +44,9 @@ import org.michimusic.core.metadata.MetadataSelectiveAssetStage
  * [MetadataMp4CovrStage] copies `mdat` verbatim and rewrites only `moov`.
  * Source mutation remains the existing journaled exact-byte transport after
  * this candidate passes cold parser, semantic, audio-only, artwork readback and
- * exact `mdat` preservation gates.
+ * actual referenced-sample preservation gates. The gate hashes the bytes each
+ * sample table entry points at, so a rewritten `moov` may move `stco`/`co64`
+ * offsets but may not reorder, duplicate or replace sample data.
  */
 internal object MetadataM4aPrivateStage {
     private const val MAX_BYTES = 1024L * 1024L * 1024L
@@ -91,6 +93,7 @@ internal object MetadataM4aPrivateStage {
         val candidateSha256: String,
         val audioPayloadBytes: Long,
         val audioPayloadSha256: String,
+        val samples: MetadataM4aAudioOnlyInspector.SampleEvidence,
         val resources: MetadataArtworkLyricsProbe.Snapshot? = null,
     )
 
@@ -223,15 +226,13 @@ internal object MetadataM4aPrivateStage {
                     MetadataM4aAudioOnlyInspector.Result.AudioOnly
                     ?: error("CANDIDATE_NOT_AUDIO_ONLY")
             }
-            require(beforeAudio.evidence.mediaPayloadBytes ==
-                afterAudio.evidence.mediaPayloadBytes &&
-                beforeAudio.evidence.mediaPayloadSha256 ==
-                afterAudio.evidence.mediaPayloadSha256 &&
-                beforeAudio.evidence.codec == afterAudio.evidence.codec &&
-                beforeAudio.evidence.audioTracks == afterAudio.evidence.audioTracks &&
-                beforeAudio.evidence.samples == afterAudio.evidence.samples) {
-                "MEDIA_PAYLOAD_CHANGED"
-            }
+            // The candidate must reference the same actual sample bytes in the
+            // same decode order, with the same effective codec configuration,
+            // timeline, edit list and track identity. Chunk offsets may move.
+            require(MetadataM4aAudioOnlyInspector.equivalent(
+                beforeAudio.evidence,
+                afterAudio.evidence,
+            )) { "MEDIA_PAYLOAD_CHANGED" }
             verifyArtwork(candidate, beforeResources, artworkAfter)
 
             if (review != null) {
@@ -269,6 +270,7 @@ internal object MetadataM4aPrivateStage {
                 candidateSha,
                 afterAudio.evidence.mediaPayloadBytes,
                 afterAudio.evidence.mediaPayloadSha256,
+                afterAudio.evidence.samples,
                 artworkAfter,
             )
         } finally {

@@ -507,8 +507,7 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
             val afterInspection = afterFile.inputStream().use {
                 MetadataM4aAudioOnlyInspector.inspect(it.channel)
             } as MetadataM4aAudioOnlyInspector.Result.AudioOnly
-            assertEquals(beforeEvidence.mediaPayloadBytes, afterInspection.evidence.mediaPayloadBytes)
-            assertEquals(beforeEvidence.mediaPayloadSha256, afterInspection.evidence.mediaPayloadSha256)
+            assertSameSamples(beforeEvidence, afterInspection.evidence)
             val audio = Mp4FileReader().read(afterFile)
             assertEquals("M4A Renombrada", audio.tag.getFirst(FieldKey.TITLE))
             assertEquals("M4A Artista", audio.tag.getFirst(FieldKey.ARTIST))
@@ -846,7 +845,10 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         assertEquals(baseline.samples.sampleCount, current.samples.sampleCount)
         assertEquals(baseline.samples.sampleBytes, current.samples.sampleBytes)
         assertEquals(baseline.samples.samplesSha256, current.samples.samplesSha256)
+        assertEquals(baseline.samples.codecConfigSha256, current.samples.codecConfigSha256)
         assertEquals(baseline.samples.timelineSha256, current.samples.timelineSha256)
+        assertEquals(baseline.samples.tracks, current.samples.tracks)
+        assertEquals(baseline.samples, current.samples)
         assertEquals(
             baseline.samples.fingerprintSha256,
             current.samples.fingerprintSha256,

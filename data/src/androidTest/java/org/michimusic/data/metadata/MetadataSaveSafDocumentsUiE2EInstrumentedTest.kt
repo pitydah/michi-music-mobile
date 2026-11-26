@@ -690,6 +690,11 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
                 baselineAudio.mediaPayloadSha256, committedAudio.mediaPayloadSha256,
             )
             assertEquals(
+                "Every M4A sample table reference must survive every resource rewrite",
+                baselineAudio.samples,
+                committedAudio.samples,
+            )
+            assertEquals(
                 "The M4A sample fingerprint must survive every resource rewrite",
                 baselineAudio.samples.fingerprintSha256,
                 committedAudio.samples.fingerprintSha256,
