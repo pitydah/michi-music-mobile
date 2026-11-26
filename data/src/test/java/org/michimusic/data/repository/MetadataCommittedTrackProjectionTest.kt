@@ -61,7 +61,7 @@ class MetadataCommittedTrackProjectionTest {
         assertEquals("b".repeat(64), after.contentHash)
     }
 
-    @Test fun mismatchedUriAndMultivalueChangedFieldAreRejected() {
+    @Test fun mismatchedUriIsRejectedAndMultivalueTitleProjectsPrimaryValue() {
         assertTrue(
             MetadataCommittedTrackProjection.apply(
                 before.copy(filepath = "content://media/other"),
@@ -70,14 +70,15 @@ class MetadataCommittedTrackProjectionTest {
                 )),
             ) is MetadataCommittedTrackProjection.Result.Refused,
         )
-        assertTrue(
-            MetadataCommittedTrackProjection.apply(
-                before,
-                change(setOf(MetadataField.TITLE), known = mapOf(
-                    MetadataField.TITLE to listOf("One", "Two"),
-                )),
-            ) is MetadataCommittedTrackProjection.Result.Refused,
-        )
+        val applied = MetadataCommittedTrackProjection.apply(
+            before,
+            change(setOf(MetadataField.TITLE), known = mapOf(
+                MetadataField.TITLE to listOf("One", "Two"),
+            )),
+        ) as MetadataCommittedTrackProjection.Result.Applied
+        assertEquals("One", applied.track.title)
+        assertEquals(120L, applied.track.size)
+        assertEquals("b".repeat(64), applied.track.contentHash)
     }
 
     private fun change(
