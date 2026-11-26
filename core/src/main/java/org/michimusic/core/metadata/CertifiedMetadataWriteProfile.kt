@@ -26,7 +26,25 @@ data class CertifiedMetadataWriteProfile(
         return container in containers && revisionMatches &&
             fields.all { it in supportedFields } &&
             multiValueFields.all { it in permitsMultiValue } &&
+            (multiValueFields.isEmpty() || representsMultiValue(container, revision)) &&
             (!artworkChanged || permitsArtwork)
+    }
+
+    /**
+     * MP3 multivalue: a repeated text value is only representable when the
+     * physical writer and the cold reader agree on a per-value surface.
+     * ID3v2.4 repeats values inside one frame (NUL-separated) and FLAC repeats
+     * the comment field. ID3v2.3 has no such surface: the stager refuses it, so
+     * this profile refuses it EARLIER, before any journal or preimage exists.
+     * A profile never authorizes inventing an interoperable-looking string by
+     * concatenating values with a separator.
+     */
+    private fun representsMultiValue(
+        container: MetadataAudioContainer, revision: Int,
+    ): Boolean = when (container) {
+        MetadataAudioContainer.ID3_V24 -> revision == 4
+        MetadataAudioContainer.FLAC -> true
+        else -> false
     }
 
     fun supports(resources: List<MetadataCommitIntentManifest.ResourceChange>): Boolean =

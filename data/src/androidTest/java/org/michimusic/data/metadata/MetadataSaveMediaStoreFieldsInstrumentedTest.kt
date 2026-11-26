@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -203,6 +204,106 @@ class MetadataSaveMediaStoreFieldsInstrumentedTest {
             MetadataRecoveryJournalV1.Inspection.Clear)
     }
 
+    @Test fun t09MultiValueRemoveAndReorder() = runBlocking {
+        // ME-19 T09: a real ID3v2.4 document carries 3 artists and 2 genres.
+        // Reopening it must expose exact lists, reordering must preserve the new
+        // order, removing one value must delete it physically, and ID3v2.3 must
+        // refuse repeated values instead of inventing an interoperable string.
+        val original = Mp3FixtureTags.build(
+            4, "ME19 Reorder", "Artista Original", "Album ME19 Reorder", "Rock",
+            audioPayload)
+        val artists = listOf("Artista Uno", "Artista Dos", "Artista Tres")
+        val genres = listOf("Rock", "Jazz")
+        val first = save(original, listOf(
+            MetadataChange.Replace(MetadataField.ARTIST, artists),
+            MetadataChange.Replace(MetadataField.GENRE, genres),
+        ))
+        assertEquals(artists, first.reopened.known[MetadataField.ARTIST])
+        assertEquals(genres, first.reopened.known[MetadataField.GENRE])
+        assertEquals(artists.first(), first.row.artist)
+        assertEquals(genres.first(), first.row.genre)
+        assertArrayEquals(audioPayload, audioTail(first.after))
+        assertEquals(artists, peopleEvidence().artists())
+        assertEquals("Rock\u0000Jazz", tagEvidence().genreValues)
+        assertJournalClear()
+
+        // Reopen the COMMITTED multivalue document, not a synthetic draft.
+        val reopenedUri = insert(first.after)
+        seedRow(first.after)
+        val reopenedSnapshot = coldRead(reopenedUri, first.after.size.toLong())
+        assertEquals(artists, reopenedSnapshot.known[MetadataField.ARTIST])
+        assertEquals(genres, reopenedSnapshot.known[MetadataField.GENRE])
+
+        val reorderedArtists = listOf("Artista Tres", "Artista Uno")
+        val reorderedGenres = listOf("Jazz", "Rock")
+        val second = saveCommitted(reopenedUri, first.after, listOf(
+            MetadataChange.Replace(MetadataField.ARTIST, reorderedArtists),
+            MetadataChange.Replace(MetadataField.GENRE, reorderedGenres),
+        ))
+        assertEquals(reorderedArtists, second.reopened.known[MetadataField.ARTIST])
+        assertEquals(reorderedGenres, second.reopened.known[MetadataField.GENRE])
+        assertEquals("Artista Tres", second.row.artist)
+        assertEquals("Jazz", second.row.genre)
+        assertEquals(reorderedArtists, peopleEvidence().artists())
+        assertEquals("Jazz\u0000Rock", tagEvidence().genreValues)
+        assertArrayEquals(audioPayload, audioTail(second.after))
+        assertTrue(
+            "the new artist order must be physically NUL-separated",
+            second.after.indexOfSubsequence(
+                "Artista Tres\u0000Artista Uno".toByteArray()) >= 0)
+        assertFalse(
+            "the removed artist value must not survive the rewrite",
+            second.after.indexOfSubsequence("Artista Dos".toByteArray()) >= 0)
+        assertFalse(
+            "values must never be invented by joining them with a separator",
+            second.after.indexOfSubsequence(
+                "Artista Tres; Artista Uno".toByteArray()) >= 0)
+        assertFalse(
+            "values must never be invented by joining them with a slash",
+            second.after.indexOfSubsequence(
+                "Artista Tres/Artista Uno".toByteArray()) >= 0)
+        assertJournalClear()
+
+        context.contentResolver.delete(first.uri, null, null)
+        context.contentResolver.delete(second.uri, null, null)
+
+        // ID3v2.3 has a single TPE1 value. Repeated values are refused before any
+        // journal, preimage or provider write, and the source stays byte-identical.
+        val v23 = Mp3FixtureTags.build(
+            3, "ME19 V23", "Artista Original", "Album ME19 V23", "Rock", audioPayload)
+        val v23Uri = insert(v23)
+        seedRow(v23)
+        val v23Before = database.trackDao().getTrackBySource(sourceId, trackId)!!
+        val v23Snapshot = coldRead(v23Uri, v23.size.toLong())
+        val v23Review = MetadataEditPreview.review(v23Snapshot, listOf(
+            MetadataChange.Replace(
+                MetadataField.ARTIST, listOf("Artista Uno", "Artista Dos")),
+        ))
+        assertTrue("review=$v23Review", v23Review is MetadataReview.Ready)
+        val v23Outcome = MetadataSaveService(context, database.trackDao(), database).save(
+            sourceId, trackId, v23Uri.toString(), v23.size.toLong(),
+            v23Review as MetadataReview.Ready,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue("v2.3 multivalue must be refused, outcome=$v23Outcome",
+            v23Outcome is MetadataSaveService.Outcome.Blocked)
+        val untouched = context.contentResolver.openInputStream(v23Uri)!!
+            .use { it.readBytes() }
+        assertArrayEquals("a refused v2.3 edit must not touch the source", v23, untouched)
+        assertFalse(
+            "a refused v2.3 edit must not concatenate values",
+            untouched.indexOfSubsequence("Artista Uno; Artista Dos".toByteArray()) >= 0)
+        assertFalse(
+            "a refused v2.3 edit must not pack values into one frame",
+            untouched.indexOfSubsequence("Artista Uno\u0000Artista Dos".toByteArray()) >= 0)
+        val v23Row = database.trackDao().getTrackBySource(sourceId, trackId)!!
+        assertEquals(v23.size.toLong(), v23Row.size)
+        assertEquals(1_700_000_000_000L, v23Row.verifiedAt)
+        assertEquals(sha(v23), v23Row.verifiedSha256)
+        assertEquals(v23Before.artist, v23Row.artist)
+        assertJournalClear()
+    }
+
     @Test fun stalePreimageKeepsTheRowAndWritesActionableV2() = runBlocking {
         val original = Mp3FixtureTags.build(
             4, "ME13 Stale", "Artista ME13", "Album ME13", "Rock", audioPayload)
@@ -241,11 +342,24 @@ class MetadataSaveMediaStoreFieldsInstrumentedTest {
     ): SaveResult {
         val uri = insert(original)
         seedRow(original)
-        val snapshot = coldRead(uri, original.size.toLong())
+        return saveCommitted(uri, original, changes)
+    }
+
+    /**
+     * Save over an already inserted document whose exact current bytes are known.
+     * Every assertion below is the same one the fresh-document path needs, so a
+     * reordered/removed multivalue edit proves the identical publication rules.
+     */
+    private suspend fun saveCommitted(
+        uri: Uri,
+        expected: ByteArray,
+        changes: List<MetadataChange>,
+    ): SaveResult {
+        val snapshot = coldRead(uri, expected.size.toLong())
         val review = MetadataEditPreview.review(snapshot, changes)
         assertTrue("review=$review", review is MetadataReview.Ready)
         val outcome = MetadataSaveService(context, database.trackDao(), database).save(
-            sourceId, trackId, uri.toString(), original.size.toLong(),
+            sourceId, trackId, uri.toString(), expected.size.toLong(),
             review as MetadataReview.Ready,
             ownerCurrent = { true }, playbackClosed = { true },
         )
@@ -263,10 +377,25 @@ class MetadataSaveMediaStoreFieldsInstrumentedTest {
         assertEquals(after.size.toLong(), row.size)
         assertEquals(0L, row.verifiedAt)
         assertEquals("", row.verifiedSha256)
+        assertJournalClear()
+        val reopened = coldRead(uri, after.size.toLong())
+        return SaveResult(uri, expected, after, row, reopened)
+    }
+
+    private fun audioTail(bytes: ByteArray): ByteArray =
+        bytes.copyOfRange(bytes.size - audioPayload.size, bytes.size)
+
+    private suspend fun tagEvidence() = database.trackDao()
+        .getCurrentExtendedTagEvidence(sourceId, trackId)
+        ?: throw AssertionError("extended tag evidence must be published")
+
+    private suspend fun peopleEvidence() = database.metadataPersonEvidenceDao()
+        .currentForTrack(sourceId, trackId)
+        ?: throw AssertionError("person evidence must be published")
+
+    private fun assertJournalClear() {
         assertTrue(MetadataRecoveryJournalV1(journalRoot).inspect() is
             MetadataRecoveryJournalV1.Inspection.Clear)
-        val reopened = coldRead(uri, after.size.toLong())
-        return SaveResult(uri, original, after, row, reopened)
     }
 
     private fun assertCommon(

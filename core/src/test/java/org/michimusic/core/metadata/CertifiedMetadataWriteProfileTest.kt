@@ -37,6 +37,20 @@ class CertifiedMetadataWriteProfileTest {
             emptySet(), true))
     }
 
+    @Test fun id3v23MultiValueIsRefusedBeforeAnyWrite() {
+        assertFalse(profile.supports(MetadataAudioContainer.ID3_V23, 3,
+            setOf(MetadataField.ARTIST), setOf(MetadataField.ARTIST), false))
+        assertFalse(profile.supports(MetadataAudioContainer.ID3_V23, 3,
+            setOf(MetadataField.GENRE), setOf(MetadataField.GENRE), false))
+        // The same scalar surface stays certified for v2.3.
+        assertTrue(profile.supports(MetadataAudioContainer.ID3_V23, 3,
+            setOf(MetadataField.ARTIST, MetadataField.GENRE), emptySet(), false))
+        // ID3v2.4 keeps its certified repeated-value surface.
+        assertTrue(profile.supports(MetadataAudioContainer.ID3_V24, 4,
+            setOf(MetadataField.ARTIST, MetadataField.GENRE),
+            setOf(MetadataField.ARTIST, MetadataField.GENRE), false))
+    }
+
     @Test fun profileIdentityIsExplicit() {
         assertTrue(profile.id == MediaStoreMp3TextProfile.ID)
         assertTrue(profile.capabilityEvidenceId == MediaStoreMp3TextProfile.EVIDENCE_ID)
