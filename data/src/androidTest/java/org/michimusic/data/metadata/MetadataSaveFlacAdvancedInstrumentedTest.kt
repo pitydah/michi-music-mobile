@@ -231,6 +231,57 @@ class MetadataSaveFlacAdvancedInstrumentedTest {
         } finally { file.delete() }
     }
 
+    private fun fixtureWithoutLyrics(): ByteArray =
+        InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me19-sine-nolyrics.flac").use { it.readBytes() }
+
+    @Test fun addsAndClearsFlacLyricsWhenAbsent() = runBlocking {
+        val original = fixtureWithoutLyrics()
+        val uri = insert(original)
+        seedRow(original)
+        val addReview = MetadataEditPreview.review(
+            coldRead(uri, original.size.toLong()),
+            listOf(MetadataChange.Replace(
+                MetadataField.LYRICS, listOf("Letra añadida"),
+            )),
+        ) as MetadataReview.Ready
+        val addOutcome = MetadataSaveService(
+            context, database.trackDao(), database,
+        ).save(
+            sourceId, trackId, uri.toString(), original.size.toLong(), addReview,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue("add lyrics failed: $addOutcome",
+            addOutcome is MetadataSaveService.Outcome.Saved &&
+                addOutcome.indexPublished)
+        val afterAdd = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertFlacAudioFramesIdentical(original, afterAdd)
+        val reopened = coldRead(uri, afterAdd.size.toLong())
+        assertEquals(listOf("Letra añadida"), reopened.known[MetadataField.LYRICS])
+        assertEquals(listOf("ME19 FLAC Original"), reopened.known[MetadataField.TITLE])
+        assertEquals(listOf("Comentario FLAC"), reopened.known[MetadataField.COMMENT])
+
+        val clearReview = MetadataEditPreview.review(
+            reopened,
+            listOf(MetadataChange.Clear(MetadataField.LYRICS)),
+        ) as MetadataReview.Ready
+        val clearOutcome = MetadataSaveService(
+            context, database.trackDao(), database,
+        ).save(
+            sourceId, trackId, uri.toString(), afterAdd.size.toLong(), clearReview,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue("clear lyrics failed: $clearOutcome",
+            clearOutcome is MetadataSaveService.Outcome.Saved &&
+                clearOutcome.indexPublished)
+        val afterClear = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertFlacAudioFramesIdentical(original, afterClear)
+        val cleared = coldRead(uri, afterClear.size.toLong())
+        assertEquals(null, cleared.known[MetadataField.LYRICS])
+        assertTrue(MetadataRecoveryJournalV1(journalRoot).inspect() is
+            MetadataRecoveryJournalV1.Inspection.Clear)
+    }
+
     private fun assertFlacAudioFramesIdentical(before: ByteArray, after: ByteArray) {
         val beforeOffset = flacAudioOffset(before)
         val afterOffset = flacAudioOffset(after)
