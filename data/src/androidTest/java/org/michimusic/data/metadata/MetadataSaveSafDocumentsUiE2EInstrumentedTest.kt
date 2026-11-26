@@ -35,6 +35,15 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.metadata.MetadataChange
+import org.michimusic.core.metadata.MetadataArtworkAdditionPreview
+import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
+import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
+import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
+import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
+import org.michimusic.core.metadata.MetadataResourceOperation
+import org.michimusic.core.metadata.MetadataSelectiveAssetStage
+import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataRecoveryPhase
@@ -61,11 +70,6 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
 
     @Before fun setup() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        assumeTrue(
-            "Explicitly opt in because this test drives system DocumentsUI",
-            InstrumentationRegistry.getArguments().getString("ME_SAF_E2E") ==
-                "I_ACCEPT_DOCUMENTS_UI",
-        )
         context = instrumentation.targetContext
         folderSeedUri = context.contentResolver.insert(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -106,33 +110,12 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
 
     @Test fun persistedSystemDocumentGrantSavesAndRestoresExactPreimage() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val grant = CompletableDeferred<Result<Uri>>()
-        val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
-            override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
-                resultData?.getString(
-                    MetadataSafGrantTestActivity.EXTRA_ERROR,
-                )?.let {
-                    grant.complete(Result.failure(IllegalStateException(it)))
-                    return
-                }
-                resultData?.getString(
-                    MetadataSafGrantTestActivity.EXTRA_URI,
-                )?.let { grant.complete(Result.success(Uri.parse(it))) }
-            }
-        }
-        instrumentation.startActivitySync(
-            Intent(context, MetadataSafGrantTestActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra(MetadataSafGrantTestActivity.EXTRA_RECEIVER, receiver),
+        assumeTrue(
+            "Explicitly opt in because this legacy fixture drives system DocumentsUI",
+            InstrumentationRegistry.getArguments().getString("ME_SAF_E2E") ==
+                "I_ACCEPT_DOCUMENTS_UI",
         )
-        approveTreeWithDocumentsUi(UiDevice.getInstance(instrumentation))
-        val tree = withTimeout(30_000) { grant.await().getOrThrow() }
-        treeUri = tree
-        assertEquals("com.android.externalstorage.documents", tree.authority)
-        val persisted = context.contentResolver.persistedUriPermissions
-            .singleOrNull { it.uri == tree }
-        assertNotNull("The exact system tree grant must be persisted", persisted)
-        assertTrue(persisted!!.isReadPermission && persisted.isWritePermission)
+        val tree = grantPersistedTree()
 
         val parent = DocumentsContract.buildDocumentUriUsingTree(
             tree,
@@ -421,6 +404,728 @@ class MetadataSaveSafDocumentsUiE2EInstrumentedTest {
                 }
             }
         }
+    }
+
+    /**
+     * Every format gate below drives the real system `ExternalStorageProvider`
+     * through DocumentsUI, persists the exact tree grant, and mutates a
+     * disposable document only. Resource operations are authorized by the
+     * versioned SAF profiles; no MediaStore descriptor and no synthetic
+     * DocumentsProvider is involved.
+     */
+    @Test fun mp3ResourcesPersistedGrantRoundTrip(): Unit = runBlocking {
+        val audio = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me13-silence.mp3").use { it.readBytes() }
+        resourceRoundTrip(
+            FormatSpec(
+                mime = "audio/mpeg",
+                displayName = "michi-saf-${UUID.randomUUID()}.mp3",
+                formatLabel = "mp3",
+                extension = "mp3",
+                seedTitle = "SAF MP3 Original",
+                seedArtist = "SAF Artista MP3",
+                seedAlbum = "SAF Album MP3",
+                seedGenre = "Rock",
+                seed = {
+                    id3(
+                        title = "SAF MP3 Original",
+                        artist = "SAF Artista MP3",
+                        album = "SAF Album MP3",
+                        genre = "Rock",
+                        audio = audio,
+                    )
+                },
+                audioTail = audio,
+                artworkAdd = MetadataResourceOperation.ID3_APIC_ADD,
+                artworkReplace = MetadataResourceOperation.ID3_APIC_REPLACE,
+                artworkRemove = MetadataResourceOperation.ID3_APIC_REMOVE,
+                lyrics = describedLyricsDriver(),
+            ),
+        )
+    }
+
+    @Test fun flacResourcesPersistedGrantRoundTrip(): Unit = runBlocking {
+        val audio = ByteArray(4096) { ((it * 61) % 251).toByte() }
+        resourceRoundTrip(
+            FormatSpec(
+                mime = "audio/flac",
+                displayName = "michi-saf-${UUID.randomUUID()}.flac",
+                formatLabel = "flac",
+                extension = "flac",
+                seedTitle = "SAF FLAC Original",
+                seedArtist = "SAF Artista FLAC",
+                seedAlbum = "SAF Album FLAC",
+                seedGenre = "Rock",
+                seed = {
+                    flac(
+                        comments = listOf(
+                            "TITLE=SAF FLAC Original",
+                            "ARTIST=SAF Artista FLAC",
+                            "ALBUM=SAF Album FLAC",
+                            "GENRE=Rock",
+                        ),
+                        audio = audio,
+                    )
+                },
+                audioTail = audio,
+                artworkAdd = MetadataResourceOperation.FLAC_PICTURE_ADD,
+                artworkReplace = MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+                artworkRemove = MetadataResourceOperation.FLAC_PICTURE_REMOVE,
+                lyrics = scalarLyricsDriver(),
+            ),
+        )
+    }
+
+    @Test fun m4aResourcesPersistedGrantRoundTrip(): Unit = runBlocking {
+        val audio = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me14-audio-only.m4a").use { it.readBytes() }
+        resourceRoundTrip(
+            FormatSpec(
+                mime = "audio/mp4",
+                displayName = "michi-saf-${UUID.randomUUID()}.m4a",
+                formatLabel = "m4a",
+                extension = "m4a",
+                seedTitle = "ME14 M4A",
+                seedArtist = "Artista M4A",
+                seedAlbum = "Album M4A",
+                seedGenre = "Rock",
+                seed = { audio },
+                audioTail = null,
+                artworkAdd = MetadataResourceOperation.MP4_COVR_ADD,
+                artworkReplace = MetadataResourceOperation.MP4_COVR_REPLACE,
+                artworkRemove = MetadataResourceOperation.MP4_COVR_REMOVE,
+                lyrics = scalarLyricsDriver(),
+            ),
+        )
+    }
+
+    private class FormatSpec(
+        val mime: String,
+        val displayName: String,
+        val formatLabel: String,
+        val extension: String,
+        val seedTitle: String,
+        val seedArtist: String,
+        val seedAlbum: String,
+        val seedGenre: String,
+        val seed: () -> ByteArray,
+        val audioTail: ByteArray?,
+        val artworkAdd: MetadataResourceOperation,
+        val artworkReplace: MetadataResourceOperation,
+        val artworkRemove: MetadataResourceOperation,
+        val lyrics: LyricsDriver,
+    )
+
+    private class LyricsDriver(
+        val scalarLyrics: Boolean,
+        val addEdits: (MetadataSnapshot) -> List<MetadataSelectiveAssetStage.Edit>,
+        val replaceEdits: (MetadataSnapshot) -> List<MetadataSelectiveAssetStage.Edit>,
+        val clearEdits: (MetadataSnapshot) -> List<MetadataSelectiveAssetStage.Edit>,
+        val addReview: (MetadataSnapshot) -> MetadataReview.Ready?,
+        val replaceReview: (MetadataSnapshot) -> MetadataReview.Ready?,
+        val clearReview: (MetadataSnapshot) -> MetadataReview.Ready?,
+        val addOps: Set<MetadataResourceOperation>,
+        val replaceOps: Set<MetadataResourceOperation>,
+        val clearOps: Set<MetadataResourceOperation>,
+        val verifyAdd: (MetadataSnapshot, MetadataArtworkLyricsProbe.Snapshot) -> Unit,
+        val verifyReplace: (MetadataSnapshot, MetadataArtworkLyricsProbe.Snapshot) -> Unit,
+        val verifyClear: (MetadataSnapshot, MetadataArtworkLyricsProbe.Snapshot) -> Unit,
+    )
+
+    private class SafTrack(
+        val uri: Uri,
+        val sourceId: String,
+        val trackId: String,
+        val reader: ExtendedTrackMetadataRepository,
+        val service: MetadataSaveService,
+    )
+
+    private suspend fun resourceRoundTrip(spec: FormatSpec) {
+        val tree = grantPersistedTree()
+        val parent = DocumentsContract.buildDocumentUriUsingTree(
+            tree, DocumentsContract.getTreeDocumentId(tree),
+        )
+        val seed = spec.seed()
+        val uri = requireNotNull(
+            DocumentsContract.createDocument(
+                context.contentResolver, parent, spec.mime, spec.displayName,
+            ),
+        ) { "ExternalStorageProvider refused the disposable ${spec.formatLabel} document" }
+        documentUri = uri
+        writeDocument(uri, seed)
+
+        val sourceId = customRootSourceId(tree)
+        val trackId = treeTrackId(tree, DocumentsContract.getDocumentId(uri))
+        val repository = SyncedTrackRepository(trackDao = database.trackDao())
+        val size = context.contentResolver.openFileDescriptor(uri, "r")!!
+            .use { it.statSize }
+        repository.saveLibrary(
+            listOf(
+                TrackDto(
+                    id = trackId, title = spec.seedTitle, artist = spec.seedArtist,
+                    album = spec.seedAlbum, duration = 100, size = size,
+                    format = spec.formatLabel, genre = spec.seedGenre,
+                ),
+            ),
+            sourceId,
+        )
+        repository.markDownloadedVerified(
+            sourceId = sourceId, id = trackId, filepath = uri.toString(),
+            size = size, sha256 = sha(seed), verifiedAt = 1_700_000_000_000L,
+            algorithm = "sha256",
+        )
+        val track = SafTrack(
+            uri = uri, sourceId = sourceId, trackId = trackId,
+            reader = ExtendedTrackMetadataRepository(database.trackDao(), context),
+            service = MetadataSaveService(context, database.trackDao(), database),
+        )
+
+        var current = readBytes(uri)
+        assertArrayEquals("The provider must store the exact seed", seed, current)
+        assertEquals(size, current.size.toLong())
+        var snapshot = coldRead(track, current.size.toLong())
+        val originalTitle = snapshot.known[MetadataField.TITLE]
+        val initialArtworks = observe(current, spec.extension).artworks.size
+
+        // 1. letra: add
+        var saved = commit(
+            spec, track, "letra add", snapshot, current.size.toLong(),
+            spec.lyrics.addEdits(snapshot), spec.lyrics.addReview(snapshot),
+            spec.lyrics.addOps, spec.lyrics.scalarLyrics,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        spec.lyrics.verifyAdd(
+            coldRead(track, current.size.toLong()), observe(current, spec.extension),
+        )
+        snapshot = coldRead(track, current.size.toLong())
+
+        // 2. imagen: add
+        val firstImage = png(21)
+        val secondImage = png(22)
+        val beforeArtwork = observe(current, spec.extension)
+        val addition = (
+            MetadataArtworkAdditionPreview.review(beforeArtwork, firstImage, "image/png")
+                as MetadataArtworkAdditionPreview.Result.Ready
+            ).proposal
+        assertEquals(initialArtworks, addition.ordinal)
+        saved = commit(
+            spec, track, "imagen add", snapshot, current.size.toLong(),
+            listOf(MetadataSelectiveAssetStage.Edit.PictureAdd(addition)), null,
+            setOf(spec.artworkAdd), false,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        var resources = observe(current, spec.extension)
+        assertEquals(initialArtworks + 1, resources.artworks.size)
+        assertArrayEquals(firstImage, resources.artworks[initialArtworks].image)
+        snapshot = coldRead(track, current.size.toLong())
+
+        // 3. imagen: replace
+        val replacement = (
+            MetadataArtworkReplacementPreview.review(
+                resources, initialArtworks, secondImage, "image/png",
+            ) as MetadataArtworkReplacementPreview.Result.Ready
+            ).proposal
+        saved = commit(
+            spec, track, "imagen replace", snapshot, current.size.toLong(),
+            listOf(MetadataSelectiveAssetStage.Edit.Picture(replacement)), null,
+            setOf(spec.artworkReplace), false,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        resources = observe(current, spec.extension)
+        assertEquals(initialArtworks + 1, resources.artworks.size)
+        assertArrayEquals(secondImage, resources.artworks[initialArtworks].image)
+        snapshot = coldRead(track, current.size.toLong())
+
+        // 4. letra: replace
+        saved = commit(
+            spec, track, "letra replace", snapshot, current.size.toLong(),
+            spec.lyrics.replaceEdits(snapshot), spec.lyrics.replaceReview(snapshot),
+            spec.lyrics.replaceOps, spec.lyrics.scalarLyrics,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        spec.lyrics.verifyReplace(
+            coldRead(track, current.size.toLong()), observe(current, spec.extension),
+        )
+        snapshot = coldRead(track, current.size.toLong())
+
+        // 5. imagen: remove, exact ordinal and exact preimage digest
+        saved = commit(
+            spec, track, "imagen remove", snapshot, current.size.toLong(),
+            listOf(
+                MetadataSelectiveAssetStage.Edit.PictureRemove(
+                    initialArtworks, sha(secondImage),
+                ),
+            ),
+            null, setOf(spec.artworkRemove), false,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        assertEquals(initialArtworks, observe(current, spec.extension).artworks.size)
+        snapshot = coldRead(track, current.size.toLong())
+
+        // 6. letra: clear
+        saved = commit(
+            spec, track, "letra clear", snapshot, current.size.toLong(),
+            spec.lyrics.clearEdits(snapshot), spec.lyrics.clearReview(snapshot),
+            spec.lyrics.clearOps, spec.lyrics.scalarLyrics,
+        )
+        current = verifyCommitted(saved, uri)
+        assertAudioTail(spec, current)
+        spec.lyrics.verifyClear(
+            coldRead(track, current.size.toLong()), observe(current, spec.extension),
+        )
+        snapshot = coldRead(track, current.size.toLong())
+
+        // M4A carries no appended audio tail, so resource-only rewrites are
+        // checked against the provider-neutral sample evidence instead.
+        if (spec.extension == "m4a") {
+            val baselineAudio = m4aEvidence(seed)
+            val committedAudio = m4aEvidence(current)
+            assertEquals(
+                "The M4A media payload must survive every resource rewrite",
+                baselineAudio.mediaPayloadSha256, committedAudio.mediaPayloadSha256,
+            )
+            assertEquals(
+                "The M4A sample fingerprint must survive every resource rewrite",
+                baselineAudio.samples.fingerprintSha256,
+                committedAudio.samples.fingerprintSha256,
+            )
+        }
+
+        // Reopen: unrelated scalar tags survive the whole resource round trip.
+        val reopened = coldRead(track, current.size.toLong())
+        assertEquals(originalTitle, reopened.known[MetadataField.TITLE])
+        assertEquals(initialArtworks, observe(current, spec.extension).artworks.size)
+        val row = database.trackDao().getTrackBySource(sourceId, trackId)!!
+        assertEquals(current.size.toLong(), row.size)
+        assertEquals(checkNotNull(originalTitle).single(), row.title)
+        val change = checkNotNull(saved.libraryChange)
+        assertEquals(current.size.toLong(), change.committedBytes)
+        assertEquals(sha(current), change.committedSha256)
+        assertEquals(row.metadataRevision, change.committedRevision)
+        val marker = database.trackDao().getAppliedMetadataTransaction(
+            change.transactionId,
+        )
+        assertNotNull("The applied transaction marker must exist", marker)
+        assertEquals(change.committedRevision, marker!!.committedRevision)
+        assertEquals(sha(current), marker.candidateSha256)
+        assertEquals(current.size.toLong(), marker.candidateBytes)
+        assertJournalClear()
+
+        // Exact restore: an interrupted resource mutation must be reversible to
+        // the last committed preimage, byte for byte.
+        val committedBytes = current
+        val interrupted = MetadataSaveService(
+            context, database.trackDao(), database,
+            MetadataSaveCheckpointHook { point ->
+                if (point == MetadataSaveCheckpoint.AFTER_PROVIDER_CLOSE) {
+                    throw IllegalStateException("SAF_RESTORE_E2E_INTERRUPT")
+                }
+            },
+        ).saveBundle(
+            sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+            expectedBytes = committedBytes.size.toLong(),
+            targetInput = snapshot.target, reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.PictureAdd(
+                    (
+                        MetadataArtworkAdditionPreview.review(
+                            observe(committedBytes, spec.extension), png(31), "image/png",
+                        ) as MetadataArtworkAdditionPreview.Result.Ready
+                        ).proposal,
+                ),
+            ),
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue(
+            "The injected post-provider interruption must retain recovery: $interrupted",
+            interrupted is MetadataSaveService.Outcome.Failed && interrupted.needsRecovery,
+        )
+        val pending = MetadataRecoveryJournalV1(
+            File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+        ).inspect() as MetadataRecoveryJournalV1.Inspection.Pending
+        assertEquals(MetadataRecoveryPhase.MUTATION_UNKNOWN, pending.entry.phase)
+
+        writeDocument(uri, byteArrayOf(1, 2, 3, 4, 5))
+        assertEquals(
+            MetadataRecoveryConsole.RestoreResult.RestoredVerified,
+            MetadataRecoveryConsole(context, database).restoreOriginal(
+                sourceId = sourceId, trackId = trackId, uri = uri.toString(),
+                explicitlyConfirmed = true, ownerStillCurrent = { true },
+                playbackClosed = { true },
+            ),
+        )
+        assertArrayEquals(committedBytes, readBytes(uri))
+        assertEquals(sha(committedBytes), sha(readBytes(uri)))
+        assertJournalClear()
+
+        // An unclassified provider must never receive a resource mutation.
+        val untrusted = DocumentsContract.buildDocumentUri(
+            "org.michimusic.untrusted.documents",
+            "primary:Download/michi-untrusted-${UUID.randomUUID()}.${spec.extension}",
+        )
+        val revisionBefore = database.trackDao()
+            .getTrackBySource(sourceId, trackId)!!.metadataRevision
+        val markersBefore = appliedTransactionCount(sourceId, trackId)
+        val probe = track.service.saveBundle(
+            sourceId = sourceId, trackId = trackId, uriString = untrusted.toString(),
+            expectedBytes = committedBytes.size.toLong(),
+            targetInput = snapshot.target, reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.PictureAdd(
+                    (
+                        MetadataArtworkAdditionPreview.review(
+                            observe(committedBytes, spec.extension), png(32), "image/png",
+                        ) as MetadataArtworkAdditionPreview.Result.Ready
+                        ).proposal,
+                ),
+            ),
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue(
+            "An insecure provider must be refused, got $probe",
+            probe is MetadataSaveService.Outcome.Blocked,
+        )
+        assertEquals(
+            "Perfil de escritura no certificado",
+            (probe as MetadataSaveService.Outcome.Blocked).reason,
+        )
+        assertEquals(
+            revisionBefore,
+            database.trackDao().getTrackBySource(sourceId, trackId)!!.metadataRevision,
+        )
+        assertEquals(markersBefore, appliedTransactionCount(sourceId, trackId))
+        assertArrayEquals(committedBytes, readBytes(uri))
+        assertJournalClear()
+
+        // Revocation: without the persisted grant nothing may be published.
+        context.contentResolver.releasePersistableUriPermission(
+            tree,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        assertTrue(
+            "The persisted tree grant must be gone after revocation",
+            context.contentResolver.persistedUriPermissions.none { it.uri == tree },
+        )
+        val revoked = track.service.saveBundle(
+            sourceId = sourceId, trackId = trackId, uriString = uri.toString(),
+            expectedBytes = committedBytes.size.toLong(),
+            targetInput = snapshot.target, reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.PictureAdd(
+                    (
+                        MetadataArtworkAdditionPreview.review(
+                            observe(committedBytes, spec.extension), png(33), "image/png",
+                        ) as MetadataArtworkAdditionPreview.Result.Ready
+                        ).proposal,
+                ),
+            ),
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue(
+            "A revoked grant must block the resource save, got $revoked",
+            revoked is MetadataSaveService.Outcome.Blocked,
+        )
+        assertEquals(
+            revisionBefore,
+            database.trackDao().getTrackBySource(sourceId, trackId)!!.metadataRevision,
+        )
+        assertEquals(markersBefore, appliedTransactionCount(sourceId, trackId))
+        assertJournalClear()
+        // Cleanup is intentionally best-effort: the grant is already revoked.
+        runCatching {
+            DocumentsContract.deleteDocument(context.contentResolver, uri)
+        }
+    }
+
+    private fun describedLyricsDriver(): LyricsDriver {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.LYRICS, "eng", "",
+        )
+        fun edit(change: MetadataDescribedTextWorkbench.Change) =
+            listOf(MetadataSelectiveAssetStage.Edit.DescribedText(change))
+        return LyricsDriver(
+            scalarLyrics = false,
+            addEdits = {
+                edit(MetadataDescribedTextWorkbench.Change.Add(identity, "Letra SAF uno"))
+            },
+            replaceEdits = {
+                edit(MetadataDescribedTextWorkbench.Change.Replace(identity, "Letra SAF dos"))
+            },
+            clearEdits = {
+                edit(MetadataDescribedTextWorkbench.Change.Clear(identity))
+            },
+            addReview = { null },
+            replaceReview = { null },
+            clearReview = { null },
+            addOps = setOf(MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD),
+            replaceOps = setOf(MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE),
+            clearOps = setOf(MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR),
+            verifyAdd = { _, resources ->
+                assertEquals(
+                    listOf(MetadataDescribedTextWorkbench.Item(identity, "Letra SAF uno")),
+                    resources.texts,
+                )
+            },
+            verifyReplace = { _, resources ->
+                assertEquals(
+                    listOf(MetadataDescribedTextWorkbench.Item(identity, "Letra SAF dos")),
+                    resources.texts,
+                )
+            },
+            verifyClear = { _, resources -> assertTrue(resources.texts.isEmpty()) },
+        )
+    }
+
+    private fun scalarLyricsDriver(): LyricsDriver {
+        fun review(
+            snapshot: MetadataSnapshot,
+            values: List<String>?,
+        ): MetadataReview.Ready {
+            val change = if (values == null) {
+                MetadataChange.Clear(MetadataField.LYRICS)
+            } else {
+                MetadataChange.Replace(MetadataField.LYRICS, values)
+            }
+            val result = MetadataEditPreview.review(snapshot, listOf(change))
+            assertTrue("The scalar lyrics review must be accepted: $result",
+                result is MetadataReview.Ready)
+            return result as MetadataReview.Ready
+        }
+        return LyricsDriver(
+            scalarLyrics = true,
+            addEdits = { emptyList() },
+            replaceEdits = { emptyList() },
+            clearEdits = { emptyList() },
+            addReview = { review(it, listOf("Letra SAF uno")) },
+            replaceReview = { review(it, listOf("Letra SAF dos")) },
+            clearReview = { review(it, null) },
+            addOps = emptySet(),
+            replaceOps = emptySet(),
+            clearOps = emptySet(),
+            verifyAdd = { snapshot, _ ->
+                assertEquals(listOf("Letra SAF uno"), snapshot.known[MetadataField.LYRICS])
+            },
+            verifyReplace = { snapshot, _ ->
+                assertEquals(listOf("Letra SAF dos"), snapshot.known[MetadataField.LYRICS])
+            },
+            verifyClear = { snapshot, _ ->
+                assertTrue(
+                    "A cleared lyrics field must be absent, not empty text",
+                    snapshot.known[MetadataField.LYRICS].orEmpty().isEmpty(),
+                )
+            },
+        )
+    }
+
+    private suspend fun commit(
+        spec: FormatSpec,
+        track: SafTrack,
+        step: String,
+        snapshot: MetadataSnapshot,
+        expectedBytes: Long,
+        edits: List<MetadataSelectiveAssetStage.Edit>,
+        review: MetadataReview.Ready?,
+        expectedOps: Set<MetadataResourceOperation>,
+        scalarLyrics: Boolean,
+    ): MetadataSaveService.Outcome.Saved {
+        val outcome = track.service.saveBundle(
+            sourceId = track.sourceId, trackId = track.trackId,
+            uriString = track.uri.toString(), expectedBytes = expectedBytes,
+            targetInput = snapshot.target, reviewInput = review,
+            resourceEdits = edits, ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue(
+            "SAF ${spec.formatLabel} step '$step' must verify and publish, got $outcome",
+            outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+        )
+        val saved = outcome as MetadataSaveService.Outcome.Saved
+        val change = checkNotNull(saved.libraryChange) {
+            "SAF ${spec.formatLabel} step '$step' must publish a library change"
+        }
+        assertEquals(
+            "SAF ${spec.formatLabel} step '$step' resource operations",
+            expectedOps, change.resourceOperations,
+        )
+        if (scalarLyrics) {
+            assertEquals(
+                "SAF ${spec.formatLabel} step '$step' scalar fields",
+                setOf(MetadataField.LYRICS), change.changedFields,
+            )
+        } else {
+            assertTrue(
+                "SAF ${spec.formatLabel} step '$step' must not claim a scalar " +
+                    "change: ${change.changedFields}",
+                change.changedFields.isEmpty(),
+            )
+        }
+        return saved
+    }
+
+    private fun verifyCommitted(saved: MetadataSaveService.Outcome.Saved, uri: Uri): ByteArray {
+        val after = readBytes(uri)
+        assertEquals(saved.committedSha256, sha(after))
+        assertEquals(saved.committedBytes, after.size.toLong())
+        return after
+    }
+
+    private fun assertAudioTail(spec: FormatSpec, bytes: ByteArray) {
+        val tail = spec.audioTail ?: return
+        assertArrayEquals(
+            "SAF ${spec.formatLabel} audio payload must stay byte-identical",
+            tail, bytes.copyOfRange(bytes.size - tail.size, bytes.size),
+        )
+    }
+
+    private suspend fun grantPersistedTree(): Uri {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val grant = CompletableDeferred<Result<Uri>>()
+        val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
+            override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                resultData?.getString(
+                    MetadataSafGrantTestActivity.EXTRA_ERROR,
+                )?.let {
+                    grant.complete(Result.failure(IllegalStateException(it)))
+                    return
+                }
+                resultData?.getString(
+                    MetadataSafGrantTestActivity.EXTRA_URI,
+                )?.let { grant.complete(Result.success(Uri.parse(it))) }
+            }
+        }
+        instrumentation.startActivitySync(
+            Intent(context, MetadataSafGrantTestActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(MetadataSafGrantTestActivity.EXTRA_RECEIVER, receiver),
+        )
+        approveTreeWithDocumentsUi(UiDevice.getInstance(instrumentation))
+        val tree = withTimeout(60_000) { grant.await().getOrThrow() }
+        treeUri = tree
+        assertEquals("com.android.externalstorage.documents", tree.authority)
+        val persisted = context.contentResolver.persistedUriPermissions
+            .singleOrNull { it.uri == tree }
+        assertNotNull("The exact system tree grant must be persisted", persisted)
+        assertTrue(persisted!!.isReadPermission && persisted.isWritePermission)
+        return tree
+    }
+
+    private suspend fun coldRead(track: SafTrack, size: Long): MetadataSnapshot =
+        when (
+            val read = track.reader.loadEditorColdRead(
+                track.sourceId, track.trackId, track.uri.toString(), size,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Production cold read rejected the SAF document: $read")
+        }
+
+    private fun observe(
+        bytes: ByteArray,
+        extension: String,
+    ): MetadataArtworkLyricsProbe.Snapshot {
+        val temp = File(context.cacheDir, "saf-resource-${UUID.randomUUID()}.$extension")
+        return try {
+            temp.writeBytes(bytes)
+            MetadataPrivateBundleStage.observeFile(temp)
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun readBytes(uri: Uri): ByteArray =
+        context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+
+    private fun m4aEvidence(bytes: ByteArray): MetadataM4aAudioOnlyInspector.Evidence {
+        val file = File(context.cacheDir, "saf-m4a-evidence-${UUID.randomUUID()}.m4a")
+        try {
+            file.writeBytes(bytes)
+            val inspected = file.inputStream().use {
+                MetadataM4aAudioOnlyInspector.inspect(it.channel)
+            }
+            return (inspected as MetadataM4aAudioOnlyInspector.Result.AudioOnly).evidence
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun writeDocument(uri: Uri, bytes: ByteArray) {
+        context.contentResolver.openFileDescriptor(uri, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+    }
+
+    private fun appliedTransactionCount(sourceId: String, trackId: String): Int =
+        database.openHelper.readableDatabase.query(
+            "SELECT COUNT(*) FROM metadata_applied_transaction " +
+                "WHERE sourceId=? AND trackId=?",
+            arrayOf(sourceId, trackId),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getInt(0)
+        }
+
+    private fun assertJournalClear() {
+        assertTrue(
+            "The metadata journal must be clear",
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
+    private fun png(mark: Int): ByteArray {
+        fun be(value: Int) = byteArrayOf(
+            (value ushr 24).toByte(), (value ushr 16).toByte(),
+            (value ushr 8).toByte(), value.toByte(),
+        )
+        return byteArrayOf(0x89.toByte(), 80, 78, 71, 13, 10, 26, 10) +
+            be(13) + "IHDR".toByteArray() + be(16) + be(20) +
+            byteArrayOf(8, 2, 0, 0, 0) + ByteArray(4) { mark.toByte() } +
+            be(0) + "IEND".toByteArray() + ByteArray(4) { mark.toByte() }
+    }
+
+    private fun flac(comments: List<String>, audio: ByteArray): ByteArray {
+        fun littleEndian32(out: ByteArrayOutputStream, value: Int) {
+            repeat(4) { out.write(value ushr (8 * it) and 0xff) }
+        }
+        fun block(kind: Int, last: Boolean, payload: ByteArray): ByteArray =
+            ByteArrayOutputStream().apply {
+                write(kind or if (last) 0x80 else 0)
+                write(payload.size ushr 16 and 0xff)
+                write(payload.size ushr 8 and 0xff)
+                write(payload.size and 0xff)
+                write(payload)
+            }.toByteArray()
+        val streamInfo = ByteArray(34).apply {
+            this[0] = 0x10
+            this[2] = 0x10
+            this[10] = 0x0a
+            this[11] = 0xc4.toByte()
+            this[12] = 0x40
+        }
+        val vendor = "Michi E2E".toByteArray(Charsets.UTF_8)
+        val vorbis = ByteArrayOutputStream().apply {
+            littleEndian32(this, vendor.size)
+            write(vendor)
+            littleEndian32(this, comments.size)
+            comments.forEach { comment ->
+                val encoded = comment.toByteArray(Charsets.UTF_8)
+                littleEndian32(this, encoded.size)
+                write(encoded)
+            }
+        }.toByteArray()
+        return "fLaC".toByteArray(Charsets.US_ASCII) +
+            block(0, false, streamInfo) + block(4, true, vorbis) + audio
     }
 
     private suspend fun saveSafAsset(

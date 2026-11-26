@@ -204,13 +204,25 @@ internal class MetadataSourceRestoreCoordinator(
                     entry.originalSha256,entry.stageBytes,entry.stageSha256) !=
                 MetadataCommitIntentManifest.Verdict.BoundForExternalReview)
                 return@withContext Outcome.Blocked(Refusal.INTENT_NOT_BOUND)
-            if (MetadataPreparedSemanticInspector.inspectFiles(journal.backup(entry),
-                    journal.stage(entry),intent){ job?.ensureActive() }
-                !is MetadataPreparedSemanticInspector.Inspection.Compared ||
-                MetadataOpaquePreservationAudit.compare(journal.backup(entry),
+            val semantic = MetadataPreparedSemanticInspector.inspectFiles(
+                journal.backup(entry), journal.stage(entry), intent,
+            ) { job?.ensureActive() }
+            if (semantic !is MetadataPreparedSemanticInspector.Inspection.Compared)
+                return@withContext Outcome.Blocked(Refusal.SEMANTIC_OR_OPAQUE_AUDIT_FAILED)
+            // MP4 has no byte-stable moov layout after covr surgery: moov is
+            // relocated and stco/co64 are patched. Preserve the provider-neutral
+            // audio/sample evidence instead; the prepared semantic inspector
+            // above already verifies every selected and unselected resource.
+            val opaqueOk = if (intent.container ==
+                org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A) {
+                m4aAudioPreserved(journal.backup(entry), journal.stage(entry))
+            } else {
+                (MetadataOpaquePreservationAudit.compare(journal.backup(entry),
                     journal.stage(entry),intent.container,
-                    intent.changes.mapTo(linkedSetOf()){it.field})
-                !is MetadataOpaquePreservationAudit.Verdict.Compared)
+                    intent.changes.mapTo(linkedSetOf()){it.field}, intent.resources)
+                    is MetadataOpaquePreservationAudit.Verdict.Compared)
+            }
+            if (!opaqueOk)
                 return@withContext Outcome.Blocked(Refusal.SEMANTIC_OR_OPAQUE_AUDIT_FAILED)
             val grant = when (val check = inspectPermission(entry)) {
                 is MetadataExactWritePermission.Result.MediaStoreConsentRequired ->
@@ -294,6 +306,21 @@ internal class MetadataSourceRestoreCoordinator(
             Outcome.Blocked(Refusal.PROTECTED_JOURNAL_TRANSITION)
         }
     }
+
+    private fun m4aAudioPreserved(before: File, after: File): Boolean = try {
+        fun evidence(file: File) = java.io.FileInputStream(file).use { input ->
+            (MetadataM4aAudioOnlyInspector.inspect(input.channel)
+                as? MetadataM4aAudioOnlyInspector.Result.AudioOnly)?.evidence
+        }
+        val left = evidence(before)
+        val right = evidence(after)
+        left != null && right != null &&
+            left.mediaPayloadBytes == right.mediaPayloadBytes &&
+            left.mediaPayloadSha256 == right.mediaPayloadSha256 &&
+            left.codec == right.codec &&
+            left.audioTracks == right.audioTracks &&
+            left.samples == right.samples
+    } catch (_: Exception) { false }
 
     private fun inspectPermission(
         entry: MetadataRecoveryJournalV1.Entry,

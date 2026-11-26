@@ -232,12 +232,17 @@ object MediaStoreM4aTextProfile {
 }
 
 /**
- * MP3 text and representable multivalue rewrite on a local SAF document with an
- * exact persisted write grant. Evidence is deliberately separate from MediaStore.
+ * MP3 text, representable multivalue and described/picture resources on a local
+ * SAF document with an exact persisted write grant handed out by DocumentsUI.
+ *
+ * Attribution is deliberately separate from MediaStore: the evidence ID names
+ * the system `ExternalStorageProvider` document provider, never a MediaStore
+ * descriptor. A remote or unclassified provider stays unmapped (no profile), so
+ * nothing here can authorize an unknown transport.
  */
 object SafLocalMp3TitleProfile {
-    const val ID = "SAF_LOCAL_MP3_ID3_V23V24_TITLE_V1"
-    const val EVIDENCE_ID = "ME18_SAF_DOCUMENT_MP3_TITLE_V1"
+    const val ID = "SAF_LOCAL_MP3_ID3_V23V24_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_MP3_ID3_RESOURCES_V2"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
         provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
@@ -247,16 +252,26 @@ object SafLocalMp3TitleProfile {
         permitsArtwork = false,
         permitsMultiValue = id3ProfileMultiValue,
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.ID3_APIC_REPLACE,
+            MetadataResourceOperation.ID3_APIC_ADD,
+            MetadataResourceOperation.ID3_APIC_REMOVE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
+        ),
     )
 }
 
 /**
- * FLAC text and representable multivalue on a local SAF document. Resource
- * operations remain closed until their own persisted-grant evidence exists.
+ * FLAC text, representable multivalue and picture resources on a local SAF
+ * document with an exact persisted write grant. The picture scope is versioned
+ * separately from the text-only profile it supersedes, so the previous
+ * evidence ID can never authorize a resource write.
  */
 object SafLocalFlacTextProfile {
-    const val ID = "SAF_LOCAL_FLAC_VORBIS_TEXT_V1"
-    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_FLAC_TEXT_V1"
+    const val ID = "SAF_LOCAL_FLAC_VORBIS_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_FLAC_PICTURE_RESOURCES_V2"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
         provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
@@ -266,16 +281,21 @@ object SafLocalFlacTextProfile {
         permitsArtwork = false,
         permitsMultiValue = flacProfileMultiValue,
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+            MetadataResourceOperation.FLAC_PICTURE_ADD,
+            MetadataResourceOperation.FLAC_PICTURE_REMOVE,
+        ),
     )
 }
 
 /**
- * Audio-only M4A text and pairs on a local SAF document. Video and resource
- * operations remain closed until their own persisted-grant evidence exists.
+ * Audio-only M4A text, pairs and cover resources on a local SAF document. Video
+ * remains closed: the container gate only admits an audio-only M4A.
  */
 object SafLocalM4aTextProfile {
-    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1"
-    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_M4A_AUDIO_ONLY_TEXT_V1"
+    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_M4A_COVR_RESOURCES_V2"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
         provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
@@ -285,6 +305,11 @@ object SafLocalM4aTextProfile {
         permitsArtwork = false,
         permitsMultiValue = emptySet(),
         capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
     )
 }
 

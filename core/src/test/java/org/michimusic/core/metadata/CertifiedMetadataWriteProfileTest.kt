@@ -209,6 +209,20 @@ class CertifiedMetadataWriteProfileTest {
                 MetadataAudioContainer.FLAC,
             ) == null,
         )
+        // Resources are scoped per SAF/MEDIASTORE evidence: the mapped SAF MP3
+        // profile authorizes exactly the ID3 resource operations its own
+        // persisted-grant evidence covers.
+        assertEquals(
+            setOf(
+                MetadataResourceOperation.ID3_APIC_REPLACE,
+                MetadataResourceOperation.ID3_APIC_ADD,
+                MetadataResourceOperation.ID3_APIC_REMOVE,
+                MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+                MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+                MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
+            ),
+            saf.supportedResourceOperations,
+        )
     }
 
     @Test fun safFlacAndM4aUseDistinctProviderEvidence() {
@@ -232,7 +246,14 @@ class CertifiedMetadataWriteProfileTest {
             MetadataAudioContainer.FLAC, 1,
             setOf(MetadataField.SYNCED_LYRICS), emptySet(), false,
         ))
-        assertTrue(flac.supportedResourceOperations.isEmpty())
+        assertEquals(
+            setOf(
+                MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+                MetadataResourceOperation.FLAC_PICTURE_ADD,
+                MetadataResourceOperation.FLAC_PICTURE_REMOVE,
+            ),
+            flac.supportedResourceOperations,
+        )
 
         val m4a = MetadataWriteProfileRegistry.forProviderAndContainer(
             MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
@@ -251,6 +272,13 @@ class CertifiedMetadataWriteProfileTest {
             setOf(MetadataField.MEDIA_FORMAT), emptySet(), false,
         ))
         assertTrue(m4a.permitsMultiValue.isEmpty())
-        assertTrue(m4a.supportedResourceOperations.isEmpty())
+        assertEquals(
+            setOf(
+                MetadataResourceOperation.MP4_COVR_REPLACE,
+                MetadataResourceOperation.MP4_COVR_ADD,
+                MetadataResourceOperation.MP4_COVR_REMOVE,
+            ),
+            m4a.supportedResourceOperations,
+        )
     }
 }
