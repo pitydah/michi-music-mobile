@@ -56,6 +56,7 @@ enum class MetadataResourceOperation {
     FLAC_PICTURE_REPLACE,
     ID3_DESCRIBED_TEXT_REPLACE,
     ID3_DESCRIBED_TEXT_CLEAR,
+    ID3_DESCRIBED_TEXT_ADD,
     ID3_APIC_ADD,
     ID3_APIC_REMOVE,
     FLAC_PICTURE_ADD,
@@ -85,9 +86,12 @@ enum class MetadataResourceOperation {
                         MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REMOVE
                         MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_REMOVE
                     }
-                is MetadataCommitIntentManifest.ResourceChange.DescribedText ->
-                    if (change.afterCount == 0) ID3_DESCRIBED_TEXT_CLEAR
-                    else ID3_DESCRIBED_TEXT_REPLACE
+                is MetadataCommitIntentManifest.ResourceChange.DescribedText -> when {
+                    change.beforeCount == 0 && change.afterCount == 1 ->
+                        ID3_DESCRIBED_TEXT_ADD
+                    change.afterCount == 0 -> ID3_DESCRIBED_TEXT_CLEAR
+                    else -> ID3_DESCRIBED_TEXT_REPLACE
+                }
             }
     }
 }
@@ -147,6 +151,7 @@ object MediaStoreMp3TextProfile {
             MetadataResourceOperation.ID3_APIC_REMOVE,
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
         ),
     )
 }

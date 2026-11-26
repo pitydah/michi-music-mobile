@@ -3,6 +3,10 @@ package org.michimusic.core.metadata
 /**
  * ME-10E: deliberate, per-entry text editing. Never collapses multilingual COMM/USLT
  * frames into a plain COMMENT/LYRICS field. This is a review contract, not a writer.
+ *
+ * A new entry may only be created for an identity the verified source proves
+ * absent: [Item] identities are the complete decoded set of the same source
+ * read, so language/descriptor identity stays unique.
  */
 object MetadataDescribedTextWorkbench {
     data class Identity(
@@ -13,13 +17,15 @@ object MetadataDescribedTextWorkbench {
     data class Item(val identity: Identity, val text: String)
     sealed interface Change {
         val identity: Identity
+        data class Add(override val identity: Identity, val text: String) : Change
         data class Replace(override val identity: Identity, val text: String) : Change
         data class Clear(override val identity: Identity) : Change
     }
     data class Difference(val identity: Identity, val before: String?, val after: String?)
     enum class Reason {
         UNVERIFIED_SOURCE, INVALID_IDENTITY, DUPLICATE_ORIGINAL, DUPLICATE_OPERATION,
-        UNKNOWN_ENTRY, AMBIGUOUS_CREATE, INVALID_TEXT, TOO_MANY_ENTRIES, TOO_MANY_OPERATIONS
+        UNKNOWN_ENTRY, ENTRY_ALREADY_PRESENT, AMBIGUOUS_CREATE, INVALID_TEXT,
+        TOO_MANY_ENTRIES, TOO_MANY_OPERATIONS
     }
     sealed interface Result {
         data class Ready(val values: List<Item>, val differences: List<Difference>) : Result
@@ -30,6 +36,10 @@ object MetadataDescribedTextWorkbench {
         if (!verifiedSource) return Result.Blocked(Reason.UNVERIFIED_SOURCE)
         if (original.size > 64) return Result.Blocked(Reason.TOO_MANY_ENTRIES)
         if (changes.size > 64) return Result.Blocked(Reason.TOO_MANY_OPERATIONS)
+        // The same read that proves absence also bounds the entry list; an
+        // addition may never push the frame count past that verified limit.
+        if (original.size + changes.count { it is Change.Add } > 64)
+            return Result.Blocked(Reason.TOO_MANY_ENTRIES)
         if (original.any { !validIdentity(it.identity) || !validText(it.identity, it.text) })
             return Result.Blocked(Reason.INVALID_IDENTITY)
         if (original.map { it.identity }.distinct().size != original.size)
@@ -43,14 +53,23 @@ object MetadataDescribedTextWorkbench {
         val diffs = mutableListOf<Difference>()
         for (change in changes) {
             val before = existing[change.identity]?.text
-                ?: return Result.Blocked(Reason.UNKNOWN_ENTRY)
             val after = when (change) {
-                is Change.Replace -> {
+                is Change.Add -> {
+                    if (before != null) return Result.Blocked(Reason.ENTRY_ALREADY_PRESENT)
                     if (!validText(change.identity, change.text))
                         return Result.Blocked(Reason.INVALID_TEXT)
                     change.text
                 }
-                is Change.Clear -> null
+                is Change.Replace -> {
+                    if (before == null) return Result.Blocked(Reason.UNKNOWN_ENTRY)
+                    if (!validText(change.identity, change.text))
+                        return Result.Blocked(Reason.INVALID_TEXT)
+                    change.text
+                }
+                is Change.Clear -> {
+                    if (before == null) return Result.Blocked(Reason.UNKNOWN_ENTRY)
+                    null
+                }
             }
             if (after == before) continue
             if (after == null) values.remove(change.identity)
@@ -60,11 +79,13 @@ object MetadataDescribedTextWorkbench {
         return Result.Ready(values.values.toList(), diffs)
     }
 
-    /** Creating an unobserved descriptor requires a separate, certified creation flow. */
+    /**
+     * Creating a new COMM/USLT identity is only valid against a verified empty
+     * observation. The caller must pass the exact source snapshot through
+     * [review]; this helper assumes that verification already happened.
+     */
     fun proposeNew(identity: Identity, text: String): Result =
-        if (!validIdentity(identity)) Result.Blocked(Reason.INVALID_IDENTITY)
-        else if (!validText(identity, text)) Result.Blocked(Reason.INVALID_TEXT)
-        else Result.Blocked(Reason.AMBIGUOUS_CREATE)
+        review(true, emptyList(), listOf(Change.Add(identity, text)))
 
     private fun validIdentity(id: Identity): Boolean =
         id.language.matches(Regex("[a-z]{3}")) && id.description.length <= 128 &&

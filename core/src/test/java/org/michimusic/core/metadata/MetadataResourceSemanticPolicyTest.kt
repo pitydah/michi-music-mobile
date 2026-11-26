@@ -68,6 +68,74 @@ class MetadataResourceSemanticPolicyTest {
         )
     }
 
+    @Test fun describedTextAdditionVerifiesAbsentBeforeAndPresentAfter() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT, "spa", "principal")
+        val original = textSnapshot(emptyList())
+        val candidate = textSnapshot(
+            listOf(MetadataDescribedTextWorkbench.Item(identity, "Nuevo")))
+        val intent = textReceipt(identity)
+        assertEquals(
+            MetadataResourceSemanticPolicy.Verdict.ResourcesMatch(1),
+            MetadataResourceSemanticPolicy.compare(intent, original, candidate),
+        )
+        assertEquals(
+            MetadataResourceSemanticPolicy.Verdict.ResourcesMatch(1),
+            MetadataResourceSemanticPolicy.compareCandidate(intent, candidate),
+        )
+    }
+
+    @Test fun describedTextAdditionRejectsCandidateThatOmitsTheNewEntry() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.LYRICS, "spa", "letra")
+        val original = textSnapshot(emptyList())
+        val intent = textReceipt(identity)
+        assertEquals(
+            MetadataResourceSemanticPolicy.Verdict.Refused(
+                MetadataResourceSemanticPolicy.Refusal.CANDIDATE_RESOURCE_MISMATCH,
+            ),
+            MetadataResourceSemanticPolicy.compare(
+                intent, original, textSnapshot(emptyList())),
+        )
+        assertEquals(
+            MetadataResourceSemanticPolicy.Verdict.Refused(
+                MetadataResourceSemanticPolicy.Refusal.CANDIDATE_RESOURCE_MISMATCH,
+            ),
+            MetadataResourceSemanticPolicy.compareCandidate(intent, textSnapshot(emptyList())),
+        )
+    }
+
+    private fun textSnapshot(texts: List<MetadataDescribedTextWorkbench.Item>) =
+        MetadataArtworkLyricsProbe.Snapshot(
+            format = MetadataArtworkLyricsProbe.Format.ID3_V24,
+            artworks = emptyList(),
+            texts = texts,
+        )
+
+    private fun textReceipt(identity: MetadataDescribedTextWorkbench.Identity) =
+        MetadataCommitIntentManifest.Receipt(
+            transactionId = "12341234-1234-4abc-8abc-123412341234",
+            ownerSha256 = "a".repeat(64),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.ID3_V24,
+            originalBytes = 2048,
+            originalSha256 = "b".repeat(64),
+            candidateBytes = 4096,
+            candidateSha256 = "c".repeat(64),
+            changes = emptyList(),
+            resources = listOf(
+                MetadataCommitIntentManifest.ResourceChange.DescribedText(
+                    kind = identity.kind,
+                    language = identity.language,
+                    description = identity.description,
+                    beforeCount = 0,
+                    afterCount = 1,
+                    beforeSha256 = MetadataCommitIntentManifest.valuesDigest(emptyList()),
+                    afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Nuevo")),
+                ),
+            ),
+        )
+
     private fun snapshot(first: ByteArray, second: ByteArray) =
         MetadataArtworkLyricsProbe.Snapshot(
             format = MetadataArtworkLyricsProbe.Format.ID3_V24,

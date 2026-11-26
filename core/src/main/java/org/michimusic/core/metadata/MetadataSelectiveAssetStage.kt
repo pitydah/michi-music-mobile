@@ -188,7 +188,12 @@ object MetadataSelectiveAssetStage {
     ): ByteArray {
         val language=identity.language.toByteArray(StandardCharsets.US_ASCII)
         val payload=if(version==3) {
-            byteArrayOf(1)+language+identity.description.toByteArray(StandardCharsets.UTF_16)+
+            // UTF_16 emits no BOM for an empty string, and the decoder requires
+            // one for both independent UTF-16 strings. Write the descriptor BOM
+            // explicitly so an empty descriptor stays a valid empty identity.
+            val description=byteArrayOf(0xff.toByte(),0xfe.toByte())+
+                identity.description.toByteArray(StandardCharsets.UTF_16LE)
+            byteArrayOf(1)+language+description+
                 byteArrayOf(0,0)+text.toByteArray(StandardCharsets.UTF_16)
         } else {
             byteArrayOf(3)+language+identity.description.toByteArray(StandardCharsets.UTF_8)+
@@ -236,9 +241,21 @@ object MetadataSelectiveAssetStage {
     private fun rewriteId3(source: ByteArray, edit: Edit): ByteArray {
         val version=u(source[3]);val out=ByteArrayOutputStream()
         var at=10;var ordinal=0;var found=0
+        // A verified-absent described-text entry is appended before any existing
+        // zero padding so the declared tag stays a valid frame sequence.
+        val appendDescribed: ByteArray? = (edit as? Edit.DescribedText)?.change?.let { change ->
+            (change as? MetadataDescribedTextWorkbench.Change.Add)?.let { add ->
+                id3Frame(add.identity.kind.frameId,
+                    encodeDescribed(version,add.identity,add.text),version)
+            }
+        }
+        var appendedDescribed=false
         while(at<source.size) {
             if(source.size-at<10 || (0..3).all {source[at+it]==0.toByte()}) {
                 if((at until source.size).any {source[it]!=0.toByte()})throw Rejected(Code.MALFORMED_METADATA)
+                if(appendDescribed!=null) {
+                    out.write(appendDescribed);appendedDescribed=true;found=1
+                }
                 out.write(source,at,source.size-at);break
             }
             val id=String(source,at,4,StandardCharsets.US_ASCII)
@@ -272,11 +289,15 @@ object MetadataSelectiveAssetStage {
                         val existing=MetadataId3DescribedTagCodec.decode(identity.kind,version,payload)
                             ?:throw Rejected(Code.MALFORMED_METADATA)
                         if(existing.language==identity.language && existing.description==identity.description) {
+                            if(edit.change is MetadataDescribedTextWorkbench.Change.Add)
+                                throw Rejected(Code.AMBIGUOUS_TARGET)
                             found++
                             when(val change=edit.change) {
                                 is MetadataDescribedTextWorkbench.Change.Clear -> byteArrayOf()
                                 is MetadataDescribedTextWorkbench.Change.Replace -> id3Frame(id,
                                     encodeDescribed(version,identity,change.text),version)
+                                is MetadataDescribedTextWorkbench.Change.Add ->
+                                    throw Rejected(Code.AMBIGUOUS_TARGET)
                             }
                         }else null
                     }else null
@@ -284,6 +305,9 @@ object MetadataSelectiveAssetStage {
             }
             if(replace!=null)out.write(replace) else out.write(source,at,10+len)
             at+=10+len
+        }
+        if(appendDescribed!=null && !appendedDescribed) {
+            out.write(appendDescribed);found=1
         }
         if(edit is Edit.PictureAdd) {
             val p=edit.proposal

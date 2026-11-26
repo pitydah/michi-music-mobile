@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -63,6 +64,7 @@ import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
+import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -96,6 +98,25 @@ internal data class MetadataArtLyricsUiState(
         val updated = operations.toMutableMap()
         if (text == original) updated.remove(id) else updated[id] = MetadataDescribedTextWorkbench.Change.Replace(id,text)
         return copy(operations=updated)
+    }
+    /** Proposes a NEW entry only for an identity the verified snapshot proves absent. */
+    fun add(id:MetadataDescribedTextWorkbench.Identity, text:String):MetadataArtLyricsUiState {
+        val snapshot = inspected ?: return this
+        if (snapshot.texts.any { it.identity == id }) return this
+        return copy(operations=operations + (id to MetadataDescribedTextWorkbench.Change.Add(id,text)))
+    }
+    fun updateDraft(id:MetadataDescribedTextWorkbench.Identity, text:String):MetadataArtLyricsUiState {
+        val change = operations[id] ?: return this
+        if (change is MetadataDescribedTextWorkbench.Change.Add && text.isBlank())
+            return copy(operations=operations-id)
+        val next = when(change) {
+            is MetadataDescribedTextWorkbench.Change.Add ->
+                MetadataDescribedTextWorkbench.Change.Add(id,text)
+            is MetadataDescribedTextWorkbench.Change.Replace ->
+                MetadataDescribedTextWorkbench.Change.Replace(id,text)
+            is MetadataDescribedTextWorkbench.Change.Clear -> change
+        }
+        return copy(operations=operations + (id to next))
     }
     fun clear(id:MetadataDescribedTextWorkbench.Identity):MetadataArtLyricsUiState {
         if (inspected?.texts?.none {it.identity==id} != false) return this
@@ -170,6 +191,13 @@ internal fun MichiMetadataArtworkLyricsSection(
     var showEditor by remember(sourceUri) { mutableStateOf(false) }
     var showAnchorMenu by remember(sourceUri) { mutableStateOf(false) }
     var confirmRemove by remember(sourceUri) { mutableStateOf(false) }
+    var showAddText by remember(sourceUri) { mutableStateOf(false) }
+    var addKind by remember(sourceUri) {
+        mutableStateOf(MetadataId3DescribedTagCodec.Kind.COMMENT)
+    }
+    var addLanguage by remember(sourceUri) { mutableStateOf("eng") }
+    var addDescription by remember(sourceUri) { mutableStateOf("") }
+    var addContent by remember(sourceUri) { mutableStateOf("") }
     var transformJob by remember(sourceUri) { mutableStateOf<Job?>(null) }
     val latestState by rememberUpdatedState(state)
 
@@ -455,6 +483,23 @@ internal fun MichiMetadataArtworkLyricsSection(
                             color=TextSecondary,style=MaterialTheme.typography.bodySmall)
                     }
                 }
+                if(snapshot.format!=MetadataArtworkLyricsProbe.Format.FLAC) {
+                    val pendingAdds=state.operations.values
+                        .filterIsInstance<MetadataDescribedTextWorkbench.Change.Add>()
+                        .filter { change -> snapshot.texts.none { it.identity==change.identity } }
+                    TextButton(
+                        onClick={showAddText=true},
+                        modifier=Modifier.sizeIn(minHeight=48.dp)
+                            .testTag("metadata_add_described_text"),
+                    ) { Text("Añadir comentario o letra") }
+                    pendingAdds.forEach { change ->
+                        MetadataPendingTextCard(
+                            change,
+                            onText={onChange(state.updateDraft(change.identity,it))},
+                            onKeep={onChange(state.keep(change.identity))},
+                        )
+                    }
+                }
                 if(state.operations.isNotEmpty()) {
                     val review=state.textResult
                     Text(if(review is MetadataDescribedTextWorkbench.Result.Blocked)
@@ -487,6 +532,94 @@ internal fun MichiMetadataArtworkLyricsSection(
                             TextButton(onClick={confirmRemove=false}) { Text("Cancelar") }
                         },
                     )
+                }
+                if(showAddText) {
+                    val languageValid=addLanguage.matches(Regex("[a-z]{3}"))
+                    val identity=MetadataDescribedTextWorkbench.Identity(
+                        addKind,addLanguage,addDescription)
+                    val duplicated=snapshot.texts.any { it.identity==identity }
+                    val descriptionValid=addDescription.length<=128 &&
+                        addDescription.none { it.isISOControl() } && '\ufffd' !in addDescription
+                    val contentValid=addContent.isNotBlank() &&
+                        addContent.length<=addKind.maxChars
+                    val valid=languageValid && descriptionValid && contentValid && !duplicated
+                    Dialog(onDismissRequest={showAddText=false}) {
+                        AeroFloatingSurface(
+                            shape=RoundedCornerShape(20.dp),
+                            modifier=Modifier.fillMaxWidth().padding(8.dp)
+                                .testTag("metadata_add_described_dialog"),
+                        ) {
+                            Column(
+                                Modifier.fillMaxWidth().aeroModalFormViewport()
+                                    .padding(20.dp),
+                                verticalArrangement=Arrangement.spacedBy(MichiSpacing.sm),
+                            ) {
+                                Text("Añadir comentario o letra",
+                                    style=MaterialTheme.typography.titleLarge,color=PureWhite)
+                                Row(horizontalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
+                                    TextButton(
+                                        onClick={addKind=MetadataId3DescribedTagCodec.Kind.COMMENT},
+                                        modifier=Modifier.sizeIn(minHeight=48.dp)
+                                            .testTag("metadata_add_kind_comment"),
+                                    ) {
+                                        Text(if(addKind==MetadataId3DescribedTagCodec.Kind.COMMENT)
+                                            "✓ Comentario" else "Comentario")
+                                    }
+                                    TextButton(
+                                        onClick={addKind=MetadataId3DescribedTagCodec.Kind.LYRICS},
+                                        modifier=Modifier.sizeIn(minHeight=48.dp)
+                                            .testTag("metadata_add_kind_lyrics"),
+                                    ) {
+                                        Text(if(addKind==MetadataId3DescribedTagCodec.Kind.LYRICS)
+                                            "✓ Letra" else "Letra")
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value=addLanguage,
+                                    onValueChange={ next ->
+                                        addLanguage=next.filter { it in 'a'..'z' }.take(3)
+                                    },
+                                    label={Text("Idioma (3 letras)")},singleLine=true,
+                                    modifier=Modifier.fillMaxWidth()
+                                        .testTag("metadata_add_described_language"),
+                                )
+                                OutlinedTextField(
+                                    value=addDescription,
+                                    onValueChange={ next -> addDescription=next.take(128) },
+                                    label={Text("Descriptor (opcional)")},singleLine=true,
+                                    modifier=Modifier.fillMaxWidth()
+                                        .testTag("metadata_add_described_description"),
+                                )
+                                OutlinedTextField(
+                                    value=addContent,
+                                    onValueChange={ addContent=it.take(addKind.maxChars) },
+                                    label={Text("Contenido")},
+                                    minLines=if(addKind==MetadataId3DescribedTagCodec.Kind.LYRICS) 4 else 1,
+                                    maxLines=8,isError=addContent.isBlank(),
+                                    modifier=Modifier.fillMaxWidth()
+                                        .testTag("metadata_add_described_content"),
+                                )
+                                if(duplicated) Text(
+                                    "Ya existe una entrada con ese idioma y descriptor.",
+                                    color=MaterialTheme.colorScheme.error,
+                                    style=MaterialTheme.typography.bodySmall,
+                                )
+                                Row(Modifier.fillMaxWidth(),
+                                    horizontalArrangement=Arrangement.End) {
+                                    TextButton(onClick={showAddText=false}) { Text("Cancelar") }
+                                    Button(
+                                        enabled=valid,
+                                        onClick={
+                                            onChange(state.add(identity,addContent))
+                                            showAddText=false
+                                            addContent=""
+                                        },
+                                        modifier=Modifier.testTag("metadata_add_described_confirm"),
+                                    ) { Text("Añadir propuesta") }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -611,6 +744,32 @@ private fun orient(bitmap:Bitmap,bytes:ByteArray):Bitmap {
     val rotated=Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
     if(rotated!==bitmap) bitmap.recycle()
     return rotated
+}
+
+@Composable
+private fun MetadataPendingTextCard(
+    change:MetadataDescribedTextWorkbench.Change.Add,
+    onText:(String)->Unit,onKeep:()->Unit,
+) {
+    val kind=change.identity.kind
+    Column(Modifier.fillMaxWidth().background(AeroGraphite,MichiShapes.md)
+        .border(1.dp,TertiaryCyan,MichiShapes.md).padding(MichiSpacing.md),
+        verticalArrangement=Arrangement.spacedBy(MichiSpacing.sm)) {
+        Text("Nueva entrada · ${if(kind==MetadataId3DescribedTagCodec.Kind.COMMENT) "Comentario" else "Letra"} · ${change.identity.language}",
+            style=MaterialTheme.typography.titleSmall,color=TertiaryCyan)
+        Text("Descriptor: ${change.identity.description.ifBlank { "(sin descriptor)" }}",
+            color=TextSecondary,style=MaterialTheme.typography.bodySmall)
+        OutlinedTextField(value=change.text,onValueChange=onText,
+            label={Text("Contenido de la nueva entrada")},modifier=Modifier.fillMaxWidth()
+                .testTag("metadata_described_new_${kind.name}_${change.identity.language}_${change.identity.description}"),
+            minLines=if(kind==MetadataId3DescribedTagCodec.Kind.LYRICS) 4 else 1,
+            maxLines=8,isError=change.text.isBlank())
+        if(change.text.isBlank()) Text(
+            "El contenido no puede quedar vacío; quita la entrada si no la necesitas.",
+            color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+        TextButton(onClick=onKeep,modifier=Modifier.sizeIn(minHeight=48.dp))
+            {Text("Quitar entrada nueva")}
+    }
 }
 
 @Composable

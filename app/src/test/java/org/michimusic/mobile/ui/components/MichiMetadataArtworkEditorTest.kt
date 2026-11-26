@@ -117,4 +117,19 @@ class MichiMetadataArtworkEditorTest {
         compose.onNodeWithTag("metadata_change_artwork").assertDoesNotExist()
         compose.onNodeWithTag("metadata_remove_artwork").assertDoesNotExist()
     }
+
+    // Robolectric #8460: a width qualifier above 320dp plus a text field inside
+    // a Dialog can loop during layout. The default 320dp viewport exercises the
+    // same Workbench semantics without that framework bug.
+    @Test
+    @Config(qualifiers = "xhdpi")
+    fun absentDescribedTextIsProposedThroughTheWorkbench() {
+        setSection(false)
+        compose.onNodeWithTag("metadata_add_described_text").performClick()
+        compose.onNodeWithTag("metadata_add_described_content")
+            .performTextInput("Comentario nuevo")
+        compose.onNodeWithTag("metadata_add_described_confirm").performClick()
+        compose.onNodeWithText("Nueva entrada", substring = true).assertExists()
+        compose.onNodeWithTag("metadata_described_new_COMMENT_eng_").assertExists()
+    }
 }

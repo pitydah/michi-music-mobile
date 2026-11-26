@@ -10,6 +10,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.channels.FileChannel
+import java.nio.file.LinkOption
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -27,9 +30,11 @@ import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataArtworkAdditionPreview
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataArtworkReplacementPreview
+import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataDescribedTextWorkbench
 import org.michimusic.core.metadata.MetadataEditPreview
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataFieldObservation
 import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
 import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataResourceOperation
@@ -1148,6 +1153,277 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
             ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
         )
+    }
+
+    @Test fun addReplaceClearDescribedTextPreservesUnselected() = runBlocking {
+        val resolver = context.contentResolver
+        val commentIdentity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT, "spa", "principal",
+        )
+        val lyricsIdentity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.LYRICS, "eng", "",
+        )
+        // The same v2.3 scalar-only fixture with NO COMM/USLT frames, so absence
+        // is proved by the strict probe the production save path already uses.
+        val before = id3(
+            title = "Sin texto descrito",
+            artist = "Synthetic Artist",
+            album = "Synthetic Album",
+            genre = "Rock",
+            audio = audioPayload,
+        )
+        val observedBefore = observeBytes(before)
+        assertEquals(MetadataArtworkLyricsProbe.Format.ID3_V23, observedBefore.format)
+        assertTrue("The fixture must contain no COMM/USLT frames", observedBefore.texts.isEmpty())
+
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-text-add-${UUID.randomUUID()}.mp3")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEAddTextE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable described-text item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(before)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val textTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = textTrackId,
+                    title = "Sin texto descrito",
+                    artist = "Synthetic Artist",
+                    album = "Synthetic Album",
+                    size = observedSize,
+                    format = "mp3",
+                    genre = "Rock",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, textTrackId, uri.toString(), observedSize, sha(before),
+            1_700_000_000_000L, "sha256",
+        )
+        val originalRevision = database.trackDao()
+            .getTrackBySource(sourceId, textTrackId)!!.metadataRevision
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val original = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, textTrackId, uri.toString(), observedSize,
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("The production cold reader rejected the fixture: $read")
+        }
+        assertEquals(listOf("Sin texto descrito"), original.known[MetadataField.TITLE])
+
+        val service = MetadataSaveService(context, database.trackDao(), database)
+        val added = service.saveBundle(
+            sourceId = sourceId,
+            trackId = textTrackId,
+            uriString = uri.toString(),
+            expectedBytes = observedSize,
+            targetInput = original.target,
+            reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Add(
+                        commentIdentity, "Comentario añadido",
+                    ),
+                ),
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Add(
+                        lyricsIdentity, "Letra añadida",
+                    ),
+                ),
+            ),
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+        assertTrue(
+            "Adding absent COMM/USLT must commit and publish, got $added",
+            added is MetadataSaveService.Outcome.Saved && added.indexPublished,
+        )
+        val addedChange = checkNotNull((added as MetadataSaveService.Outcome.Saved).libraryChange)
+        assertEquals(
+            setOf(MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD),
+            addedChange.resourceOperations,
+        )
+        assertTrue(addedChange.changedFields.isEmpty())
+
+        val afterAdd = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertEquals(
+            listOf(
+                MetadataDescribedTextWorkbench.Item(commentIdentity, "Comentario añadido"),
+                MetadataDescribedTextWorkbench.Item(lyricsIdentity, "Letra añadida"),
+            ),
+            observeBytes(afterAdd).texts,
+        )
+        assertArrayEquals(
+            audioPayload,
+            afterAdd.copyOfRange(afterAdd.size - audioPayload.size, afterAdd.size),
+        )
+        assertUnselectedTags(afterAdd)
+
+        val reopened = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, textTrackId, uri.toString(), afterAdd.size.toLong(),
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening after the described-text addition failed: $read")
+        }
+        assertEquals(listOf("Sin texto descrito"), reopened.known[MetadataField.TITLE])
+        assertUnselectedTags(afterAdd)
+
+        val replaced = service.saveBundle(
+            sourceId = sourceId,
+            trackId = textTrackId,
+            uriString = uri.toString(),
+            expectedBytes = afterAdd.size.toLong(),
+            targetInput = reopened.target,
+            reviewInput = null,
+            resourceEdits = listOf(
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Replace(
+                        commentIdentity, "Comentario corregido",
+                    ),
+                ),
+                MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Clear(lyricsIdentity),
+                ),
+            ),
+            ownerCurrent = { true },
+            playbackClosed = { true },
+        )
+        assertTrue(
+            "Replacing one entry and clearing the other must commit, got $replaced",
+            replaced is MetadataSaveService.Outcome.Saved && replaced.indexPublished,
+        )
+        val replacedChange =
+            checkNotNull((replaced as MetadataSaveService.Outcome.Saved).libraryChange)
+        assertEquals(
+            setOf(
+                MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+                MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            ),
+            replacedChange.resourceOperations,
+        )
+
+        val afterReplace = resolver.openInputStream(uri)!!.use { it.readBytes() }
+        assertEquals(
+            listOf(MetadataDescribedTextWorkbench.Item(commentIdentity, "Comentario corregido")),
+            observeBytes(afterReplace).texts,
+        )
+        assertArrayEquals(
+            audioPayload,
+            afterReplace.copyOfRange(afterReplace.size - audioPayload.size, afterReplace.size),
+        )
+        assertUnselectedTags(afterReplace)
+
+        val finalRead = when (
+            val read = reader.loadEditorColdRead(
+                readSourceId, textTrackId, uri.toString(), afterReplace.size.toLong(),
+            )
+        ) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening after replace/clear failed: $read")
+        }
+        assertEquals(listOf("Sin texto descrito"), finalRead.known[MetadataField.TITLE])
+
+        val row = database.trackDao().getTrackBySource(sourceId, textTrackId)!!
+        assertEquals("Sin texto descrito", row.title)
+        assertEquals(afterReplace.size.toLong(), row.size)
+        assertTrue(row.metadataRevision > originalRevision)
+        assertEquals(addedChange.committedRevision, replacedChange.previousRevision)
+        assertEquals(row.metadataRevision, replacedChange.committedRevision)
+        // Both transactions leave their own exact applied marker, so the Room
+        // publication of the addition and of the replace/clear can be replayed.
+        database.openHelper.writableDatabase.query(
+            "SELECT transactionId,originalRevision,committedRevision,candidateSha256,candidateBytes " +
+                "FROM metadata_applied_transaction WHERE transactionId=?",
+            arrayOf(addedChange.transactionId),
+        ).use { cursor ->
+            assertTrue("Exact described-text addition marker is missing", cursor.moveToFirst())
+            assertEquals(addedChange.transactionId, cursor.getString(0))
+            assertEquals(originalRevision, cursor.getLong(1))
+            assertEquals(addedChange.committedRevision, cursor.getLong(2))
+            assertEquals(sha(afterAdd), cursor.getString(3))
+            assertEquals(afterAdd.size.toLong(), cursor.getLong(4))
+            assertTrue("The addition marker must be unique", !cursor.moveToNext())
+        }
+        database.openHelper.writableDatabase.query(
+            "SELECT transactionId,originalRevision,committedRevision,candidateSha256,candidateBytes " +
+                "FROM metadata_applied_transaction WHERE transactionId=?",
+            arrayOf(replacedChange.transactionId),
+        ).use { cursor ->
+            assertTrue("Exact described-text replace/clear marker is missing", cursor.moveToFirst())
+            assertEquals(replacedChange.transactionId, cursor.getString(0))
+            assertEquals(addedChange.committedRevision, cursor.getLong(1))
+            assertEquals(row.metadataRevision, cursor.getLong(2))
+            assertEquals(sha(afterReplace), cursor.getString(3))
+            assertEquals(afterReplace.size.toLong(), cursor.getLong(4))
+            assertTrue("The replace/clear marker must be unique", !cursor.moveToNext())
+        }
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
+    private fun observeBytes(bytes: ByteArray): MetadataArtworkLyricsProbe.Snapshot {
+        val temp = File(context.cacheDir, "me-described-probe-${UUID.randomUUID()}.mp3")
+        return try {
+            temp.writeBytes(bytes)
+            MetadataPrivateBundleStage.observeFile(temp)
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** Production cold parser evidence: no unselected scalar tag changed. */
+    private fun assertUnselectedTags(bytes: ByteArray) {
+        val temp = File(context.cacheDir, "me-described-tags-${UUID.randomUUID()}.mp3")
+        try {
+            temp.writeBytes(bytes)
+            val report = FileChannel.open(
+                temp.toPath(), StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS,
+            ).use(MetadataColdFieldParser::observe)
+            assertEquals(
+                MetadataFieldObservation.Present(listOf("Sin texto descrito")),
+                report.observation(MetadataField.TITLE),
+            )
+            assertEquals(
+                MetadataFieldObservation.Present(listOf("Synthetic Artist")),
+                report.observation(MetadataField.ARTIST),
+            )
+            assertEquals(
+                MetadataFieldObservation.Present(listOf("Synthetic Album")),
+                report.observation(MetadataField.ALBUM),
+            )
+            assertEquals(
+                MetadataFieldObservation.Present(listOf("Rock")),
+                report.observation(MetadataField.GENRE),
+            )
+        } finally {
+            temp.delete()
+        }
     }
 
     private fun sha(bytes: ByteArray): String =

@@ -195,4 +195,65 @@ class MetadataWorkbenchSaveBundlePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun newlyAddedDescribedTextBecomesAnExactProductionEdit() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT,
+            "spa",
+            "principal",
+        )
+        val state = MetadataArtLyricsUiState(
+            load = MetadataArtLyricsUiState.Load.Ready(
+                MetadataArtworkLyricsProbe.Snapshot(
+                    MetadataArtworkLyricsProbe.Format.ID3_V24,
+                    emptyList(),
+                    emptyList(),
+                ),
+            ),
+        ).add(identity, "Comentario nuevo")
+
+        val result = MetadataWorkbenchSaveBundlePolicy.build(
+            MetadataReview.Unchanged,
+            state,
+            provisionalCount = 0,
+        ) as MetadataWorkbenchSaveBundlePolicy.Result.Ready
+
+        val change = (result.resourceEdits.single() as
+            MetadataSelectiveAssetStage.Edit.DescribedText).change
+        assertEquals(
+            MetadataDescribedTextWorkbench.Change.Add(identity, "Comentario nuevo"),
+            change,
+        )
+    }
+
+    @Test
+    fun addedTextForAnObservedIdentityIsNeverProposed() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.LYRICS,
+            "spa",
+            "letra",
+        )
+        val state = MetadataArtLyricsUiState(
+            load = MetadataArtLyricsUiState.Load.Ready(
+                MetadataArtworkLyricsProbe.Snapshot(
+                    MetadataArtworkLyricsProbe.Format.ID3_V24,
+                    emptyList(),
+                    listOf(MetadataDescribedTextWorkbench.Item(identity, "Ya existe")),
+                ),
+            ),
+        ).add(identity, "Duplicado")
+
+        assertTrue(state.operations.isEmpty())
+        assertEquals(
+            MetadataWorkbenchSaveBundlePolicy.Result.Blocked(
+                MetadataWorkbenchSaveBundlePolicy.Reason.NO_EFFECTIVE_CHANGES,
+            ),
+            MetadataWorkbenchSaveBundlePolicy.build(
+                MetadataReview.Unchanged,
+                state,
+                provisionalCount = 0,
+            ),
+        )
+    }
 }

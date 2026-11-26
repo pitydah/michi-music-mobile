@@ -199,6 +199,90 @@ class MetadataCommitIntentManifestTest {
         assertFalse(replaced.afterSha256 == cleared.afterSha256)
     }
 
+    @Test fun describedTextAdditionIsDurablyDistinctAndValid() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT,
+            "eng",
+            "",
+        )
+        val snapshot = MetadataArtworkLyricsProbe.Snapshot(
+            MetadataArtworkLyricsProbe.Format.ID3_V24,
+            emptyList(),
+            emptyList(),
+        )
+        val receipt = MetadataCommitIntentManifest.createBundle(
+            tx, owner, null, snapshot,
+            listOf(MetadataSelectiveAssetStage.Edit.DescribedText(
+                MetadataDescribedTextWorkbench.Change.Add(identity, "Nuevo"),
+            )),
+            MetadataDocumentProvider.MEDIASTORE, MetadataAudioContainer.ID3_V24,
+            1024, originalHash, 2048, candidateHash,
+        )
+        val added = receipt.resources.single() as
+            MetadataCommitIntentManifest.ResourceChange.DescribedText
+        assertEquals(0, added.beforeCount)
+        assertEquals(1, added.afterCount)
+        assertEquals(
+            MetadataCommitIntentManifest.valuesDigest(emptyList()), added.beforeSha256)
+        assertEquals(
+            MetadataCommitIntentManifest.valuesDigest(listOf("Nuevo")), added.afterSha256)
+        assertTrue(MetadataCommitIntentManifest.valid(receipt))
+    }
+
+    @Test fun describedTextAdditionRequiresVerifiedAbsence() {
+        val identity = MetadataDescribedTextWorkbench.Identity(
+            MetadataId3DescribedTagCodec.Kind.COMMENT,
+            "eng",
+            "",
+        )
+        val present = MetadataArtworkLyricsProbe.Snapshot(
+            MetadataArtworkLyricsProbe.Format.ID3_V24,
+            emptyList(),
+            listOf(MetadataDescribedTextWorkbench.Item(identity, "Ya existe")),
+        )
+        var rejected = false
+        try {
+            MetadataCommitIntentManifest.createBundle(
+                tx, owner, null, present,
+                listOf(MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Add(identity, "Nuevo"),
+                )),
+                MetadataDocumentProvider.MEDIASTORE, MetadataAudioContainer.ID3_V24,
+                1024, originalHash, 2048, candidateHash,
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+    }
+
+    @Test fun describedTextZeroBeforeAndZeroAfterIsNeverValid() {
+        val emptyDigest = MetadataCommitIntentManifest.valuesDigest(emptyList())
+        val forged = MetadataCommitIntentManifest.Receipt(
+            transactionId = tx,
+            ownerSha256 = "a".repeat(64),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.ID3_V24,
+            originalBytes = 1024,
+            originalSha256 = originalHash,
+            candidateBytes = 2048,
+            candidateSha256 = candidateHash,
+            changes = emptyList(),
+            resources = listOf(
+                MetadataCommitIntentManifest.ResourceChange.DescribedText(
+                    kind = MetadataId3DescribedTagCodec.Kind.COMMENT,
+                    language = "eng",
+                    description = "",
+                    beforeCount = 0,
+                    afterCount = 0,
+                    beforeSha256 = emptyDigest,
+                    afterSha256 = emptyDigest,
+                ),
+            ),
+        )
+        assertFalse(MetadataCommitIntentManifest.valid(forged))
+    }
+
     @Test fun rejectsDuplicateResourceTargets() {
         val identity = MetadataDescribedTextWorkbench.Identity(
             MetadataId3DescribedTagCodec.Kind.COMMENT,

@@ -21,6 +21,7 @@ import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataArtworkEvidence
+import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
 
 class MetadataCommitIntentStoreTest {
     private val id="12341234-1234-4abc-8abc-123412341234"
@@ -117,6 +118,33 @@ class MetadataCommitIntentStoreTest {
                         ordinal=0, type=3, description="Cover",
                         beforeMime="image/jpeg", beforeBytes=32,
                         beforeSha256="d".repeat(64),
+                    ),
+                ))
+                assertTrue(MetadataCommitIntentManifest.valid(receipt))
+                store.write(entry(),receipt)
+                assertEquals(
+                    MetadataCommitIntentStore.Inspection.Present(receipt),
+                    store.inspect(entry()),
+                )
+            }
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun writesAndReadsDescribedTextAdditionReceipt() = runBlocking {
+        val root=fresh()
+        try {
+            val journal=MetadataRecoveryJournalV1(root)
+            journal.exclusive {
+                val store=MetadataCommitIntentStore(journal)
+                val receipt=resourceReceipt().copy(resources=listOf(
+                    MetadataCommitIntentManifest.ResourceChange.DescribedText(
+                        kind=MetadataId3DescribedTagCodec.Kind.LYRICS,
+                        language="spa",
+                        description="letra",
+                        beforeCount=0,
+                        afterCount=1,
+                        beforeSha256=MetadataCommitIntentManifest.valuesDigest(emptyList()),
+                        afterSha256=MetadataCommitIntentManifest.valuesDigest(listOf("Hola")),
                     ),
                 ))
                 assertTrue(MetadataCommitIntentManifest.valid(receipt))

@@ -1,5 +1,6 @@
 package org.michimusic.core.metadata
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,6 +75,41 @@ class CertifiedMetadataWriteProfileTest {
             MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR in
                 profile.supportedResourceOperations,
         )
+        assertTrue(
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD in
+                profile.supportedResourceOperations,
+        )
+    }
+
+    @Test fun describedTextAdditionMapsToItsOwnCertifiedOperation() {
+        val add = MetadataCommitIntentManifest.ResourceChange.DescribedText(
+            kind = MetadataId3DescribedTagCodec.Kind.LYRICS,
+            language = "spa",
+            description = "letra",
+            beforeCount = 0,
+            afterCount = 1,
+            beforeSha256 = MetadataCommitIntentManifest.valuesDigest(emptyList()),
+            afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Hola")),
+        )
+        assertEquals(
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
+            MetadataResourceOperation.of(add),
+        )
+        val replace = add.copy(
+            beforeCount = 1,
+            beforeSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Antes")),
+        )
+        assertEquals(
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+            MetadataResourceOperation.of(replace),
+        )
+        val clear = replace.copy(afterCount = 0, afterSha256 = add.beforeSha256)
+        assertEquals(
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            MetadataResourceOperation.of(clear),
+        )
+        assertTrue(MediaStoreMp3TextProfile.profile.supports(listOf(add)))
+        assertTrue(MediaStoreMp3TextProfile.profile.supports(listOf(replace, clear)))
     }
 
     @Test fun flacProfileAuthorizesItsColdVerifiedTextAndMultivalueSurface() {

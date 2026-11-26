@@ -229,9 +229,9 @@ object MetadataCommitIntentManifest {
                 is MetadataSelectiveAssetStage.Edit.DescribedText -> {
                     require(resources.format != MetadataArtworkLyricsProbe.Format.FLAC)
                     val operation = edit.change
-                    val before = resources.texts.singleOrNull {
-                        it.identity == operation.identity
-                    } ?: throw IllegalArgumentException("RESOURCE_TEXT_NOT_OBSERVED")
+                    val identity = operation.identity
+                    val before = resources.texts.filter { it.identity == identity }
+                    require(before.size <= 1) { "RESOURCE_TEXT_DUPLICATED" }
                     val reviewed = MetadataDescribedTextWorkbench.review(
                         true, resources.texts, listOf(operation),
                     )
@@ -240,14 +240,18 @@ object MetadataCommitIntentManifest {
                             reviewed.differences.size == 1,
                     ) { "RESOURCE_TEXT_NOT_CHANGED" }
                     val after = when (operation) {
-                        is MetadataDescribedTextWorkbench.Change.Replace -> operation.text
-                        is MetadataDescribedTextWorkbench.Change.Clear -> null
+                        is MetadataDescribedTextWorkbench.Change.Add -> {
+                            require(before.isEmpty()) { "RESOURCE_TEXT_ADD_ALREADY_PRESENT" }
+                            listOf(operation.text)
+                        }
+                        is MetadataDescribedTextWorkbench.Change.Replace -> listOf(operation.text)
+                        is MetadataDescribedTextWorkbench.Change.Clear -> emptyList()
                     }
                     ResourceChange.DescribedText(
-                        before.identity.kind, before.identity.language,
-                        before.identity.description, 1, if (after == null) 0 else 1,
-                        valuesDigest(listOf(before.text)),
-                        valuesDigest(after?.let(::listOf).orEmpty()),
+                        identity.kind, identity.language,
+                        identity.description, before.size, after.size,
+                        valuesDigest(before.map { it.text }),
+                        valuesDigest(after),
                     )
                 }
             }
@@ -392,19 +396,25 @@ object MetadataCommitIntentManifest {
                         resource.beforeBytes in 4..MetadataArtworkReplacementPreview.MAX_IMAGE_BYTES &&
                         sha.matches(resource.beforeSha256)
                 }
-                is ResourceChange.DescribedText ->
+                is ResourceChange.DescribedText -> {
+                    val emptyDigest = valuesDigest(emptyList())
                     r.container in setOf(
                         MetadataAudioContainer.ID3_V23,
                         MetadataAudioContainer.ID3_V24,
                     ) &&
+                        resource.kind in MetadataId3DescribedTagCodec.Kind.entries &&
                         resource.language.matches(Regex("[a-z]{3}")) &&
                         resource.description.length <= 128 &&
                         resource.description.none { it.isISOControl() } &&
-                        resource.beforeCount == 1 && resource.afterCount in 0..1 &&
+                        resource.beforeCount in 0..1 && resource.afterCount in 0..1 &&
+                        (resource.beforeCount != 0 || resource.afterCount != 0) &&
+                        (resource.beforeCount > 0 || resource.beforeSha256 == emptyDigest) &&
+                        (resource.afterCount > 0 || resource.afterSha256 == emptyDigest) &&
                         sha.matches(resource.beforeSha256) &&
                         sha.matches(resource.afterSha256) &&
                         (resource.beforeCount != resource.afterCount ||
                             resource.beforeSha256 != resource.afterSha256)
+                }
             }
         }
     }
