@@ -9,7 +9,7 @@
 "A08","FLAC pictures","PASS","ME19 real FLAC PICTURE E2E @4c47dd9f","Replacement, add and remove; unselected PICTURE preserved"
 "A09","FLAC lyrics/advanced","PASS","ME-OMEGA FLAC lyrics: production add/clear + Workbench scalar draft + PICTURE/audio preservation (runs 0041/0045/0046)","Scalar Vorbis LYRICS; resource described-text not applicable"
 "A10","M4A basic/advanced","PASS","ME19 M4A text/pairs E2E @bbbbdfb9","Audio-only M4A; covr artwork pending"
-"A11","M4A pictures/lyrics","PARTIAL","M4A scalar LYRICS write","covr artwork add/replace/remove pending"
+"A11","M4A pictures/lyrics","PASS","ME-OMEGA M4A covr add/replace/remove + scalar LYRICS E2E @831faa17; core/data/app gates green","Audio-only AAC; covr add/replace/remove and scalar lyrics; video/fragmented MP4 not certified"
 "A12","SAF local MP3","PASS","ME19 SAF MP3 E2E run 0048","Advanced text/pairs, Room evidence, restore after uncertain mutation"
 "A13","SAF local FLAC","PASS","ME19 SAF FLAC and SAF M4A text E2E run 0048","Audio-only M4A; SAF artwork pending"
 "A14","MediaStore own file","PASS","T48 real own MediaStore fixture save/index/reopen","Audio suffix intact"
