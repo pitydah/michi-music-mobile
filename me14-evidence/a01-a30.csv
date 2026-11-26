@@ -28,4 +28,4 @@
 "A27","Three concurrent operations","PASS","ME-OMEGA threeConcurrentOperationsOneMutation @34f82d6d","Three concurrent save/restore/reconcile, one mutation, no deadlock"
 "A28","Disk full/limits/cancel","PASS","ME-OMEGA enospcAndCancellationPreserveOriginalOrRecovery @34f82d6d","ENOSPC at backup boundary and cancellation before/after mutation"
 "A29","Audio/unknown preservation","PASS","Real MP3/FLAC audio bytes preserved; opaque tests","Current profiles"
-"A30","Build/migrations/regressions","PARTIAL","Local core/data/app/lint/4 variants green at 54461a35 (0046/0049/0050/0051)","CI at final SHA pending"
+"A30","Build/migrations/regressions","PARTIAL","Local data/core/app unit + lint + 4 variants green at 9b81de07 (runs 0003/0005/0006/0007/0008-0011)","CI at final SHA pending; requires push authorization"
