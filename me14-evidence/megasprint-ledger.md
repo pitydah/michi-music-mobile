@@ -72,3 +72,11 @@ lyrics add/modify/remove, seguridad durable, recuperación real, UI y Library.
 - Pendiente: artwork `covr` M4A, perfiles SAF FLAC/M4A, lyrics por recurso,
   consumidores Library/UI restantes, muerte real de proceso/reboot, revisión
   independiente, matrices A01-A30, lint, variantes y CI final.
+
+## ME-TITAN — Seguridad y base MP4 (2026-11-25)
+
+- `79f01052` — publicación idempotente y durable: evidencia sólo en `Applied`, preimagen durable en genre/people/combined, sincronización de directorio estricta en file/preimagen/intent/journal/recibos/owner, límites de exclusión mutua en el reconciliador.
+- `b7677aee` — revisiones monotónicas con trigger BEFORE UPDATE y retención acotada de `metadata_applied_transaction` protegiendo journal/recibos pendientes.
+- `3a0f2d1b` — base de inspección MP4 `covr`: parser independiente, evidencia `MP4_COVR`, operaciones de recurso, manifiesto/política/perfil M4A y pruebas. La escritura M4A sigue bloqueada por `M4A_SCALAR_ONLY`.
+- Verificación: `:core:testDebugUnitTest :data:testDebugUnitTest :app:testNormalDebugUnitTest` verde en `3a0f2d1b` (run 0024, 111.9 s).
+- Matriz A01–A30: 13/30 PASS. Pendiente: escritura M4A covr/stage/E2E, lyrics y multivalor MP3/FLAC, recursos SAF, consentimiento de otra UID, Workbench/Library, resiliencia y KILLCRITIC.
