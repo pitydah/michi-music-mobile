@@ -451,9 +451,6 @@ class MetadataSaveService internal constructor(
                 ?: return@withContext Outcome.Blocked("El contenedor de metadatos no es compatible")
             val container = observed.container
             val revision = observed.revision
-            if (container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A &&
-                resourceEdits.isNotEmpty())
-                return@withContext Outcome.Blocked("Los recursos M4A no están certificados")
             val activeProfile = profileFor(provider, container)
                 ?: return@withContext Outcome.Blocked("Formato sin perfil de escritura")
             val fields = review?.diffs.orEmpty().mapTo(linkedSetOf()) { it.field }
@@ -771,7 +768,7 @@ class MetadataSaveService internal constructor(
                 ObservedTag(
                     org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A,
                     1,
-                    null,
+                    MetadataPrivateBundleStage.observeFile(file),
                 )
             }
             else -> error("UNSUPPORTED_CONTAINER")
@@ -788,11 +785,16 @@ class MetadataSaveService internal constructor(
         resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
     ): StagedCandidate = when (observed.container) {
         org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A -> {
-            require(review != null && resourceEdits.isEmpty()) { "M4A_SCALAR_ONLY" }
             val receipt = MetadataM4aPrivateStage.stage(
                 backup,
                 candidate,
-                MetadataM4aPrivateStage.Request(sourceSha, expectedBytes, review),
+                MetadataM4aPrivateStage.Request(
+                    sourceSha256 = sourceSha,
+                    expectedBytes = expectedBytes,
+                    review = review,
+                    resourceEdits = resourceEdits,
+                    resources = observed.resources,
+                ),
             )
             StagedCandidate(receipt.candidateBytes, receipt.candidateSha256)
         }
@@ -817,33 +819,19 @@ class MetadataSaveService internal constructor(
         resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
         provider: MetadataDocumentProvider,
     ): MetadataCommitIntentManifest.Receipt =
-        if (observed.container == org.michimusic.core.metadata.MetadataAudioContainer.MP4_M4A) {
-            require(review != null && resourceEdits.isEmpty()) { "M4A_SCALAR_ONLY" }
-            MetadataCommitIntentManifest.create(
-                transactionId = entry.id,
-                review = review,
-                provider = provider,
-                container = observed.container,
-                originalBytes = entry.expectedBytes,
-                originalSha256 = entry.originalSha256,
-                candidateBytes = entry.stageBytes,
-                candidateSha256 = entry.stageSha256,
-            )
-        } else {
-            MetadataCommitIntentManifest.createBundle(
-                transactionId = entry.id,
-                target = target,
-                review = review,
-                resources = requireNotNull(observed.resources),
-                edits = resourceEdits,
-                provider = provider,
-                container = observed.container,
-                originalBytes = entry.expectedBytes,
-                originalSha256 = entry.originalSha256,
-                candidateBytes = entry.stageBytes,
-                candidateSha256 = entry.stageSha256,
-            )
-        }
+        MetadataCommitIntentManifest.createBundle(
+            transactionId = entry.id,
+            target = target,
+            review = review,
+            resources = requireNotNull(observed.resources) { "RESOURCE_SNAPSHOT_MISSING" },
+            edits = resourceEdits,
+            provider = provider,
+            container = observed.container,
+            originalBytes = entry.expectedBytes,
+            originalSha256 = entry.originalSha256,
+            candidateBytes = entry.stageBytes,
+            candidateSha256 = entry.stageSha256,
+        )
 
     private fun sameSource(uri: Uri, sha: String, bytes: Long): Boolean {
         if (longQuery(uri, OpenableColumns.SIZE) != bytes) return false

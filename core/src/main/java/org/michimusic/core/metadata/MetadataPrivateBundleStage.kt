@@ -140,13 +140,45 @@ object MetadataPrivateBundleStage {
      * candidate; this method never writes the source.
      */
     fun observeFile(file: File): MetadataArtworkLyricsProbe.Snapshot =
-        observe(file).first
+        FileChannel.open(
+            file.toPath(),
+            StandardOpenOption.READ,
+            LinkOption.NOFOLLOW_LINKS,
+        ).use { channel -> observeChannel(channel) }
     /** Bounded positional observation from an already-open read-only descriptor. */
     fun observeChannel(channel: FileChannel): MetadataArtworkLyricsProbe.Snapshot {
+        if (isMp4(channel)) return observeMp4(channel)
         val result = MetadataArtworkLyricsProbe.inspect(metadataRegion(channel).metadata)
             as? MetadataArtworkLyricsProbe.Result.Ready
             ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
         return result.snapshot
+    }
+    /**
+     * M4A artwork lives in `moov/udta/meta/ilst/covr`, which a header prefix
+     * cannot bound. The positional probe walks the atom tree and skips `mdat`
+     * arithmetically, so no audio byte is read as metadata.
+     */
+    private fun observeMp4(channel: FileChannel): MetadataArtworkLyricsProbe.Snapshot {
+        val observation = MetadataArtworkLyricsProbe.inspectChannel(channel)
+            as? MetadataArtworkLyricsProbe.ChannelResult.Ready
+            ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        val snapshot = observation.observation.snapshot
+        if (snapshot.format != MetadataArtworkLyricsProbe.Format.MP4)
+            throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        return snapshot
+    }
+    /** ISO base media detection: `ftyp` is the first top-level box type. */
+    private fun isMp4(channel: FileChannel): Boolean {
+        if (channel.size() < 12) return false
+        val header = ByteArray(12)
+        val buffer = java.nio.ByteBuffer.wrap(header)
+        var at = 0L
+        while (buffer.hasRemaining()) {
+            val read = channel.read(buffer, at)
+            if (read <= 0) return false
+            at += read
+        }
+        return header.copyOfRange(4, 8).contentEquals("ftyp".toByteArray())
     }
     private fun same(a: MetadataArtworkLyricsProbe.Snapshot,b: MetadataArtworkLyricsProbe.Snapshot):Boolean =
         a.format==b.format && a.texts==b.texts && a.artworks.size==b.artworks.size &&

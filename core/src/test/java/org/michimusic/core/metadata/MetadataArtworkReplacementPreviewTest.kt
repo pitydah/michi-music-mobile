@@ -46,4 +46,19 @@ class MetadataArtworkReplacementPreviewTest {
         assertEquals(MetadataArtworkReplacementPreview.Reason.MULTIPLE_TARGETS,
             (MetadataArtworkReplacementPreview.review(multiple,0,replacement,"image/png") as MetadataArtworkReplacementPreview.Result.Blocked).reason)
     }
+    @Test fun mp4CovrUsesOrdinalWhenEveryImageSharesCoverType() {
+        val second = src + byteArrayOf(4,5,6)
+        val first = MetadataArtworkLyricsProbe.Artwork(0,
+            MetadataArtworkEvidence.Picture(
+                MetadataArtworkEvidence.Format.MP4_COVR,3,"image/png",src.size,sha(src)),src)
+        val other = MetadataArtworkLyricsProbe.Artwork(1,
+            MetadataArtworkEvidence.Picture(
+                MetadataArtworkEvidence.Format.MP4_COVR,3,"image/png",second.size,sha(second)),second)
+        val mp4 = MetadataArtworkLyricsProbe.Snapshot(
+            MetadataArtworkLyricsProbe.Format.MP4,listOf(first,other),emptyList())
+        val p=(MetadataArtworkReplacementPreview.review(mp4,0,replacement,"image/png")
+            as MetadataArtworkReplacementPreview.Result.Ready).proposal
+        assertEquals(0,p.index)
+        assertEquals(sha(src),p.sourceSha256)
+    }
 }

@@ -903,6 +903,332 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
         return reopened to saved.committedBytes
     }
 
+    /**
+     * M4A artwork plus lyrics, end to end on the real AAC fixture.
+     *
+     * Lyrics are scalar `©lyr` edits that go through the mature engine; artwork
+     * is `covr` resource surgery. Each save must republish the exact Room
+     * revision, keep the ordered samples, timeline and media payload digest
+     * byte-identical, preserve every image nobody selected, and leave the
+     * recovery journal clear. The artwork-only saves pass no scalar review at
+     * all, which is exactly the Workbench "recursos sin cambios escalares" path.
+     */
+    @Test fun m4aArtworkAndLyricsRoundTripPreservesSamples() = runBlocking {
+        val resolver = context.contentResolver
+        val fixture = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("me14-audio-only.m4a").use { it.readBytes() }
+        val baseline = m4aEvidence(fixture)
+        assertTrue(
+            "the real AAC fixture must declare audio samples and media bytes",
+            baseline.samples.sampleCount > 0L && baseline.mediaPayloadBytes > 0L,
+        )
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "me-m4a-art-${UUID.randomUUID()}.m4a")
+            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Music/MichiMEFinalE2E/")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+        assertNotNull("Could not create disposable M4A artwork item", uri)
+        created = uri
+        resolver.openFileDescriptor(uri!!, "rwt")!!.use { pfd ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+                output.write(fixture)
+                output.flush()
+                output.fd.sync()
+            }
+        }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+
+        val artworkTrackId = "local_${uri.lastPathSegment!!.substringAfterLast('/')}"
+        val observedSize = resolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+        SyncedTrackRepository(database.trackDao()).saveLibrary(
+            listOf(
+                TrackDto(
+                    id = artworkTrackId,
+                    title = "M4A Artwork",
+                    artist = "Michi Fixture",
+                    album = "Michi Test Album",
+                    size = observedSize,
+                    format = "m4a",
+                ),
+            ),
+            sourceId,
+        )
+        database.trackDao().markDownloadedVerified(
+            sourceId, artworkTrackId, uri.toString(), observedSize, sha(fixture),
+            1_700_000_000_000L, "sha256",
+        )
+        val reader = ExtendedTrackMetadataRepository(database.trackDao(), context)
+        val service = MetadataSaveService(context, database.trackDao(), database)
+
+        fun currentBytes(): ByteArray =
+            resolver.openInputStream(uri)!!.use { it.readBytes() }
+
+        fun observe(bytes: ByteArray): MetadataArtworkLyricsProbe.Snapshot {
+            val temp = File(context.cacheDir, "me-m4a-art-${UUID.randomUUID()}.m4a")
+            return try {
+                temp.writeBytes(bytes)
+                MetadataPrivateBundleStage.observeFile(temp)
+            } finally {
+                temp.delete()
+            }
+        }
+
+        suspend fun coldRead(bytes: ByteArray): MetadataSnapshot {
+            val read = reader.loadEditorColdRead(
+                readSourceId, artworkTrackId, uri.toString(), bytes.size.toLong(),
+            )
+            return when (read) {
+                is MetadataEditorColdRead.Verified -> read.snapshot
+                is MetadataEditorColdRead.Partial -> read.snapshot
+                else -> error("The production cold reader rejected the M4A candidate: $read")
+            }
+        }
+
+        suspend fun saveBundle(
+            step: String,
+            target: org.michimusic.core.metadata.MetadataTarget,
+            expectedBytes: Long,
+            reviewInput: MetadataReview.Ready?,
+            edits: List<MetadataSelectiveAssetStage.Edit>,
+        ): MetadataSaveService.Outcome.Saved {
+            val outcome = service.saveBundle(
+                sourceId = sourceId,
+                trackId = artworkTrackId,
+                uriString = uri.toString(),
+                expectedBytes = expectedBytes,
+                targetInput = target,
+                reviewInput = reviewInput,
+                resourceEdits = edits,
+                ownerCurrent = { true },
+                playbackClosed = { true },
+            )
+            assertTrue(
+                "M4A save step '$step' must verify and publish, got $outcome",
+                outcome is MetadataSaveService.Outcome.Saved && outcome.indexPublished,
+            )
+            return outcome as MetadataSaveService.Outcome.Saved
+        }
+
+        var current = currentBytes()
+        assertEquals(sha(fixture), sha(current))
+        assertTrue(
+            "the M4A fixture must start without cover art",
+            observe(current).artworks.isEmpty(),
+        )
+        var snapshot = coldRead(current)
+
+        // 0. establish the scalar title so the final reopen proves it survived
+        val titleReview = MetadataEditPreview.review(
+            snapshot,
+            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf("M4A Artwork"))),
+        ) as MetadataReview.Ready
+        var saved = saveBundle(
+            "title replace",
+            snapshot.target, current.size.toLong(), titleReview, emptyList(),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        snapshot = coldRead(current)
+        assertEquals(listOf("M4A Artwork"), snapshot.known[MetadataField.TITLE])
+
+        // 1. lyrics add on the untouched fixture
+        val addLyrics = MetadataEditPreview.review(
+            snapshot,
+            listOf(MetadataChange.Replace(MetadataField.LYRICS, listOf("M4A Letra Uno"))),
+        )
+        assertTrue(
+            "M4A lyrics must be a reviewed scalar edit: $addLyrics",
+            addLyrics is MetadataReview.Ready,
+        )
+        saved = saveBundle(
+            "lyrics add",
+            snapshot.target, current.size.toLong(), addLyrics as MetadataReview.Ready,
+            emptyList(),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        snapshot = coldRead(current)
+        assertEquals(listOf("M4A Letra Uno"), snapshot.known[MetadataField.LYRICS])
+        assertEquals(
+            listOf("M4A Letra Uno"),
+            saved.snapshot.known[MetadataField.LYRICS],
+        )
+        assertTrue(
+            "a lyrics-only M4A save must not touch resources",
+            checkNotNull(saved.libraryChange).resourceOperations.isEmpty(),
+        )
+
+        // 2. lyrics replace
+        val replaceLyrics = MetadataEditPreview.review(
+            snapshot,
+            listOf(MetadataChange.Replace(MetadataField.LYRICS, listOf("M4A Letra Dos"))),
+        ) as MetadataReview.Ready
+        saved = saveBundle(
+            "lyrics replace",
+            saved.snapshot.target, current.size.toLong(), replaceLyrics, emptyList(),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        snapshot = coldRead(current)
+        assertEquals(listOf("M4A Letra Dos"), snapshot.known[MetadataField.LYRICS])
+
+        // 3. lyrics clear
+        val clearLyrics = MetadataEditPreview.review(
+            snapshot,
+            listOf(MetadataChange.Clear(MetadataField.LYRICS)),
+        ) as MetadataReview.Ready
+        saved = saveBundle(
+            "lyrics clear",
+            saved.snapshot.target, current.size.toLong(), clearLyrics, emptyList(),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        snapshot = coldRead(current)
+        assertTrue(
+            "a cleared M4A lyrics field must be absent, not empty text",
+            snapshot.known[MetadataField.LYRICS].orEmpty().isEmpty(),
+        )
+        assertTrue(observe(current).artworks.isEmpty())
+
+        val firstImage = png(11)
+        val secondImage = png(12)
+        val thirdImage = png(13)
+
+        // 4. artwork add without any scalar change
+        var resources = observe(current)
+        val firstAddition = (
+            MetadataArtworkAdditionPreview.review(resources, firstImage, "image/png")
+                as MetadataArtworkAdditionPreview.Result.Ready
+            ).proposal
+        saved = saveBundle(
+            "artwork add 1",
+            saved.snapshot.target, current.size.toLong(), null,
+            listOf(MetadataSelectiveAssetStage.Edit.PictureAdd(firstAddition)),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        resources = observe(current)
+        assertEquals(1, resources.artworks.size)
+        assertArrayEquals(firstImage, resources.artworks[0].image)
+        assertEquals(
+            setOf(MetadataResourceOperation.MP4_COVR_ADD),
+            checkNotNull(saved.libraryChange).resourceOperations,
+        )
+        assertTrue(
+            "an artwork-only M4A save must publish no scalar change",
+            checkNotNull(saved.libraryChange).changedFields.isEmpty(),
+        )
+
+        // 5. combined scalar + artwork save must keep the first image byte-exactly
+        val secondAddition = (
+            MetadataArtworkAdditionPreview.review(resources, secondImage, "image/png")
+                as MetadataArtworkAdditionPreview.Result.Ready
+            ).proposal
+        val combinedTitle = MetadataEditPreview.review(
+            snapshot,
+            listOf(MetadataChange.Replace(MetadataField.TITLE, listOf("M4A Artwork Combined"))),
+        ) as MetadataReview.Ready
+        saved = saveBundle(
+            "combined title and artwork add 2",
+            saved.snapshot.target, current.size.toLong(), combinedTitle,
+            listOf(MetadataSelectiveAssetStage.Edit.PictureAdd(secondAddition)),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        snapshot = coldRead(current)
+        assertEquals(listOf("M4A Artwork Combined"), snapshot.known[MetadataField.TITLE])
+        resources = observe(current)
+        assertEquals(2, resources.artworks.size)
+        assertArrayEquals(firstImage, resources.artworks[0].image)
+        assertArrayEquals(secondImage, resources.artworks[1].image)
+
+        // 6. replace the first image and keep the second untouched
+        val replacement = (
+            MetadataArtworkReplacementPreview.review(resources, 0, thirdImage, "image/png")
+                as MetadataArtworkReplacementPreview.Result.Ready
+            ).proposal
+        saved = saveBundle(
+            "artwork replace",
+            saved.snapshot.target, current.size.toLong(), null,
+            listOf(MetadataSelectiveAssetStage.Edit.Picture(replacement)),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        resources = observe(current)
+        assertEquals(2, resources.artworks.size)
+        assertArrayEquals(thirdImage, resources.artworks[0].image)
+        assertArrayEquals(secondImage, resources.artworks[1].image)
+        assertEquals(
+            setOf(MetadataResourceOperation.MP4_COVR_REPLACE),
+            checkNotNull(saved.libraryChange).resourceOperations,
+        )
+
+        // 7. remove the last image and keep the replaced one
+        saved = saveBundle(
+            "artwork remove last",
+            saved.snapshot.target, current.size.toLong(), null,
+            listOf(MetadataSelectiveAssetStage.Edit.PictureRemove(1, sha(secondImage))),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        resources = observe(current)
+        assertEquals(1, resources.artworks.size)
+        assertArrayEquals(thirdImage, resources.artworks[0].image)
+        assertEquals(
+            setOf(MetadataResourceOperation.MP4_COVR_REMOVE),
+            checkNotNull(saved.libraryChange).resourceOperations,
+        )
+
+        // 8. remove the remaining image: `covr` disappears entirely
+        saved = saveBundle(
+            "artwork remove remaining",
+            saved.snapshot.target, current.size.toLong(), null,
+            listOf(MetadataSelectiveAssetStage.Edit.PictureRemove(0, sha(thirdImage))),
+        )
+        current = currentBytes()
+        assertSameSamples(baseline, m4aEvidence(current))
+        assertTrue(observe(current).artworks.isEmpty())
+
+        val finalChange = checkNotNull(saved.libraryChange)
+        val row = database.trackDao().getTrackBySource(sourceId, artworkTrackId)!!
+        assertEquals(current.size.toLong(), row.size)
+        assertEquals("M4A Artwork Combined", row.title)
+        assertEquals(current.size.toLong(), finalChange.committedBytes)
+        assertEquals(sha(current), finalChange.committedSha256)
+        assertEquals(row.metadataRevision, finalChange.committedRevision)
+        val marker = checkNotNull(
+            database.trackDao().getAppliedMetadataTransaction(finalChange.transactionId),
+        )
+        assertEquals(finalChange.committedRevision, marker.committedRevision)
+        assertEquals(sha(current), marker.candidateSha256)
+        assertEquals(current.size.toLong(), marker.candidateBytes)
+
+        val reopened = coldRead(current)
+        assertEquals(listOf("M4A Artwork Combined"), reopened.known[MetadataField.TITLE])
+        assertTrue(
+            "the reopened M4A must not resurrect reviewed lyrics",
+            reopened.known[MetadataField.LYRICS].orEmpty().isEmpty(),
+        )
+        val reopenFile = File(context.cacheDir, "me-m4a-art-reopen-${UUID.randomUUID()}.m4a")
+        try {
+            reopenFile.writeBytes(current)
+            val reopenedTag = Mp4FileReader().read(reopenFile).tag
+            assertEquals("M4A Artwork Combined", reopenedTag.getFirst(FieldKey.TITLE))
+            assertTrue(reopenedTag.getFirst(FieldKey.LYRICS).isNullOrEmpty())
+        } finally {
+            reopenFile.delete()
+        }
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
+    }
+
     @Test fun replaceExistingApicCommitsExactResourceAndPublishesRoom() = runBlocking {
         val resolver = context.contentResolver
         val beforeImage = png(1)

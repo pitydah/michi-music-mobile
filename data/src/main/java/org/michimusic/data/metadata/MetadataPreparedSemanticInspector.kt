@@ -60,6 +60,7 @@ internal object MetadataPreparedSemanticInspector {
                     MetadataAudioContainer.ID3_V23,
                     MetadataAudioContainer.ID3_V24,
                     MetadataAudioContainer.FLAC,
+                    MetadataAudioContainer.MP4_M4A,
                 ),
                 checkCancellation,
             )
@@ -76,6 +77,7 @@ internal object MetadataPreparedSemanticInspector {
                     MetadataAudioContainer.ID3_V23,
                     MetadataAudioContainer.ID3_V24,
                     MetadataAudioContainer.FLAC,
+                    MetadataAudioContainer.MP4_M4A,
                 ),
                 checkCancellation,
             )
@@ -96,6 +98,7 @@ internal object MetadataPreparedSemanticInspector {
                 MetadataAudioContainer.ID3_V23,
                 MetadataAudioContainer.ID3_V24,
                 MetadataAudioContainer.FLAC,
+                MetadataAudioContainer.MP4_M4A,
             )
         ) MetadataResourceSemanticPolicy.compare(
             intent,

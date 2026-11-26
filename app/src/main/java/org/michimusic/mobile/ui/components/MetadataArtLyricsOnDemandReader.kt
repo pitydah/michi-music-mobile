@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
 import java.io.InputStream
 
 /**
@@ -29,18 +30,21 @@ internal object MetadataArtLyricsOnDemandReader {
                     ?: return@withContext Outcome.Blocked("El proveedor no permite leer este documento")
                 input.use { stream ->
                     val header = readExact(stream,4) ?: return@use Outcome.Blocked("Encabezado incompleto")
-                    val bytes = when (String(header, Charsets.US_ASCII)) {
+                    val magic = String(header, Charsets.US_ASCII)
+                    // ISO base media files (M4A/MP4) carry their `covr` artwork in
+                    // `moov`, which can sit anywhere in the file, so they need the
+                    // positional reader instead of a bounded header prefix.
+                    if (magic != "fLaC" && magic != "ID3")
+                        return@use inspectIsoBmff(resolver, uri)
+                    val bytes = when (magic) {
                         "fLaC" -> readFlacMetadata(stream,header)
                         else -> {
-                            if (!header.copyOfRange(0,3).contentEquals("ID3".toByteArray())) null
-                            else {
-                                val rest = readExact(stream,6)
-                                val first = if (rest != null) header+rest else null
-                                val count = first?.let(MetadataArtworkLyricsProbe::id3DeclaredLength)
-                                if (count == null) null else {
-                                    val body = readExact(stream,count-10)
-                                    if (body == null || first == null) null else first+body
-                                }
+                            val rest = readExact(stream,6)
+                            val first = if (rest != null) header+rest else null
+                            val count = first?.let(MetadataArtworkLyricsProbe::id3DeclaredLength)
+                            if (count == null) null else {
+                                val body = readExact(stream,count-10)
+                                if (body == null || first == null) null else first+body
                             }
                         }
                     } ?: return@use Outcome.Blocked("La cabecera es incompatible o excede el límite")
@@ -54,6 +58,28 @@ internal object MetadataArtLyricsOnDemandReader {
             catch (_: SecurityException) { Outcome.Blocked("Permiso de lectura revocado") }
             catch (_: Exception) { Outcome.Blocked("No se pudo completar la lectura del documento") }
         }
+
+    /**
+     * ISO base media (M4A/MP4) artwork lives in `moov`, so the whole container
+     * must be walked positionally. Only the tag payload is read; `mdat` is
+     * skipped arithmetically by the probe.
+     */
+    private fun inspectIsoBmff(resolver: ContentResolver, uri: Uri): Outcome {
+        val descriptor = resolver.openFileDescriptor(uri, "r")
+            ?: return Outcome.Blocked("El proveedor no permite leer este documento")
+        return descriptor.use { parcel ->
+            FileInputStream(parcel.fileDescriptor).use { stream ->
+                when (val read = MetadataArtworkLyricsProbe.inspectChannel(stream.channel)) {
+                    is MetadataArtworkLyricsProbe.ChannelResult.Ready ->
+                        if (read.observation.snapshot.format == MetadataArtworkLyricsProbe.Format.MP4)
+                            Outcome.Ready(read.observation.snapshot)
+                        else Outcome.Blocked("La cabecera es incompatible o excede el límite")
+                    is MetadataArtworkLyricsProbe.ChannelResult.Blocked -> Outcome.Blocked(
+                        "No se puede comprobar toda la estructura: ${read.reason.name}")
+                }
+            }
+        }
+    }
 
     /** Never reads audio beyond the declared tag; caller limits declared sizes. */
     private fun readExact(input: InputStream, count:Int): ByteArray? {

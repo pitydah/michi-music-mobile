@@ -507,8 +507,10 @@ internal fun MichiMetadataEditorPreviewContent(
                             "Perfiles certificados: texto MP3 con fecha, pista/disco, créditos y " +
                                 "multivalor representable en MediaStore y en un documento SAF " +
                                 "local con permiso persistente; texto FLAC completo y multivalor; " +
-                                "título M4A de solo audio en MediaStore; reemplazo de carátula " +
-                                "existente MP3/FLAC y reemplazo o borrado de COMM/USLT existentes en MP3.",
+                                "texto M4A de solo audio en MediaStore con letras escalares; " +
+                                "añadir, reemplazar o quitar carátulas MP3/FLAC/M4A preservando " +
+                                "las imágenes no seleccionadas; crear, reemplazar o borrar " +
+                                "COMM/USLT en MP3.",
                             color = TertiaryCyan,
                         )
                         Text(
@@ -520,10 +522,9 @@ internal fun MichiMetadataEditorPreviewContent(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Proveedores SAF remotos, recursos mediante SAF, vídeo MP4, recursos " +
-                                "u otros campos M4A, añadir o quitar carátulas, crear comentarios " +
-                                "o letras descritos nuevos, texto descrito FLAC, campos FLAC no " +
-                                "representables y multivalor no representable permanecen bloqueados.",
+                            "Proveedores SAF remotos, recursos mediante SAF, vídeo MP4, " +
+                                "texto descrito FLAC, campos FLAC no representables y " +
+                                "multivalor no representable permanecen bloqueados.",
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
