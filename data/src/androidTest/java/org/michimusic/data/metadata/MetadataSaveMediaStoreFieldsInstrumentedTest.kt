@@ -172,6 +172,37 @@ class MetadataSaveMediaStoreFieldsInstrumentedTest {
         assertTrue(evidence.modifiedAt > 0L)
     }
 
+    @Test fun t08MultiValueArtistAndGenrePublishStructuredEvidence() = runBlocking {
+        val original = Mp3FixtureTags.build(
+            4, "ME19 Multi", "Artista Original", "Album ME19", "Rock", audioPayload)
+        val artists = listOf("Artista Uno", "Artista Dos", "Artista Tres")
+        val genres = listOf("Rock", "Jazz")
+        val result = save(original, listOf(
+            MetadataChange.Replace(MetadataField.ARTIST, artists),
+            MetadataChange.Replace(MetadataField.GENRE, genres),
+        ))
+        assertEquals(artists, result.reopened.known[MetadataField.ARTIST])
+        assertEquals(genres, result.reopened.known[MetadataField.GENRE])
+        assertEquals(artists.first(), result.row.artist)
+        assertEquals(genres.first(), result.row.genre)
+        assertArrayEquals(
+            audioPayload,
+            result.after.copyOfRange(
+                result.after.size - audioPayload.size, result.after.size,
+            ),
+        )
+        val people = database.metadataPersonEvidenceDao()
+            .currentForTrack(sourceId, trackId)
+            ?: throw AssertionError("person evidence must be published")
+        assertEquals(artists, people.artists())
+        val evidence = database.trackDao()
+            .getCurrentExtendedTagEvidence(sourceId, trackId)
+            ?: throw AssertionError("genre evidence must be published")
+        assertEquals("Rock\u0000Jazz", evidence.genreValues)
+        assertTrue(MetadataRecoveryJournalV1(journalRoot).inspect() is
+            MetadataRecoveryJournalV1.Inspection.Clear)
+    }
+
     @Test fun stalePreimageKeepsTheRowAndWritesActionableV2() = runBlocking {
         val original = Mp3FixtureTags.build(
             4, "ME13 Stale", "Artista ME13", "Album ME13", "Rock", audioPayload)
