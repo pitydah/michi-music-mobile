@@ -588,6 +588,81 @@ class MetadataSaveMediaStoreE2EInstrumentedTest {
                 File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
             ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
         )
+        val source = saved.snapshot.target.sourceId
+        val track = saved.snapshot.target.trackId
+        val m4aUri = Uri.parse(saved.snapshot.target.uri)
+
+        val clearTotalReview = MetadataEditPreview.review(
+            reopened,
+            listOf(MetadataChange.Clear(MetadataField.TRACK_TOTAL)),
+        ) as MetadataReview.Ready
+        val clearTotalOutcome = MetadataSaveService(
+            context, database.trackDao(), database,
+        ).save(
+            sourceId = source, trackId = track, uriString = m4aUri.toString(),
+            expectedBytes = saved.committedBytes, reviewInput = clearTotalReview,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue("clear total failed: $clearTotalOutcome",
+            clearTotalOutcome is MetadataSaveService.Outcome.Saved &&
+                clearTotalOutcome.indexPublished)
+        val clearedTotalBytes = context.contentResolver.openInputStream(m4aUri)!!
+            .use { it.readBytes() }
+        val clearTotalFile = File(context.cacheDir, "m4a-clear-total-${UUID.randomUUID()}.m4a")
+        try {
+            clearTotalFile.writeBytes(clearedTotalBytes)
+            val clearedTag = Mp4FileReader().read(clearTotalFile).tag
+            assertEquals("3", clearedTag.getFirst(FieldKey.TRACK))
+            val clearedTotalValue = clearedTag.getFirst(FieldKey.TRACK_TOTAL)
+            assertTrue(clearedTotalValue.isNullOrEmpty() || clearedTotalValue == "0")
+        } finally { clearTotalFile.delete() }
+        val reopenedTotal = when (val read = reader.loadEditorColdRead(
+            source, track, m4aUri.toString(), clearedTotalBytes.size.toLong(),
+        )) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening cleared total failed: $read")
+        }
+        assertEquals(listOf("3"), reopenedTotal.known[MetadataField.TRACK_NUMBER])
+        assertEquals(null, reopenedTotal.known[MetadataField.TRACK_TOTAL])
+
+        val clearNumberReview = MetadataEditPreview.review(
+            reopenedTotal,
+            listOf(MetadataChange.Clear(MetadataField.TRACK_NUMBER)),
+        ) as MetadataReview.Ready
+        val clearNumberOutcome = MetadataSaveService(
+            context, database.trackDao(), database,
+        ).save(
+            sourceId = source, trackId = track, uriString = m4aUri.toString(),
+            expectedBytes = clearedTotalBytes.size.toLong(), reviewInput = clearNumberReview,
+            ownerCurrent = { true }, playbackClosed = { true },
+        )
+        assertTrue("clear number failed: $clearNumberOutcome",
+            clearNumberOutcome is MetadataSaveService.Outcome.Saved &&
+                clearNumberOutcome.indexPublished)
+        val clearedBothBytes = context.contentResolver.openInputStream(m4aUri)!!
+            .use { it.readBytes() }
+        val clearBothFile = File(context.cacheDir, "m4a-clear-both-${UUID.randomUUID()}.m4a")
+        try {
+            clearBothFile.writeBytes(clearedBothBytes)
+            val clearedTrackValue = Mp4FileReader().read(clearBothFile).tag
+                .getFirst(FieldKey.TRACK)
+            assertTrue(clearedTrackValue.isNullOrEmpty())
+        } finally { clearBothFile.delete() }
+        val reopenedBoth = when (val read = reader.loadEditorColdRead(
+            source, track, m4aUri.toString(), clearedBothBytes.size.toLong(),
+        )) {
+            is MetadataEditorColdRead.Verified -> read.snapshot
+            is MetadataEditorColdRead.Partial -> read.snapshot
+            else -> error("Reopening cleared pair failed: $read")
+        }
+        assertEquals(null, reopenedBoth.known[MetadataField.TRACK_NUMBER])
+        assertEquals(null, reopenedBoth.known[MetadataField.TRACK_TOTAL])
+        assertTrue(
+            MetadataRecoveryJournalV1(
+                File(context.noBackupFilesDir, "michi-metadata-editor-v1"),
+            ).inspect() is MetadataRecoveryJournalV1.Inspection.Clear,
+        )
     }
 
     @Test fun replaceExistingApicCommitsExactResourceAndPublishesRoom() = runBlocking {

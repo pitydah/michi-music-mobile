@@ -13,6 +13,8 @@ import org.jaudiotagger.audio.mp4.Mp4FileReader
 import org.jaudiotagger.audio.mp4.Mp4FileWriter
 import org.jaudiotagger.tag.FieldKey
 import org.jaudiotagger.tag.TagOptionSingleton
+import org.jaudiotagger.tag.mp4.Mp4FieldKey
+import org.jaudiotagger.tag.mp4.Mp4Tag
 import org.jaudiotagger.tag.mp4.field.Mp4DiscNoField
 import org.jaudiotagger.tag.mp4.field.Mp4TrackField
 import org.michimusic.core.metadata.MetadataAudioContainer
@@ -87,7 +89,9 @@ internal object MetadataM4aPrivateStage {
             MetadataEditPreview.review(
                 request.review.original,
                 request.review.diffs.map { diff ->
-                    org.michimusic.core.metadata.MetadataChange.Replace(diff.field, diff.after)
+                    if (diff.after.isEmpty())
+                        org.michimusic.core.metadata.MetadataChange.Clear(diff.field)
+                    else org.michimusic.core.metadata.MetadataChange.Replace(diff.field, diff.after)
                 },
             ) == request.review,
         ) { "REVIEW_NOT_REPRODUCIBLE" }
@@ -147,6 +151,11 @@ internal object MetadataM4aPrivateStage {
             fun original(field: MetadataField): List<String> =
                 (beforeReport.observation(field) as?
                     MetadataFieldObservation.Present)?.values.orEmpty()
+            fun target(field: MetadataField): String? {
+                val change = changes[field] ?: return original(field).firstOrNull()
+                require(change.after.size <= 1) { "M4A_SINGLE_VALUE_ONLY" }
+                return change.after.singleOrNull()
+            }
             val applied = mutableSetOf<FieldKey>()
             for (diff in request.review.diffs) {
                 require(diff.after.size <= 1) { "M4A_SINGLE_VALUE_ONLY" }
@@ -155,10 +164,8 @@ internal object MetadataM4aPrivateStage {
                 }
                 if (composite != null) {
                     if (!applied.add(composite.key)) continue
-                    val number = changes[composite.number]?.after?.singleOrNull()
-                        ?: original(composite.number).firstOrNull()
-                    val total = changes[composite.total]?.after?.singleOrNull()
-                        ?: original(composite.total).firstOrNull()
+                    val number = target(composite.number)
+                    val total = target(composite.total)
                     require(number == null || canonicalNumber.matches(number)) {
                         "M4A_INVALID_NUMBER"
                     }
@@ -169,10 +176,17 @@ internal object MetadataM4aPrivateStage {
                         "M4A_INVALID_NUMBER_PAIR"
                     }
                     if (number == null) {
-                        runCatching { tag.deleteField(composite.key) }
+                        runCatching { tag.deleteField(composite.key) }.getOrElse {
+                            throw IllegalArgumentException(
+                                "M4A_FIELD_FAILED:${diff.field}", it)
+                        }
                     } else {
                         runCatching {
                             val n = number.toInt()
+                            (tag as Mp4Tag).deleteField(
+                                if (composite.key == FieldKey.TRACK) Mp4FieldKey.TRACK
+                                else Mp4FieldKey.DISCNUMBER,
+                            )
                             val t = total?.toInt() ?: 0
                             if (composite.key == FieldKey.TRACK)
                                 tag.setField(Mp4TrackField(n, t))
@@ -186,7 +200,10 @@ internal object MetadataM4aPrivateStage {
                     val key = scalarKeys.getValue(diff.field)
                     val value = diff.after.singleOrNull().orEmpty()
                     if (value.isEmpty()) {
-                        runCatching { tag.deleteField(key) }
+                        runCatching { tag.deleteField(key) }.getOrElse {
+                            throw IllegalArgumentException(
+                                "M4A_FIELD_FAILED:${diff.field}", it)
+                        }
                     } else {
                         runCatching { tag.setField(key, value) }.getOrElse {
                             throw IllegalArgumentException(

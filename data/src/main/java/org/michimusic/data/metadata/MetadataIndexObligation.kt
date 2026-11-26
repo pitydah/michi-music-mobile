@@ -41,6 +41,9 @@ internal object MetadataIndexObligation {
             previousSize = entry.expectedBytes,
             previousMetadataRevision = expectedIndex?.metadataRevision ?: 0L,
         )
-        return receipt.actionable && MetadataIndexReconciliationReceipt.write(root, receipt)
+        val actionable = receipt.actionable
+        val written = actionable &&
+            MetadataIndexReconciliationReceipt.write(root, receipt)
+        return written
     }
 }
