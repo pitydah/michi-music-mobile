@@ -182,31 +182,33 @@ open class LocalMediaRepository(
     open suspend fun applyMetadataCommittedChange(
         change: MetadataCommittedLibraryChange,
     ): MetadataCachePatch = cacheMutex.withLock {
+        // The marker and the durable revision are the publication authority. A
+        // repository without an index cannot prove either one, so it must not
+        // patch the cache from a notification alone.
         val dao = importedTrackDao
-        if (dao != null) {
-            val marker = try {
-                dao.getAppliedMetadataTransaction(change.transactionId)
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (_: Exception) {
-                return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
-            }
-            val durableRevision = try {
-                dao.getTrackBySource(change.sourceId, change.trackId)?.metadataRevision
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (_: Exception) {
-                return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
-            }
-            when (val decision = MetadataLibraryPublicationGate.evaluate(
-                change, marker, durableRevision,
-            )) {
-                is MetadataLibraryPublicationGate.Decision.Ignore ->
-                    return@withLock MetadataCachePatch.Ignored(decision.reason)
-                is MetadataLibraryPublicationGate.Decision.Refuse ->
-                    return@withLock MetadataCachePatch.Refused(decision.reason)
-                MetadataLibraryPublicationGate.Decision.Apply -> Unit
-            }
+            ?: return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        val marker = try {
+            dao.getAppliedMetadataTransaction(change.transactionId)
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        }
+        val durableRevision = try {
+            dao.getTrackBySource(change.sourceId, change.trackId)?.metadataRevision
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        }
+        when (val decision = MetadataLibraryPublicationGate.evaluate(
+            change, marker, durableRevision,
+        )) {
+            is MetadataLibraryPublicationGate.Decision.Ignore ->
+                return@withLock MetadataCachePatch.Ignored(decision.reason)
+            is MetadataLibraryPublicationGate.Decision.Refuse ->
+                return@withLock MetadataCachePatch.Refused(decision.reason)
+            MetadataLibraryPublicationGate.Decision.Apply -> Unit
         }
         val current = cachedTracks
             ?: return@withLock MetadataCachePatch.Ignored("CACHE_NOT_LOADED")

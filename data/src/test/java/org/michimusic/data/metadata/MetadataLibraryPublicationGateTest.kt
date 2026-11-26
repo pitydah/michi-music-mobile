@@ -73,6 +73,13 @@ class MetadataLibraryPublicationGateTest {
             MetadataLibraryPublicationGate.Decision.Refuse("APPLIED_MARKER_MISMATCH"),
             MetadataLibraryPublicationGate.evaluate(change, forged, 2L),
         )
+        val anotherTransaction = marker(change).copy(
+            transactionId = "99999999-1234-4abc-8abc-123412341234",
+        )
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Refuse("APPLIED_MARKER_MISMATCH"),
+            MetadataLibraryPublicationGate.evaluate(change, anotherTransaction, 2L),
+        )
     }
 
     @Test fun withoutMarkerAnOlderRevisionIsStale() {
@@ -82,14 +89,51 @@ class MetadataLibraryPublicationGateTest {
         )
     }
 
-    @Test fun withoutMarkerEqualOrNewerRevisionApplies() {
+    @Test fun withoutMarkerNoRevisionCanManufactureACommit() {
         assertEquals(
-            MetadataLibraryPublicationGate.Decision.Apply,
+            MetadataLibraryPublicationGate.Decision.Refuse("COMMITTED_EVIDENCE_REQUIRED"),
             MetadataLibraryPublicationGate.evaluate(change(), null, 2L),
         )
         assertEquals(
-            MetadataLibraryPublicationGate.Decision.Apply,
+            MetadataLibraryPublicationGate.Decision.Refuse("COMMITTED_EVIDENCE_REQUIRED"),
             MetadataLibraryPublicationGate.evaluate(change(), null, 1L),
+        )
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Refuse("COMMITTED_EVIDENCE_REQUIRED"),
+            MetadataLibraryPublicationGate.evaluate(change(), null, null),
+        )
+    }
+
+    @Test fun exactMarkerWithoutADurableRowCannotResurrectADeletedSong() {
+        val change = change()
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Refuse("DURABLE_REVISION_UNAVAILABLE"),
+            MetadataLibraryPublicationGate.evaluate(change, marker(change), null),
+        )
+    }
+
+    @Test fun markerAheadOfTheDurableRowIsNotACommittedRevision() {
+        val change = change()
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Refuse("DURABLE_REVISION_NOT_COMMITTED"),
+            MetadataLibraryPublicationGate.evaluate(change, marker(change), 1L),
+        )
+    }
+
+    @Test fun secondEditAppliesAndTheOlderReplayIsIgnored() {
+        val first = change(previous = 1L, committed = 2L, transaction = "11111111-1234-4abc-8abc-123412341234")
+        val second = change(previous = 2L, committed = 3L, transaction = "22222222-1234-4abc-8abc-123412341234")
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Apply,
+            MetadataLibraryPublicationGate.evaluate(first, marker(first), 2L),
+        )
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Apply,
+            MetadataLibraryPublicationGate.evaluate(second, marker(second), 3L),
+        )
+        assertEquals(
+            MetadataLibraryPublicationGate.Decision.Ignore("STALE_REVISION"),
+            MetadataLibraryPublicationGate.evaluate(first, marker(first), 3L),
         )
     }
 }

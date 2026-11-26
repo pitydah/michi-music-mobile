@@ -12,6 +12,7 @@ import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
 import org.michimusic.core.models.Track
+import org.michimusic.data.cache.MetadataAppliedTransaction
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.repository.MetadataCommittedTrackProjection
 import org.michimusic.data.repository.MetadataLibraryPublicationGate
@@ -58,6 +59,10 @@ class MetadataLibraryRegroupTest {
             }
         }
         assertEquals(genreChange, deliveredGenre)
+        appliedMarkers[genreChange.transactionId] = markerOf(genreChange)
+        // The marker and the cached row advance in one Room transaction, so the
+        // notification is delivered only after the durable revision is committed.
+        revisions["local_1"] = genreChange.committedRevision
 
         val genreDecision = apply(tracks, revisions, deliveredGenre)
         assertEquals(MetadataLibraryPublicationGate.Decision.Apply, genreDecision)
@@ -97,6 +102,8 @@ class MetadataLibraryRegroupTest {
             previousRevision = 6L,
             committedRevision = 7L,
         )
+        appliedMarkers[albumChange.transactionId] = markerOf(albumChange)
+        revisions["local_1"] = albumChange.committedRevision
         val albumDecision = apply(tracks, revisions, albumChange)
         assertEquals(MetadataLibraryPublicationGate.Decision.Apply, albumDecision)
 
@@ -122,6 +129,8 @@ class MetadataLibraryRegroupTest {
             previousRevision = 7L,
             committedRevision = 8L,
         )
+        appliedMarkers[artistChange.transactionId] = markerOf(artistChange)
+        revisions["local_1"] = artistChange.committedRevision
         val artistDecision = apply(tracks, revisions, artistChange)
         assertEquals(MetadataLibraryPublicationGate.Decision.Apply, artistDecision)
 
@@ -186,9 +195,10 @@ class MetadataLibraryRegroupTest {
         revisions: MutableMap<String, Long>,
         change: MetadataCommittedLibraryChange,
     ): MetadataLibraryPublicationGate.Decision {
+        val marker = appliedMarkers[change.transactionId]
         val decision = MetadataLibraryPublicationGate.evaluate(
             change = change,
-            marker = null,
+            marker = marker,
             durableRevision = revisions[change.trackId],
         )
         if (decision == MetadataLibraryPublicationGate.Decision.Apply) {
@@ -203,9 +213,25 @@ class MetadataLibraryRegroupTest {
             )
             tracks[index] = (projected as MetadataCommittedTrackProjection.Result.Applied).track
             revisions[change.trackId] = change.committedRevision
+            appliedMarkers[change.transactionId] = markerOf(change)
         }
         return decision
     }
+
+    private fun markerOf(change: MetadataCommittedLibraryChange) =
+        MetadataAppliedTransaction(
+            transactionId = change.transactionId,
+            sourceId = change.sourceId,
+            trackId = change.trackId,
+            uri = change.uri,
+            originalRevision = change.previousRevision,
+            committedRevision = change.committedRevision,
+            candidateSha256 = change.committedSha256,
+            candidateBytes = change.committedBytes,
+            appliedAt = change.committedRevision,
+        )
+
+    private val appliedMarkers = mutableMapOf<String, MetadataAppliedTransaction>()
 
     private fun trackRock(): Track = Track(
         id = "local_1",
