@@ -2,6 +2,7 @@ package org.michimusic.core.metadata
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -140,8 +141,16 @@ class CertifiedMetadataWriteProfileTest {
         )
     }
 
-    @Test fun m4aProfileAuthorizesOnlyAudioOnlyProductionE2eCertifiedTitle() {
+    @Test fun m4aActiveProfileCoversAdvancedTextAndCovrResources() {
         val m4a = MediaStoreM4aTextProfile.profile
+        assertEquals(
+            "MS_LOCAL_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2",
+            m4a.id,
+        )
+        assertEquals(
+            "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2",
+            m4a.capabilityEvidenceId,
+        )
         assertTrue(m4a.supports(
             MetadataAudioContainer.MP4_M4A, 1,
             setOf(MetadataField.TITLE), emptySet(), false,
@@ -173,6 +182,156 @@ class CertifiedMetadataWriteProfileTest {
             MetadataAudioContainer.MP4_M4A,
         ) === m4a)
     }
+
+    @Test fun m4aHistoricalProfilesKeepTheirOldExactScope() {
+        val titleOnly = MediaStoreM4aTitleProfileV1.profile
+        assertEquals("MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1", titleOnly.id)
+        assertTrue(titleOnly.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.TITLE), emptySet(), false,
+        ))
+        assertFalse(titleOnly.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.ARTIST), emptySet(), false,
+        ))
+        assertFalse(titleOnly.supports(listOf(m4aPictureAdd())))
+        assertTrue(MetadataWriteProfileRegistry.byId(titleOnly.id) === titleOnly)
+
+        val safText = SafLocalM4aTextProfileV1.profile
+        assertEquals("SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1", safText.id)
+        assertTrue(safText.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.TITLE, MetadataField.ARTIST,
+                MetadataField.TRACK_TOTAL, MetadataField.LYRICS),
+            emptySet(), false,
+        ))
+        assertFalse(safText.supports(listOf(m4aPictureAdd())))
+        assertTrue(MetadataWriteProfileRegistry.byId(safText.id) === safText)
+        assertTrue(MetadataWriteProfileRegistry.forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+            MetadataAudioContainer.MP4_M4A,
+        ) === MediaStoreM4aTextProfile.profile)
+        assertTrue(MetadataWriteProfileRegistry.forProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+            MetadataAudioContainer.MP4_M4A,
+        ) === SafLocalM4aTextProfile.profile)
+    }
+
+    @Test fun unboundM4aIntentUsesHistoricalScopeOnlyWhenExact() {
+        // A pre-binding title-only journal keeps its original, narrow evidence.
+        assertEquals(
+            MediaStoreM4aTitleProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(changes = listOf(m4aTitleChange())),
+            ),
+        )
+        assertEquals(
+            SafLocalM4aTextProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    provider = MetadataDocumentProvider.SAF,
+                    changes = listOf(m4aArtistChange()),
+                ),
+            ),
+        )
+        // Advanced text and covr were never covered by that title-only evidence:
+        // no historical profile may be silently replaced by the active one.
+        assertNull(MetadataWriteProfileRegistry.resolveForIntent(
+            m4aIntent(changes = listOf(m4aArtistChange())),
+        ))
+        assertNull(MetadataWriteProfileRegistry.resolveForIntent(
+            m4aIntent(
+                provider = MetadataDocumentProvider.SAF,
+                resources = listOf(m4aPictureAdd()),
+            ),
+        ))
+    }
+
+    @Test fun boundM4aIntentKeepsItsExactActiveProfile() {
+        val active = MediaStoreM4aTextProfile.profile
+        assertEquals(
+            active,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    changes = listOf(m4aArtistChange()),
+                    profile = active,
+                ),
+            ),
+        )
+        assertEquals(
+            active,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    resources = listOf(m4aPictureAdd()),
+                    profile = active,
+                ),
+            ),
+        )
+        // A profile cannot be borrowed for an operation its evidence never had.
+        assertEquals(
+            null,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    resources = listOf(m4aPictureAdd()),
+                    profile = MediaStoreM4aTitleProfileV1.profile,
+                ),
+            ),
+        )
+        assertEquals(
+            null,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(changes = listOf(m4aTitleChange()))
+                    .copy(profileId = "UNKNOWN_PROFILE", evidenceId = "UNKNOWN_EVIDENCE"),
+            ),
+        )
+    }
+
+    private fun m4aIntent(
+        provider: MetadataDocumentProvider = MetadataDocumentProvider.MEDIASTORE,
+        changes: List<MetadataCommitIntentManifest.Change> = emptyList(),
+        resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList(),
+        profile: CertifiedMetadataWriteProfile? = null,
+    ) = MetadataCommitIntentManifest.Receipt(
+        transactionId = "aaaaaaaa-1234-4abc-8abc-123456789abc",
+        ownerSha256 = "a".repeat(64),
+        provider = provider,
+        container = MetadataAudioContainer.MP4_M4A,
+        originalBytes = 1024,
+        originalSha256 = "b".repeat(64),
+        candidateBytes = 2048,
+        candidateSha256 = "c".repeat(64),
+        changes = changes,
+        resources = resources,
+        profileId = profile?.id,
+        evidenceId = profile?.capabilityEvidenceId,
+    )
+
+    private fun m4aTitleChange() = MetadataCommitIntentManifest.Change(
+        field = MetadataField.TITLE,
+        beforeCount = 0,
+        afterCount = 1,
+        beforeSha256 = MetadataCommitIntentManifest.valuesDigest(emptyList()),
+        afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Título")),
+    )
+
+    private fun m4aArtistChange() = MetadataCommitIntentManifest.Change(
+        field = MetadataField.ARTIST,
+        beforeCount = 0,
+        afterCount = 1,
+        beforeSha256 = MetadataCommitIntentManifest.valuesDigest(emptyList()),
+        afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Artista")),
+    )
+
+    private fun m4aPictureAdd() =
+        MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+            format = MetadataArtworkEvidence.Format.MP4_COVR,
+            ordinal = 0,
+            type = 3,
+            description = "Portada",
+            afterMime = "image/png",
+            afterBytes = 48,
+            afterSha256 = "d".repeat(64),
+        )
 
     @Test fun providerAwareLookupUsesDistinctSafEvidence() {
         assertTrue(

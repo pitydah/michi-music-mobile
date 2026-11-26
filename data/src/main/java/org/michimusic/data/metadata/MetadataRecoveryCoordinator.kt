@@ -13,6 +13,7 @@ import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataSnapshot
 import org.michimusic.core.metadata.MetadataTarget
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.data.cache.MichiDatabase
 
 /**
@@ -257,13 +258,7 @@ class MetadataRecoveryCoordinator internal constructor(
     ): MetadataWritePermit? {
         val container = runCatching { MetadataAudioContainer.valueOf(entry.format) }
             .getOrNull() ?: return null
-        val revision = when (container) {
-            MetadataAudioContainer.ID3_V23 -> 3
-            MetadataAudioContainer.ID3_V24 -> 4
-            MetadataAudioContainer.FLAC -> 1
-            MetadataAudioContainer.MP4_M4A -> 1
-            else -> return null
-        }
+        val revision = MetadataWriteProfileRegistry.revisionFor(container) ?: return null
         if (intent.container != container) return null
         val parsed = runCatching { android.net.Uri.parse(entry.uri) }.getOrNull()
             ?: return null
@@ -271,8 +266,8 @@ class MetadataRecoveryCoordinator internal constructor(
             entry.sourceId, parsed.scheme, parsed.authority,
         ) ?: return null
         if (intent.provider != provider.documentProvider) return null
-        val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
-            .forProviderAndContainer(provider.profileProvider, container) ?: return null
+        val profile = MetadataWriteProfileRegistry.resolveForIntent(intent) ?: return null
+        if (profile.provider != provider.profileProvider) return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,

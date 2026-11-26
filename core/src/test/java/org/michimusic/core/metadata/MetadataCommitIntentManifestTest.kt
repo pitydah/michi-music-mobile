@@ -59,6 +59,48 @@ class MetadataCommitIntentManifestTest {
     @Test fun preservesDuplicatePositionsInDigest() = assertFalse(
         MetadataCommitIntentManifest.valuesDigest(listOf("Jazz", "Rock", "Jazz")) ==
             MetadataCommitIntentManifest.valuesDigest(listOf("Jazz", "Jazz", "Rock")))
+    @Test fun profileBoundIntentIsValidOnlyForItsExactEvidenceAndScope() {
+        val bound = manifest().copy(
+            profileId = MediaStoreFlacTextProfile.ID,
+            evidenceId = MediaStoreFlacTextProfile.EVIDENCE_ID,
+        )
+        assertTrue(MetadataCommitIntentManifest.valid(bound))
+        assertEquals(
+            MediaStoreFlacTextProfile.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(bound),
+        )
+        assertFalse(MetadataCommitIntentManifest.valid(bound.copy(
+            evidenceId = "ME16_WRONG_EVIDENCE",
+        )))
+        assertFalse(MetadataCommitIntentManifest.valid(bound.copy(
+            profileId = MediaStoreM4aTextProfile.ID,
+            evidenceId = MediaStoreM4aTextProfile.EVIDENCE_ID,
+        )))
+        assertEquals(
+            null,
+            MetadataWriteProfileRegistry.resolveForIntent(bound.copy(
+                profileId = "UNKNOWN_PROFILE",
+                evidenceId = "UNKNOWN_EVIDENCE",
+            )),
+        )
+        // The old unbound receipt remains structurally readable for historical
+        // recovery; only a profile-bound receipt claims an exact evidence scope.
+        assertTrue(MetadataCommitIntentManifest.valid(manifest()))
+        assertEquals(null, manifest().profileId)
+    }
+
+    @Test fun profileBoundIntentCannotHideAnUnsupportedOperation() {
+        val bound = manifest().copy(
+            profileId = MediaStoreM4aTitleProfileV1.ID,
+            evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID,
+            container = MetadataAudioContainer.MP4_M4A,
+            changes = listOf(manifest().changes.single().copy(
+                field = MetadataField.ARTIST,
+            )),
+        )
+        assertFalse(MetadataCommitIntentManifest.valid(bound))
+    }
+
     @Test fun rejectsFieldTampering() {
         val changed = manifest().copy(changes=listOf(manifest().changes.single().copy(
             afterSha256="0".repeat(64), beforeSha256="0".repeat(64))))

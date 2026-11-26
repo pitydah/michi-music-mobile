@@ -32,8 +32,10 @@ import org.michimusic.core.metadata.MetadataPrepareDecision
 import org.michimusic.core.metadata.MetadataPreparePolicy
 import org.michimusic.core.metadata.MetadataPrepareRejection
 import org.michimusic.core.metadata.MetadataPrepareTicket
+import org.michimusic.core.metadata.MetadataProviderRecoveryProfile
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 import org.michimusic.core.metadata.MetadataReview
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.data.repository.MetadataEditorEvidenceResult
 
@@ -279,7 +281,20 @@ class MetadataPreparationCoordinator(
             // not an unbound write candidate. This record is NOT certification.
             val intent = MetadataCommitIntentManifest.create(id, ready,
                 access.provider, container, ticket.expectedBytes, originalSha,
-                stageBytes, digest)
+                stageBytes, digest,
+                MetadataWriteProfileRegistry.activeForProviderAndContainer(
+                    when (access.provider) {
+                        MetadataDocumentProvider.MEDIASTORE ->
+                            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                        MetadataDocumentProvider.SAF ->
+                            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                        MetadataDocumentProvider.REMOTE,
+                        MetadataDocumentProvider.UNKNOWN ->
+                            MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE
+                    },
+                    container,
+                ),
+            )
             // The intent must become durable BEFORE stage-ready is visible. The
             // publication re-hashes the private artifacts inside the exclusion, so a
             // stale or altered observation is refused instead of advertised.

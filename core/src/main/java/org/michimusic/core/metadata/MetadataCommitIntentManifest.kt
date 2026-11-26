@@ -80,6 +80,13 @@ object MetadataCommitIntentManifest {
         val candidateSha256: String,
         val changes: List<Change>,
         val resources: List<ResourceChange> = emptyList(),
+        /**
+         * Exact profile bound at preparation time. Both fields are null only for
+         * an intent written before profile binding existed; such an intent must be
+         * resolved through a historical profile, never through the active scope.
+         */
+        val profileId: String? = null,
+        val evidenceId: String? = null,
     ) {
         /** No receipt, even if structurally valid, can turn on a source writer. */
         val sourceWriteCertified: Boolean get() = false
@@ -123,6 +130,7 @@ object MetadataCommitIntentManifest {
         originalSha256: String,
         candidateBytes: Long,
         candidateSha256: String,
+        profile: CertifiedMetadataWriteProfile? = null,
     ): Receipt {
         val operations = review.diffs.map { diff ->
             if (diff.after.isEmpty()) MetadataChange.Clear(diff.field)
@@ -141,7 +149,8 @@ object MetadataCommitIntentManifest {
         val receipt = Receipt(transactionId,
             MetadataPrivateSessionIdentity.digest(review.original.target),
             provider, container, originalBytes, originalSha256,
-            candidateBytes, candidateSha256, changes)
+            candidateBytes, candidateSha256, changes,
+            profileId = profile?.id, evidenceId = profile?.capabilityEvidenceId)
         require(valid(receipt)) { "INVALID_PREPARED_INTENT" }
         return receipt
     }
@@ -163,12 +172,13 @@ object MetadataCommitIntentManifest {
         originalSha256: String,
         candidateBytes: Long,
         candidateSha256: String,
+        profile: CertifiedMetadataWriteProfile? = null,
     ): Receipt {
         require(review == null || review.original.target == target)
         val scalar = review?.let {
             create(
                 transactionId, it, provider, container, originalBytes, originalSha256,
-                candidateBytes, candidateSha256,
+                candidateBytes, candidateSha256, profile,
             ).changes
         }.orEmpty()
         require(edits.size <= MAX_RESOURCES)
@@ -263,6 +273,7 @@ object MetadataCommitIntentManifest {
             transactionId, MetadataPrivateSessionIdentity.digest(target), provider, container,
             originalBytes, originalSha256, candidateBytes, candidateSha256, scalar,
             resourceChanges,
+            profileId = profile?.id, evidenceId = profile?.capabilityEvidenceId,
         )
         require(valid(receipt)) { "INVALID_PREPARED_INTENT" }
         return receipt
@@ -298,6 +309,31 @@ object MetadataCommitIntentManifest {
                 MetadataAudioContainer.MP4_M4A) ||
             (r.changes.isEmpty() && r.resources.isEmpty()) ||
             r.changes.size > MAX_FIELDS || r.resources.size > MAX_RESOURCES) return false
+        if ((r.profileId == null) != (r.evidenceId == null)) return false
+        if (r.profileId != null) {
+            val profile = MetadataWriteProfileRegistry.byId(r.profileId) ?: return false
+            val profileProvider = when (r.provider) {
+                MetadataDocumentProvider.MEDIASTORE ->
+                    MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+                MetadataDocumentProvider.SAF ->
+                    MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+                MetadataDocumentProvider.REMOTE, MetadataDocumentProvider.UNKNOWN -> null
+            }
+            val revision = MetadataWriteProfileRegistry.revisionFor(r.container)
+                ?: return false
+            val fields = r.changes.mapTo(linkedSetOf()) { it.field }
+            val multiValueFields = r.changes
+                .filter { it.afterCount > 1 }
+                .mapTo(linkedSetOf()) { it.field }
+            if (profile.provider != profileProvider ||
+                profile.capabilityEvidenceId != r.evidenceId ||
+                !profile.supports(
+                    r.container, revision, fields, multiValueFields,
+                    artworkChanged = false,
+                ) ||
+                !profile.supports(r.resources)
+            ) return false
+        }
         val supported = when (r.container) {
             MetadataAudioContainer.FLAC -> MetadataCapabilityRegistry.flacStageFields
             MetadataAudioContainer.WAVPACK, MetadataAudioContainer.APE ->

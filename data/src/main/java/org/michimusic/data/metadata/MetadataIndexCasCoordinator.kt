@@ -63,7 +63,7 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
                 permitContainer,
                 permit.revision,
                 permit.fields,
-                emptySet(),
+                permit.multiValueFields,
                 artworkChanged = false,
             ) &&
             profile.supports(permit.resources) &&

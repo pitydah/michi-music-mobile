@@ -33,7 +33,7 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
     }
     private companion object {
         const val MAGIC = 0x4d45314e // ME1N
-        const val VERSION = 3
+        const val VERSION = 4
         const val MAX_BYTES = 12 * 1024
     }
 
@@ -146,6 +146,8 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                         out.writeUTF(resource.beforeSha256)
                     }
                 }
+                out.writeUTF(r.profileId.orEmpty())
+                out.writeUTF(r.evidenceId.orEmpty())
             }
         }.toByteArray()
         check(body.size + 4 + 32 <= MAX_BYTES) { "INTENT_RECORD_TOO_LARGE" }
@@ -239,10 +241,13 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                 }
             }
         }
+        val profileId = if (version >= 4) decoded.readUTF().ifEmpty { null } else null
+        val evidenceId = if (version >= 4) decoded.readUTF().ifEmpty { null } else null
         require(changes.isNotEmpty() || resources.isNotEmpty())
         require(decoded.available() == 0)
         val result = MetadataCommitIntentManifest.Receipt(id,owner,provider,container,
-            originalBytes,originalHash,candidateBytes,candidateHash,changes,resources)
+            originalBytes,originalHash,candidateBytes,candidateHash,changes,resources,
+            profileId = profileId, evidenceId = evidenceId)
         require(MetadataCommitIntentManifest.valid(result))
         return result
     }

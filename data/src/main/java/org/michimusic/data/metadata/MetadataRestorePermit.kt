@@ -107,10 +107,9 @@ internal data class MetadataRestorePermit(
                 entry.sourceId, parsed.scheme, parsed.authority,
             ) ?: return null
             if (intent.provider != provider.documentProvider) return null
-            val profile = MetadataWriteProfileRegistry.forProviderAndContainer(
-                provider.profileProvider, intent.container,
-            )
+            val profile = MetadataWriteProfileRegistry.resolveForIntent(intent)
                 ?: return null
+            if (profile.provider != provider.profileProvider) return null
             if (entry.format != intent.container.name) return null
             if (intent.originalBytes != entry.expectedBytes ||
                 intent.originalSha256 != entry.originalSha256 ||
@@ -121,13 +120,8 @@ internal data class MetadataRestorePermit(
             val owner = try { MetadataPrivateSessionIdentity.digest(target) }
                 catch (_: Exception) { return null }
             if (owner != intent.ownerSha256) return null
-            val revision = when (intent.container) {
-                MetadataAudioContainer.ID3_V23 -> 3
-                MetadataAudioContainer.ID3_V24 -> 4
-                MetadataAudioContainer.FLAC -> 1
-                MetadataAudioContainer.MP4_M4A -> 1
-                else -> return null
-            }
+            val revision = MetadataWriteProfileRegistry.revisionFor(intent.container)
+                ?: return null
             val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
             val multiValueFields = intent.changes
                 .filterTo(mutableListOf()) { it.afterCount > 1 }

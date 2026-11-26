@@ -8,8 +8,10 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.michimusic.core.metadata.MediaStoreFlacTextProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
@@ -85,6 +87,32 @@ class MetadataCommitIntentStoreTest {
             }
         } finally { root.deleteRecursively() }
     }
+    @Test fun writesAndReadsProfileBoundReceipt() = runBlocking {
+        val root=fresh()
+        try {
+            val journal=MetadataRecoveryJournalV1(root)
+            journal.exclusive {
+                val store=MetadataCommitIntentStore(journal)
+                val bound=receipt().copy(
+                    profileId = MediaStoreFlacTextProfile.ID,
+                    evidenceId = MediaStoreFlacTextProfile.EVIDENCE_ID,
+                )
+                assertTrue(MetadataCommitIntentManifest.valid(bound))
+                store.write(entry(),bound)
+                val inspected = store.inspect(entry())
+                assertEquals(MetadataCommitIntentStore.Inspection.Present(bound), inspected)
+                assertEquals(
+                    MediaStoreFlacTextProfile.profile,
+                    org.michimusic.core.metadata.MetadataWriteProfileRegistry
+                        .resolveForIntent(
+                            (inspected as MetadataCommitIntentStore.Inspection.Present)
+                                .receipt,
+                        ),
+                )
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun writesAndReadsAssetOnlyV2Receipt() = runBlocking {
         val root=fresh()
         try {
@@ -167,6 +195,8 @@ class MetadataCommitIntentStoreTest {
                 assertEquals(MetadataCommitIntentStore.Inspection.Present(receipt()), inspected)
                 val decoded=(inspected as MetadataCommitIntentStore.Inspection.Present).receipt
                 assertTrue(decoded.resources.isEmpty())
+                assertNull(decoded.profileId)
+                assertNull(decoded.evidenceId)
             }
         } finally { root.deleteRecursively() }
     }

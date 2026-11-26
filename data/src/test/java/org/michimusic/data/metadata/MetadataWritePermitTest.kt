@@ -3,7 +3,11 @@ package org.michimusic.data.metadata
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.michimusic.core.metadata.MediaStoreM4aTextProfile
+import org.michimusic.core.metadata.MediaStoreM4aTitleProfileV1
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.MetadataArtworkEvidence
+import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataRecoveryPhase
 
@@ -83,4 +87,66 @@ class MetadataWritePermitTest {
             representable.matches(entry(format = "ID3_V24")),
         )
     }
+
+    @Test fun historicalM4aPermitNeverWidensToAdvancedTextOrCovr() {
+        val historical = m4aPermit(
+            profileId = MediaStoreM4aTitleProfileV1.ID,
+            evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID,
+            fields = setOf(MetadataField.TITLE),
+        )
+        assertTrue(historical.matches(entry(format = "MP4_M4A")))
+        assertFalse(
+            historical.copy(fields = setOf(MetadataField.ARTIST))
+                .matches(entry(format = "MP4_M4A")),
+        )
+        assertFalse(
+            historical.copy(resources = listOf(m4aPictureAdd()))
+                .matches(entry(format = "MP4_M4A")),
+        )
+
+        val active = m4aPermit(
+            profileId = MediaStoreM4aTextProfile.ID,
+            evidenceId = MediaStoreM4aTextProfile.EVIDENCE_ID,
+            fields = setOf(MetadataField.ARTIST),
+            resources = listOf(m4aPictureAdd()),
+        )
+        assertTrue(active.matches(entry(format = "MP4_M4A")))
+        assertFalse(
+            active.copy(evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID)
+                .matches(entry(format = "MP4_M4A")),
+        )
+    }
+
+    private fun m4aPermit(
+        profileId: String,
+        evidenceId: String,
+        fields: Set<MetadataField>,
+        resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList(),
+    ) = MetadataWritePermit(
+        transactionId = transactionId,
+        sourceId = sourceId,
+        trackId = trackId,
+        uri = uri,
+        originalSha256 = originalSha256,
+        candidateSha256 = candidateSha256,
+        stageBytes = stageBytes,
+        profileId = profileId,
+        evidenceId = evidenceId,
+        container = "MP4_M4A",
+        revision = 1,
+        fields = fields,
+        explicitUserAction = true,
+        resources = resources,
+    )
+
+    private fun m4aPictureAdd() =
+        MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+            format = MetadataArtworkEvidence.Format.MP4_COVR,
+            ordinal = 0,
+            type = 3,
+            description = "Portada",
+            afterMime = "image/png",
+            afterBytes = 48,
+            afterSha256 = "d".repeat(64),
+        )
 }

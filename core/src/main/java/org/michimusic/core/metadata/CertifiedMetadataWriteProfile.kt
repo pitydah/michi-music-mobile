@@ -205,15 +205,19 @@ private val m4aProfileFields: Set<MetadataField> = setOf(
 )
 
 /**
- * Audio-only M4A text rewrite through the pinned JAudiotagger engine.
+ * Active audio-only M4A text and cover-resource profile through the pinned
+ * JAudiotagger engine.
  *
  * Evidence covers API 36 MediaStore mutation, exact AAC `mdat` preservation,
  * unrelated standard atom preservation, add/clear of representable text,
- * track/disc pairs, cold readback and atomic Room publication.
+ * track/disc pairs, cover add/replace/remove, cold readback and atomic Room
+ * publication. The old `..._TITLE_V1` evidence never covered advanced text or
+ * `covr`; it remains registered only as [MediaStoreM4aTitleProfileV1] so a
+ * historical journal whose exact scope is title-only can still be recovered.
  */
 object MediaStoreM4aTextProfile {
-    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
-    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
         provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
@@ -228,6 +232,27 @@ object MediaStoreM4aTextProfile {
             MetadataResourceOperation.MP4_COVR_ADD,
             MetadataResourceOperation.MP4_COVR_REMOVE,
         ),
+    )
+}
+
+/**
+ * Historical MediaStore M4A title-only profile. Its evidence covered exactly a
+ * scalar title and no resource operation. It is never selected for a new
+ * transaction; it exists only so an old journal whose durable intent is exactly
+ * title-only can be authorized without borrowing the active broader evidence.
+ */
+object MediaStoreM4aTitleProfileV1 {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = setOf(MetadataField.TITLE),
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
     )
 }
 
@@ -290,8 +315,10 @@ object SafLocalFlacTextProfile {
 }
 
 /**
- * Audio-only M4A text, pairs and cover resources on a local SAF document. Video
- * remains closed: the container gate only admits an audio-only M4A.
+ * Active audio-only M4A text, pairs and cover resources on a local SAF
+ * document. Video remains closed: the container gate only admits an audio-only
+ * M4A. This profile is the successor of [SafLocalM4aTextProfileV1], which never
+ * covered a resource operation.
  */
 object SafLocalM4aTextProfile {
     const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_RESOURCES_V2"
@@ -313,7 +340,37 @@ object SafLocalM4aTextProfile {
     )
 }
 
+/**
+ * Historical SAF M4A text-only profile. Its evidence covered audio-only text and
+ * pairs but no `covr` operation. It remains recoverable only for an old journal
+ * whose durable intent contains text and no resource change.
+ */
+object SafLocalM4aTextProfileV1 {
+    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1"
+    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_M4A_AUDIO_ONLY_TEXT_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
 object MetadataWriteProfileRegistry {
+    /**
+     * Profiles that were superseded by a wider active scope. They are never
+     * returned for a new transaction; they authorize only an old, unbound intent
+     * whose exact durable changes they can still represent.
+     */
+    private val historicalProfiles: List<CertifiedMetadataWriteProfile> = listOf(
+        MediaStoreM4aTitleProfileV1.profile,
+        SafLocalM4aTextProfileV1.profile,
+    )
+
     fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
         MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
         MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
@@ -321,15 +378,19 @@ object MetadataWriteProfileRegistry {
         SafLocalMp3TitleProfile.ID -> SafLocalMp3TitleProfile.profile
         SafLocalFlacTextProfile.ID -> SafLocalFlacTextProfile.profile
         SafLocalM4aTextProfile.ID -> SafLocalM4aTextProfile.profile
+        MediaStoreM4aTitleProfileV1.ID -> MediaStoreM4aTitleProfileV1.profile
+        SafLocalM4aTextProfileV1.ID -> SafLocalM4aTextProfileV1.profile
         else -> null
     }
+
     fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
-        forProviderAndContainer(
+        activeForProviderAndContainer(
             MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
             container,
         )
 
-    fun forProviderAndContainer(
+    /** The only profile a new write may bind. Never a historical profile. */
+    fun activeForProviderAndContainer(
         provider: MetadataProviderRecoveryProfile.Kind,
         container: MetadataAudioContainer,
     ): CertifiedMetadataWriteProfile? =
@@ -351,18 +412,80 @@ object MetadataWriteProfileRegistry {
             MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE -> null
         }
 
+    /** Compatibility alias; always the active profile. */
+    fun forProviderAndContainer(
+        provider: MetadataProviderRecoveryProfile.Kind,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? = activeForProviderAndContainer(provider, container)
+
     fun forDocumentProviderAndContainer(
         provider: MetadataDocumentProvider,
         container: MetadataAudioContainer,
-    ): CertifiedMetadataWriteProfile? = forProviderAndContainer(
-        when (provider) {
-            MetadataDocumentProvider.MEDIASTORE ->
-                MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
-            MetadataDocumentProvider.SAF ->
-                MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
-            MetadataDocumentProvider.REMOTE, MetadataDocumentProvider.UNKNOWN ->
-                MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE
-        },
+    ): CertifiedMetadataWriteProfile? = activeForProviderAndContainer(
+        providerKind(provider),
         container,
     )
+
+    /**
+     * Resolves the exact profile for one durable intent.
+     *
+     * A profile-bound intent is accepted only when the registered profile still
+     * matches its evidence ID and can represent every recorded scalar, multivalue
+     * and resource change. An old intent written before profile binding existed is
+     * accepted only through a historical profile that fits those exact changes;
+     * for M4A that means title-only MediaStore or text-only SAF. An old M4A intent
+     * that contains advanced text or `covr` cannot be attributed to the historical
+     * evidence, so this returns null and the caller must keep the journal/backup
+     * instead of mutating speculatively.
+     *
+     * Containers without a retained historical definition preserve the previous
+     * recovery behavior, still constrained by the intent's exact change set.
+     */
+    fun resolveForIntent(intent: MetadataCommitIntentManifest.Receipt):
+        CertifiedMetadataWriteProfile? {
+        val provider = providerKind(intent.provider)
+        val revision = revisionFor(intent.container) ?: return null
+        val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
+        val multiValueFields = intent.changes
+            .filter { it.afterCount > 1 }
+            .mapTo(linkedSetOf()) { it.field }
+        fun fits(profile: CertifiedMetadataWriteProfile): Boolean =
+            profile.provider == provider &&
+                profile.supports(
+                    intent.container, revision, fields, multiValueFields,
+                    artworkChanged = false,
+                ) &&
+                profile.supports(intent.resources)
+
+        if (intent.profileId != null) {
+            val profile = byId(intent.profileId) ?: return null
+            return profile.takeIf {
+                intent.evidenceId == profile.capabilityEvidenceId && fits(profile)
+            }
+        }
+        val historical = historicalProfiles.filter {
+            it.provider == provider && intent.container in it.containers
+        }
+        if (historical.isNotEmpty()) return historical.filter(::fits).singleOrNull()
+        return activeForProviderAndContainer(provider, intent.container)?.takeIf(::fits)
+    }
+
+    fun revisionFor(container: MetadataAudioContainer): Int? = when (container) {
+        MetadataAudioContainer.ID3_V23 -> 3
+        MetadataAudioContainer.ID3_V24 -> 4
+        MetadataAudioContainer.FLAC -> 1
+        MetadataAudioContainer.MP4_M4A -> 1
+        else -> null
+    }
+
+    private fun providerKind(
+        provider: MetadataDocumentProvider,
+    ): MetadataProviderRecoveryProfile.Kind = when (provider) {
+        MetadataDocumentProvider.MEDIASTORE ->
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+        MetadataDocumentProvider.SAF ->
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+        MetadataDocumentProvider.REMOTE, MetadataDocumentProvider.UNKNOWN ->
+            MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE
+    }
 }

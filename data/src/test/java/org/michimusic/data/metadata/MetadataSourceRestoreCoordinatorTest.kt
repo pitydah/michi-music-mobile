@@ -32,6 +32,8 @@ import org.robolectric.shadows.ShadowContentResolver
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MediaStoreFlacTextProfile
 import org.michimusic.core.metadata.MediaStoreM4aTextProfile
+import org.michimusic.core.metadata.MediaStoreM4aTitleProfileV1
+import org.michimusic.core.metadata.SafLocalM4aTextProfileV1
 import org.michimusic.core.metadata.SafLocalMp3TitleProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataChange
@@ -272,8 +274,8 @@ class MetadataSourceRestoreCoordinatorTest {
         val permit = MetadataRestorePermit.fromDurable(entry, m4aIntent, target, true)
 
         assertTrue(permit != null)
-        assertEquals(MediaStoreM4aTextProfile.ID, permit!!.profileId)
-        assertEquals(MediaStoreM4aTextProfile.EVIDENCE_ID, permit.evidenceId)
+        assertEquals(MediaStoreM4aTitleProfileV1.ID, permit!!.profileId)
+        assertEquals(MediaStoreM4aTitleProfileV1.EVIDENCE_ID, permit.evidenceId)
         assertEquals(1, permit.revision)
 
         val artistIntent = MetadataCommitIntentManifest.create(
@@ -284,9 +286,27 @@ class MetadataSourceRestoreCoordinatorTest {
             originalBytes = original.size.toLong(), originalSha256 = originalSha,
             candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
         )
-        assertTrue(
-            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true) != null,
+        // An old unbound advanced intent cannot be attributed to the historical
+        // title-only evidence; it must stay un-recovered rather than widen scope.
+        assertEquals(
+            null,
+            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true),
         )
+        val boundArtistIntent = MetadataCommitIntentManifest.create(
+            transactionId = TX,
+            review = reviewField(MetadataField.ARTIST, "Before", "After"),
+            provider = MetadataDocumentProvider.MEDIASTORE,
+            container = MetadataAudioContainer.MP4_M4A,
+            originalBytes = original.size.toLong(), originalSha256 = originalSha,
+            candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
+            profile = MediaStoreM4aTextProfile.profile,
+        )
+        val boundPermit = MetadataRestorePermit.fromDurable(
+            entry, boundArtistIntent, target, true,
+        )
+        assertTrue(boundPermit != null)
+        assertEquals(MediaStoreM4aTextProfile.ID, boundPermit!!.profileId)
+        assertEquals(MediaStoreM4aTextProfile.EVIDENCE_ID, boundPermit.evidenceId)
         val unsupportedIntent = MetadataCommitIntentManifest.create(
             transactionId = TX,
             review = reviewField(MetadataField.MEDIA_FORMAT, "Before", "After"),
@@ -298,6 +318,59 @@ class MetadataSourceRestoreCoordinatorTest {
         assertEquals(
             null,
             MetadataRestorePermit.fromDurable(entry, unsupportedIntent, target, true),
+        )
+    }
+
+    @Test fun safM4aHistoricalTextIntentRestoresOnlyThroughItsOwnProfile() {
+        val safSource = "safroot_" + "1".repeat(40)
+        val safTrack = "saftrack_" + "2".repeat(40)
+        val safUri = "content://com.android.externalstorage.documents/" +
+            "document/primary%3ADownload%2Ftrack.m4a"
+        val safTarget = MetadataTarget(safSource, safTrack, safUri, token)
+        fun safReview(field: MetadataField) = MetadataEditPreview.review(
+            MetadataSnapshot(
+                target = safTarget,
+                tagsVerified = true,
+                known = mapOf(field to listOf("Original")),
+                verifiedFields = setOf(field),
+            ),
+            listOf(MetadataChange.Replace(field, listOf("Edited"))),
+        ) as MetadataReview.Ready
+        fun safIntent(field: MetadataField, profile: org.michimusic.core.metadata.CertifiedMetadataWriteProfile? = null) =
+            MetadataCommitIntentManifest.create(
+                transactionId = TX,
+                review = safReview(field),
+                provider = MetadataDocumentProvider.SAF,
+                container = MetadataAudioContainer.MP4_M4A,
+                originalBytes = original.size.toLong(),
+                originalSha256 = originalSha,
+                candidateBytes = candidate.size.toLong(),
+                candidateSha256 = candidateSha,
+                profile = profile,
+            )
+        val entry = MetadataRecoveryJournalV1.Entry(
+            TX, MetadataRecoveryPhase.STAGE_READY, safSource, safTrack, safUri,
+            original.size.toLong(), 777L, originalSha256 = originalSha,
+            stageSha256 = candidateSha, stageBytes = candidate.size.toLong(),
+            format = MetadataAudioContainer.MP4_M4A.name,
+            ownerEvidenceToken = token,
+        )
+
+        val historical = MetadataRestorePermit.fromDurable(
+            entry, safIntent(MetadataField.ARTIST), safTarget, true,
+        )
+        assertTrue(historical != null)
+        assertEquals(SafLocalM4aTextProfileV1.ID, historical!!.profileId)
+        assertEquals(SafLocalM4aTextProfileV1.EVIDENCE_ID, historical.evidenceId)
+        assertEquals(
+            null,
+            MetadataRestorePermit.fromDurable(
+                entry,
+                safIntent(MetadataField.ARTIST)
+                    .copy(profileId = "UNKNOWN_PROFILE", evidenceId = "UNKNOWN"),
+                safTarget,
+                true,
+            ),
         )
     }
 

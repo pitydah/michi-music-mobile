@@ -15,8 +15,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import org.michimusic.core.metadata.CertifiedMetadataWriteProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataArtworkLyricsProbe
 import org.michimusic.core.metadata.MetadataField
@@ -369,19 +371,13 @@ class MetadataSaveService internal constructor(
             MetadataAudioContainer.valueOf(entry.format)
         }.getOrNull() ?: return null
         if (intent.container != container) return null
-        val revision = when (container) {
-            MetadataAudioContainer.ID3_V23 -> 3
-            MetadataAudioContainer.ID3_V24 -> 4
-            MetadataAudioContainer.FLAC -> 1
-            MetadataAudioContainer.MP4_M4A -> 1
-            else -> return null
-        }
+        val revision = MetadataWriteProfileRegistry.revisionFor(container) ?: return null
         val provider = MetadataSourceProviderIdentity.classify(
             entry.sourceId, Uri.parse(entry.uri).scheme, Uri.parse(entry.uri).authority,
         ) ?: return null
-        val profile = org.michimusic.core.metadata.MetadataWriteProfileRegistry
-            .forProviderAndContainer(provider.profileProvider, container) ?: return null
+        val profile = MetadataWriteProfileRegistry.resolveForIntent(intent) ?: return null
         if (intent.provider != provider.documentProvider) return null
+        if (profile.provider != provider.profileProvider) return null
         return MetadataWritePermit(
             transactionId = entry.id, sourceId = entry.sourceId,
             trackId = entry.trackId, uri = entry.uri,
@@ -510,11 +506,22 @@ class MetadataSaveService internal constructor(
                         "La intención persistida no es válida; no se reanuda",
                     )
                 val intent = persisted.receipt
+                // Old journals keep their own historical scope. The active profile
+                // may be wider, so a persisted intent that cannot be attributed to
+                // any exact profile is not resumed or rewritten.
+                val persistedProfile = MetadataWriteProfileRegistry.resolveForIntent(intent)
+                        ?: return@withContext Outcome.Blocked(
+                            "La intención persistida no está ligada a un perfil exacto",
+                        )
+                if (persistedProfile.provider != provider.profileProvider)
+                    return@withContext Outcome.Blocked(
+                        "El perfil de la intención no coincide con el proveedor",
+                    )
                 val pendingFields = review?.diffs.orEmpty().map { it.field }.sortedBy { it.name }
                 val expectedIntent = runCatching {
                     createIntent(
                         entry, canonicalTarget, review, observed, resourceEdits,
-                        provider.documentProvider,
+                        provider.documentProvider, activeProfile,
                     )
                 }.getOrNull() ?: return@withContext Outcome.Blocked(
                     "La revisión no coincide con la intención persistida",
@@ -580,8 +587,16 @@ class MetadataSaveService internal constructor(
                 checkpoints.reach(MetadataSaveCheckpoint.AFTER_STAGE_READY)
                 val manifest = createIntent(
                     entry, canonicalTarget, review, observed, resourceEdits,
-                    provider.documentProvider,
+                    provider.documentProvider, activeProfile,
                 )
+                if (manifest.profileId != activeProfile.id ||
+                    manifest.evidenceId != activeProfile.capabilityEvidenceId
+                ) {
+                    journal.discardPrepared(entry.id)
+                    return@withContext Outcome.Blocked(
+                        "La intención no está ligada al perfil activo",
+                    )
+                }
                 if (!activeProfile.supports(manifest.resources)) {
                     journal.discardPrepared(entry.id)
                     return@withContext Outcome.Blocked(
@@ -831,6 +846,7 @@ class MetadataSaveService internal constructor(
         observed: ObservedTag,
         resourceEdits: List<org.michimusic.core.metadata.MetadataSelectiveAssetStage.Edit>,
         provider: MetadataDocumentProvider,
+        profile: CertifiedMetadataWriteProfile,
     ): MetadataCommitIntentManifest.Receipt =
         MetadataCommitIntentManifest.createBundle(
             transactionId = entry.id,
@@ -844,6 +860,7 @@ class MetadataSaveService internal constructor(
             originalSha256 = entry.originalSha256,
             candidateBytes = entry.stageBytes,
             candidateSha256 = entry.stageSha256,
+            profile = profile,
         )
 
     private fun sameSource(uri: Uri, sha: String, bytes: Long): Boolean {
