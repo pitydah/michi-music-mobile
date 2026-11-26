@@ -19,6 +19,7 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.mobile.library.MusicRootAuthority
+import org.michimusic.mobile.ui.metadata.MetadataLibraryRefreshSignal
 
 enum class SearchFilter(val displayName: String) {
     ALL("Todo"),
@@ -109,6 +110,7 @@ class SearchViewModel(
     // revoking a catalog: Room may notify without a semantic row change.
     private var lastPublishedSyncedRows: List<org.michimusic.data.cache.CachedTrack>? = null
     private var syncedObservationFailed = false
+    private var metadataObservationJob: Job? = null
 
     private fun observeSyncedUpdatesOnce() {
         if (syncedObservationJob != null) return
@@ -230,7 +232,53 @@ class SearchViewModel(
         }
     }
 
+    /**
+     * A committed metadata revision updates only the already-published local
+     * catalog. It never scans MediaStore/SAF; a stale revision is ignored and a
+     * missing catalog lets the next load read the durable overlay.
+     */
+    private fun observeMetadataChangesOnce() {
+        if (metadataObservationJob != null) return
+        metadataObservationJob = viewModelScope.launch(ioDispatcher) {
+            MetadataLibraryRefreshSignal.changes.collect { change ->
+                val durableRevision = try {
+                    localRepo.metadataRevisionFor(change.sourceId, change.trackId)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    null
+                }
+                if (durableRevision != null && change.committedRevision < durableRevision)
+                    return@collect
+                val published = publicationFence.write {
+                    val ready = catalogGate.current() as? SearchCatalogLoad.Ready
+                        ?: return@write null
+                    val tracks = applyMetadataCommittedToSearchCatalog(ready.tracks, change)
+                        ?: return@write null
+                    val ticket = catalogGate.begin()
+                    searchGeneration.incrementAndGet()
+                    searchJob?.cancel()
+                    searchJob = null
+                    _structuredResults.value = StructuredSearchResults()
+                    _results.value = emptyList()
+                    _error.value = null
+                    _isSearching.value = searchCatalogNeedsLoading(
+                        _query.value, _selectedFilter.value == SearchFilter.PLAYLISTS,
+                    )
+                    ticket to tracks
+                } ?: return@collect
+                val (ticket, tracks) = published
+                publicationFence.write {
+                    if (catalogGate.complete(ticket, tracks)) {
+                        scheduleSearch(_query.value, debounce = false)
+                    }
+                }
+            }
+        }
+    }
+
     init {
+        observeMetadataChangesOnce()
         if (rootAuthority != null) {
             viewModelScope.launch {
                 rootAuthority.revision.drop(1).collect {

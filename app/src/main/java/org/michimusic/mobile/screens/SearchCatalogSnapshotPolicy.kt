@@ -1,7 +1,9 @@
 package org.michimusic.mobile.screens
 
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.michimusic.data.repository.MetadataCommittedTrackProjection
 
 /**
  * Build a published catalog only on a confirmed library load, not on each query.
@@ -32,6 +34,27 @@ internal fun replaceSearchSyncedTracks(
 ): List<Track> = buildSearchCatalogSnapshot(
     previous.tracks.filterNot { it.source == TrackSource.SYNCED }, synced,
 )
+
+/**
+ * Applies one exact committed revision to an already published catalog.
+ * Returns null when no row matches; never inserts, reorders or scans a provider.
+ */
+internal fun applyMetadataCommittedToSearchCatalog(
+    tracks: List<Track>,
+    change: MetadataCommittedLibraryChange,
+): List<Track>? {
+    var applied = false
+    val updated = tracks.map { track ->
+        when (val result = MetadataCommittedTrackProjection.apply(track, change)) {
+            is MetadataCommittedTrackProjection.Result.Applied -> {
+                applied = true
+                result.track
+            }
+            is MetadataCommittedTrackProjection.Result.Refused -> track
+        }
+    }
+    return if (applied) updated else null
+}
 
 /**
  * A catalog is executable only after its own root/load generation completed.

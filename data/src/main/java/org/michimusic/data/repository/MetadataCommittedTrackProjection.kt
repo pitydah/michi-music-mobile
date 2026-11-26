@@ -8,12 +8,32 @@ import org.michimusic.data.cache.MichiDatabase
 /**
  * Applies a verified post-commit notification to one in-memory catalog row.
  * This is presentation projection only; Room's exact applied marker remains authority.
+ *
+ * One committed revision may mix fields these lists display with fields they do
+ * not show (composer, lyrics, MusicBrainz ids, artwork-only resources). Only the
+ * projectable subset is written here: an extended field is never a reason to
+ * discard a revision the source already committed.
  */
 object MetadataCommittedTrackProjection {
     sealed interface Result {
         data class Applied(val track: Track) : Result
         data class Refused(val reason: String) : Result
     }
+
+    /** Scalar fields the local catalog displays and can patch without a provider re-read. */
+    val projectableFields: Set<MetadataField> = setOf(
+        MetadataField.TITLE,
+        MetadataField.ARTIST,
+        MetadataField.ALBUM,
+        MetadataField.ALBUM_ARTIST,
+        MetadataField.GENRE,
+        MetadataField.TRACK_NUMBER,
+        MetadataField.RELEASE_DATE,
+    )
+
+    /** Verified fields the workbench may write but these catalog lists never project. */
+    val extendedFields: Set<MetadataField> =
+        MetadataField.entries.filterNot { it in projectableFields }.toSet()
 
     fun apply(track: Track, change: MetadataCommittedLibraryChange): Result {
         val sourceMatches = track.sourceId == change.sourceId ||
@@ -24,34 +44,26 @@ object MetadataCommittedTrackProjection {
         }
         if (!change.snapshot.tagsVerified) return Result.Refused("SNAPSHOT_UNVERIFIED")
 
-        val supported = setOf(
-            MetadataField.TITLE,
-            MetadataField.ARTIST,
-            MetadataField.ALBUM,
-            MetadataField.ALBUM_ARTIST,
-            MetadataField.GENRE,
-            MetadataField.TRACK_NUMBER,
-            MetadataField.RELEASE_DATE,
-        )
-        if (!supported.containsAll(change.changedFields)) {
-            return Result.Refused("FIELD_NOT_PROJECTABLE")
-        }
+        // A mixed revision projects its projectable subset and keeps the rest untouched.
+        val projectedFields = change.changedFields intersect projectableFields
 
         fun text(field: MetadataField, current: String): String? {
-            if (field !in change.changedFields) return current
+            if (field !in projectedFields) return current
             val values = change.snapshot.known[field] ?: return null
-            return if (values.size <= 1) values.firstOrNull().orEmpty() else null
+            // Scalar Room columns display a deterministic primary value; the exact
+            // multivalue set remains in the source and in structured evidence.
+            return values.firstOrNull().orEmpty()
         }
 
         fun number(field: MetadataField, current: Int): Int? {
-            if (field !in change.changedFields) return current
+            if (field !in projectedFields) return current
             val values = change.snapshot.known[field] ?: return null
             if (values.isEmpty()) return 0
             if (values.size != 1 || !values.single().matches(Regex("[0-9]{1,4}"))) return null
             return values.single().toIntOrNull()?.takeIf { it in 1..9999 }
         }
 
-        val year = if (MetadataField.RELEASE_DATE !in change.changedFields) {
+        val year = if (MetadataField.RELEASE_DATE !in projectedFields) {
             track.year
         } else {
             val values = change.snapshot.known[MetadataField.RELEASE_DATE]
@@ -84,8 +96,8 @@ object MetadataCommittedTrackProjection {
                 title = title,
                 artist = artist,
                 album = album,
-                albumId = if (MetadataField.ALBUM in change.changedFields ||
-                    MetadataField.ALBUM_ARTIST in change.changedFields
+                albumId = if (MetadataField.ALBUM in projectedFields ||
+                    MetadataField.ALBUM_ARTIST in projectedFields
                 ) "" else track.albumId,
                 albumArtist = albumArtist,
                 genre = genre,

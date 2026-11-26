@@ -75,24 +75,14 @@ open class LocalMediaRepository(
             val tracks: List<Track>,
             val albums: List<LocalAlbum>,
         ) : MetadataCachePatch
+        /** The durable revision is already published; the in-memory cache is not stale. */
+        data class Ignored(val reason: String) : MetadataCachePatch
         data object CacheUnavailable : MetadataCachePatch
         data class Refused(val reason: String) : MetadataCachePatch
     }
 
-    open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
-        val albums = loadAlbums()
-        return albums.groupBy { it.album.artist }
-            .map { (name, artistAlbums) ->
-                val first = artistAlbums.first().album
-                Artist(
-                    id = name.lowercase().replace(" ", "_"),
-                    name = name.ifEmpty { "Unknown" },
-                    albumCount = artistAlbums.size,
-                    trackCount = artistAlbums.sumOf { it.tracks.size },
-                ) to artistAlbums
-            }
-            .sortedBy { it.first.name }
-    }
+    open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> =
+        artistsFromAlbums(loadAlbums())
 
     /**
      * Legacy list API kept for callers and test doubles that override [loadTracks]; the
@@ -111,41 +101,8 @@ open class LocalMediaRepository(
             is MediaResult.QueryFailed -> tracks
         }
 
-    internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> {
-        // MediaStore's album ID is the authoritative disc identity, so a
-        // compilation stays one album even when every song has a guest artist.
-        // Tag-based libraries group by album title + album artist; the track
-        // artist is only a last-resort fallback when no album credit exists.
-        val grouped = tracks.groupBy { track ->
-            if (track.albumId.isNotBlank()) {
-                "mediastore:${track.albumId}"
-            } else {
-                val albumArtist = track.albumArtist.ifBlank { track.artist }
-                "tags:${track.album.trim().lowercase()}|${albumArtist.trim().lowercase()}"
-            }
-        }
-        return grouped.map { (_, albumTracks) ->
-            val first = albumTracks.first()
-            val albumName = first.album.ifEmpty { "Unknown Album" }
-            val artistName = first.albumArtist.ifBlank { first.artist }.ifEmpty { "Unknown" }
-            val albumId = if (first.albumId.isNotBlank()) {
-                "mediastore_${first.albumId}"
-            } else {
-                "${albumName.lowercase().replace(" ", "_")}_${artistName.lowercase().replace(" ", "_")}"
-            }
-            LocalAlbum(
-                album = Album(
-                    id = "album_$albumId",
-                    title = albumName,
-                    artist = artistName,
-                    year = first.year,
-                    trackCount = albumTracks.size,
-                    coverId = first.coverId,
-                ),
-                tracks = albumTracks,
-            )
-        }.sortedBy { it.album.title }
-    }
+    internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> =
+        groupAlbumsFromTracks(tracks)
 
     open suspend fun fetchTracksResult(): MediaResult<List<Track>> {
         // Construct only one notification from an actual fresh query; callback is invoked
@@ -211,13 +168,47 @@ open class LocalMediaRepository(
     }
 
     /**
+     * Durable revision for one already committed row. Search uses it to ignore
+     * a replayed or stale notification without rescanning the provider.
+     */
+    suspend fun metadataRevisionFor(sourceId: String, trackId: String): Long? =
+        importedTrackDao?.getTrackBySource(sourceId, trackId)?.metadataRevision
+
+    /**
      * Patches one already-loaded local row after an exact metadata commit.
      * It never queries MediaStore and never upgrades incomplete cache coverage.
      */
     open suspend fun applyMetadataCommittedChange(
         change: MetadataCommittedLibraryChange,
     ): MetadataCachePatch = cacheMutex.withLock {
-        val current = cachedTracks ?: return@withLock MetadataCachePatch.CacheUnavailable
+        val dao = importedTrackDao
+        if (dao != null) {
+            val marker = try {
+                dao.getAppliedMetadataTransaction(change.transactionId)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+            }
+            val durableRevision = try {
+                dao.getTrackBySource(change.sourceId, change.trackId)?.metadataRevision
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+            }
+            when (val decision = MetadataLibraryPublicationGate.evaluate(
+                change, marker, durableRevision,
+            )) {
+                is MetadataLibraryPublicationGate.Decision.Ignore ->
+                    return@withLock MetadataCachePatch.Ignored(decision.reason)
+                is MetadataLibraryPublicationGate.Decision.Refuse ->
+                    return@withLock MetadataCachePatch.Refused(decision.reason)
+                MetadataLibraryPublicationGate.Decision.Apply -> Unit
+            }
+        }
+        val current = cachedTracks
+            ?: return@withLock MetadataCachePatch.Ignored("CACHE_NOT_LOADED")
         val indices = current.indices.filter { index ->
             val track = current[index]
             val sourceMatches = track.sourceId == change.sourceId ||
@@ -912,7 +903,19 @@ open class LocalMediaRepository(
                 )
             }
         }
-        return MediaResult.Success(applyReplayGain(completed))
+        // MediaStore may lag the exact bytes this app just committed. Overlay the
+        // durable row only when its physical size still matches the provider row.
+        val durable = try {
+            importedTrackDao?.getTracksForSource(durableLibrarySource(root))
+                ?.first().orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return MediaResult.Success(applyReplayGain(
+            MetadataLibraryDurableOverlay.apply(completed, durable),
+        ))
     }
 
     private suspend fun customRootTracks(): MediaResult<List<Track>> {

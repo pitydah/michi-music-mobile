@@ -240,6 +240,10 @@ class AlbumsViewModel(
                         metadataTransactions.remove(change.transactionId)
                     }
                 }
+                is LocalMediaRepository.MetadataCachePatch.Ignored -> {
+                    // Durable marker/revision already owns this revision, or the
+                    // catalog is not loaded yet. No in-memory rollback is allowed.
+                }
             }
         }
     }

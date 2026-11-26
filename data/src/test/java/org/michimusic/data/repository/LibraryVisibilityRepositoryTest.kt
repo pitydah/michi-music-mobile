@@ -11,6 +11,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.LibraryExclusionDao
 import org.michimusic.data.cache.LibraryExclusionEntity
+import org.michimusic.data.cache.MichiDatabase
 
 class LibraryVisibilityRepositoryTest {
     @Test fun hideSurvivesCacheInvalidationAndRestoreDoesNotDeleteAudio() = runTest {
@@ -70,5 +71,24 @@ class LibraryVisibilityRepositoryTest {
         val foreignCache = activeCache.copy(id = "local_99", sourceId = "remote-peer")
         assertTrue(repository.filterHiddenSynced(listOf(activeCache)).isEmpty())
         assertEquals(listOf(foreignCache), repository.filterHiddenSynced(listOf(foreignCache)))
+    }
+
+    @Test fun defaultMediaStoreSaveUsesDeviceLibraryDurableSource() {
+        assertEquals(
+            MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID,
+            durableLibrarySource(MusicRoot.Default),
+        )
+        assertEquals(
+            "mediastore:external_primary:Music",
+            libraryVisibilitySource(MusicRoot.Default),
+        )
+        val custom = MusicRoot(
+            type = MusicRootType.CUSTOM_TREE,
+            treeUri = "content://com.android.externalstorage.documents/tree/primary%3AMusic",
+            displayName = "Custom",
+            sourceId = "saf_root_custom",
+        )
+        assertEquals("saf_root_custom", durableLibrarySource(custom))
+        assertEquals(libraryVisibilitySource(custom), durableLibrarySource(custom))
     }
 }
