@@ -151,11 +151,15 @@ def run() -> None:
             error(f"Settings search lost its saved local state: {required}")
 
     # Genres: the screen consumes the ViewModel; only the ViewModel/repository owns Room.
+    # Strip comments first: prose that explains where evidence comes from is not IO.
+    # The forbidden symbols stay identical, so this does not weaken the ownership gate.
     albums = code("AlbumsScreen.kt")
+    albums_code = re.sub(r"/\*.*?\*/", "", albums, flags=re.S)
+    albums_code = re.sub(r"//[^\n]*", "", albums_code)
     for forbidden in ("TrackDao", "AppDao", "observeGenreEvidenceSnapshot",
             "buildGenreScopedIndex", "GenreLibraryRepository(", "MichiDatabase.getInstance",
             "Room."):
-        if forbidden in albums:
+        if forbidden in albums_code:
             error(f"AlbumsScreen reclaimed genre IO from its owner: {forbidden}")
     if "GenreLibraryViewModel" not in albums:
         error("AlbumsScreen no longer delegates genre indexing to GenreLibraryViewModel")

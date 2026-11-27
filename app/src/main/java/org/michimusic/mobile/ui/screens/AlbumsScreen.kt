@@ -1214,7 +1214,7 @@ fun AlbumsScreen(
                                 mutableStateOf<Map<org.michimusic.mobile.library.ArtistExactOccurrenceKey,
                                     org.michimusic.mobile.library.ArtistTrackSessionProof>>(emptyMap())
                             }
-                            // D36: bounded, durable exact album/track evidence read from Room.
+                            // D36: bounded, durable exact album/track evidence read through its repository.
                             // Unlike legacy by-name lookup, distinct Alex MBIDs survive grouping.
                             val verifiedIdentities = org.michimusic.mobile.library.rememberArtistExactOccurrenceIdentities(
                                 libraryId = scoped.identityLibraryId,
