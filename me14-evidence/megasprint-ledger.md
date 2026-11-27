@@ -11,9 +11,9 @@ lyrics add/modify/remove, seguridad durable, recuperación real, UI y Library.
 
 ## Estado autoritativo — cierre ME-OMEGA y estabilización MF01–MF07
 
-Fecha: 2026-11-26. Rama: `fix/me14-close-100`. HEAD integrado: `4c3b204c`. Base auditada: `a7059f79`. `origin/master`: `b0104b93`.
+Fecha: 2026-11-26. Rama: `fix/me14-close-100`. HEAD de código: `4c3b204c`; HEAD git de este documento: `926b9563`. Base auditada: `a7059f79`. `origin/master`: `b0104b93`.
 
-Estado: **MF01–MF05 integrados y revisados; MF06 actualizado; MF07 STATIC/GRADLE_GO; CI final y merge a master pendientes.** No se declara el cierre final hasta que el CI corra sobre el SHA exacto integrado y el merge esté verificado en `origin/master`.
+Estado: **MF01–MF05 integrados y revisados; MF06 actualizado; MF07 STATIC/GRADLE_GO; KILLCRITIC combinada REVIEW_GO en `926b9563`; CI final y merge a master pendientes.** No se declara el cierre final hasta que el CI corra sobre el SHA exacto integrado y el merge esté verificado en `origin/master`.
 
 | Frente | Estado | Commit(s) | Evidencia | Límite conocido |
 |---|---|---|---|---|
@@ -33,7 +33,7 @@ Estado: **MF01–MF05 integrados y revisados; MF06 actualizado; MF07 STATIC/GRAD
 - **Proveedor sintético / harness:** A25 usa checkpoint sintético y reinicio real; A15–A16 usa fixture APK real con UID distinto y consentimiento MediaStore real.
 - **Inyección de fallos:** A23 (Room caído tras escritura), A26 (restauración interrumpida), A28 (ENOSPC/cancelación); no es un ENOSPC físico de almacenamiento.
 - **CI remoto:** run `45902391974` intento 2 verde sobre `5ea40f95` (232 tests instrumentados, Quality Gate y resto de jobs); **no** certifica el HEAD `4c3b204c`. El CI final debe correr sobre el SHA exacto integrado.
-- **Revisión manual/independiente:** MF01, MF02+MF03 y MF04+MF05 con `REVIEW_GO`; KILLCRITIC combinada encontró dos P1, corregidos en `4c3b204c`; re-revisión combinada pendiente.
+- **Revisión manual/independiente:** MF01, MF02+MF03 y MF04+MF05 con `REVIEW_GO`; KILLCRITIC combinada encontró dos P1, corregidos en `4c3b204c`; re-revisión combinada REVIEW_GO en `926b9563`.
 
 ### Estado de matriz y merge
 
