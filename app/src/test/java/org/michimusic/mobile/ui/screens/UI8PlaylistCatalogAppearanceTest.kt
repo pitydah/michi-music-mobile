@@ -315,6 +315,39 @@ class UI8PlaylistCatalogAppearanceTest {
     }
 
     @Test
+    fun unreadableReplacementIsRejectedAndLeavesBothImagesUntouched() {
+        val coverToken = seedPrivateImage("p-reject", "cover")
+        val bannerToken = seedPrivateImage("p-reject", "banner")
+        val missing = android.net.Uri.parse("content://org.michimusic.missing/cover")
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStream(
+            missing,
+            object : java.io.InputStream() {
+                override fun read(): Int = throw java.io.IOException("unreadable evidence image")
+            },
+        )
+        val store = PlaylistVisualStore(context)
+        val prior = runBlocking { store.read("p-reject") }
+        val result = runBlocking {
+            store.applyVisualEdit(
+                "p-reject",
+                PlaylistVisualEditRequest(
+                    expectedVisual = prior,
+                    cover = PlaylistVisualImageChange.Replace(missing),
+                ),
+            )
+        }
+
+        assertTrue(
+            "an unreadable cover must be reported as Rejected, got $result",
+            result is PlaylistVisualEditResult.Rejected,
+        )
+        assertEquals("cover", (result as PlaylistVisualEditResult.Rejected).field)
+        assertEquals(prior, runBlocking { store.read("p-reject") })
+        assertEquals(coverToken, prefs.getString(playlistVisualKey("p-reject", "cover"), null))
+        assertEquals(bannerToken, prefs.getString(playlistVisualKey("p-reject", "banner"), null))
+    }
+
+    @Test
     fun existingRenameAndPinActionsStillWorkBesideAppearance() {
         render(listOf(playlist("p-actions", "Acciones", 3)))
 
