@@ -2,14 +2,15 @@
 
 ## Checkpoint actual — 2026-11-27
 
-- **Estado global:** LOTE_01_COMPLETADO (MIM-01..MIM-08 con código y tests JVM; MIM-09..11 parciales)
+- **Estado global:** LOTE_01_COMPLETADO + CI GREEN en `972795f4` (MIM-01..MIM-08 con código y tests JVM; MIM-09..11 parciales)
 - **Avance de implementación:** 83.25% (pesos en `BACKLOG.md`)
-- **Verificación:** JVM PASS en las tres suites; Android/red/físico NOT_RUN
+- **Verificación:** JVM PASS; CI GitHub run `46064991170` (intento 2) SUCCESS; Android físico/red real NOT_RUN
 - **Operación pendiente:** ninguna a medias. El árbol compila y los tests pasan.
 - **Siguiente tarea exacta:** MIM-05.5 / MIM-11.2 — UI de enrollment Home.
 - **Después:** MIM-07 / MIM-09 / MIM-10.3 — cablear sesión Home compartida.
-- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, commit de implementación `d4082d6f` (baseline `a737eb9f`).
+- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, SHA final `972795f4` (implementación `d4082d6f`, evidencia `c8036bc4`, fixes CI `af03ca41` y `972795f4`; baseline `a737eb9f`).
 - **Referencias:** Micro `b507b47...` limpio; Link `8dad0fb5...` limpio; pin `8dad0fb5...` verificado.
+- **CI:** https://github.com/pitydah/michi-music-mobile/actions/runs/46064991170 — Job A Lint, Job G Instrumented API 36 y Quality Gate verdes. El primer intento de Job F falló por HTTP 429 de Maven Central; el rerun pasó.
 
 ## Qué se completó en este lote
 

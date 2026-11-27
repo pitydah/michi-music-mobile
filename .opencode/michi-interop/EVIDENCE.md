@@ -2,8 +2,10 @@
 
 ## Lote 2026-11-27 — MIM-01..08 (parcial 09..11)
 
-- **Commit de implementación:** `d4082d6f` (`feat(interop): add canonical Home auth and R1.4 queue control`).
+- **Commits publicados:** `d4082d6f` (implementación MIM), `c8036bc4` (evidencia), `af03ca41` (fix checker D57), `972795f4` (fix probes D57).
 - **Baseline anterior:** `a737eb9f`.
+- **SHA final de código:** `972795f4`.
+- **CI:** GitHub Actions run `46064991170`, intento 2 **SUCCESS** (Job A Lint, Job B/C unit, Job D migraciones, Job E/F builds, Job G instrumentado API 36, Job H release gate, Quality Gate). Job F del intento 1 falló por HTTP 429 de Maven Central y pasó al reintentar; no fue un fallo de código.
 
 ### Baseline
 
@@ -28,6 +30,10 @@
 | `:app:testFdroidDebugUnitTest` | PASS — 2930 tests, 0 fallos |
 | `:app:lintNormalDebug` | PASS — BUILD SUCCESSFUL |
 | `test` (repo-wide) | PASS — todas las unidades de `:core`, `:data`, `:player`, `:michi-link-client`, `:aircat-transfer`, `:app` |
+| `python3 tools/check_settings_architecture.py` | PASS — gate D57 corregido (comentarios ignorados) |
+| `:app:connectedNormalDebugAndroidTest` filtrado `ArtistEmbeddedTagsUiTest` | PASS en emulador API 36 |
+| `:app:connectedNormalDebugAndroidTest` filtrado `K48R12SurfacePerformanceProbeTest` | PASS (2 tests) en emulador API 36 |
+| CI run `46064991170` intento 2 | PASS — todos los jobs verdes |
 | `:core:testDebugUnitTest --tests AirCatCapabilityPolicyTest` | PASS |
 | `--tests HomeAuthCryptoTest` | PASS — 10 tests |
 | `--tests HomeQueueContractTest` | PASS — 14 tests |

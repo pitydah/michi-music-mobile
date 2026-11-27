@@ -59,8 +59,11 @@ Ver `MS-001..004` y `ML-001..003` en el Escritorio. La más grave es MS-001: los
 
 ## Verificación
 
-- `:michi-link-client:testDebugUnitTest` — 227 PASS.
+- `:michi-link-client:testDebugUnitTest` — 229 PASS.
 - `:app:testNormalDebugUnitTest` — 2930 PASS.
 - `:app:testFdroidDebugUnitTest` — 2930 PASS.
 - `:app:lintNormalDebug` — PASS.
-- Android/red/físico — NOT_RUN.
+- `python3 tools/check_settings_architecture.py` — PASS.
+- `ArtistEmbeddedTagsUiTest` y `K48R12SurfacePerformanceProbeTest` — PASS en emulador API 36.
+- CI GitHub `46064991170` (intento 2) — SUCCESS, incluido Job G instrumentado.
+- Android físico/red real — NOT_RUN.
