@@ -4,6 +4,7 @@ import java.net.URI
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.UnifiedDevice
+import org.michimusic.core.devices.AirCatCapabilityPolicy
 import org.michimusic.link.PairedDeviceRegistry
 
 /** Pure roster projection with no sockets, pairing or credential exposure. */
@@ -44,7 +45,7 @@ internal class LinkDeviceRosterProjector(private val registry: PairedDeviceRegis
                     isPaired = true,
                     deviceType = reg.serviceType.ifBlank { dPeer?.deviceType?.takeIf { it.isNotBlank() } ?: "unknown" },
                     roles = reg.roles,
-                    features = reg.features,
+                    features = (reg.features + AirCatCapabilityPolicy.enabledFeatureKeys(reg.featuresMap)).distinct(),
                     isRevoked = reg.isRevoked,
                 )
             )

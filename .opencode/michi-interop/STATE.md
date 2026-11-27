@@ -1,0 +1,44 @@
+# Estado MIM
+
+## Checkpoint actual — 2026-11-27
+
+- **Estado global:** LOTE_01_COMPLETADO (MIM-01..MIM-08 con código y tests JVM; MIM-09..11 parciales)
+- **Avance de implementación:** 83.25% (pesos en `BACKLOG.md`)
+- **Verificación:** JVM PASS en las tres suites; Android/red/físico NOT_RUN
+- **Operación pendiente:** ninguna a medias. El árbol compila y los tests pasan.
+- **Siguiente tarea exacta:** MIM-05.5 / MIM-11.2 — UI de enrollment Home.
+- **Después:** MIM-07 / MIM-09 / MIM-10.3 — cablear sesión Home compartida.
+- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, HEAD `a737eb9f5675e9cd3d4022446096ba240b0b4bfe`, cambios locales sin commit.
+- **Referencias:** Micro `b507b47...` limpio; Link `8dad0fb5...` limpio; pin `8dad0fb5...` verificado.
+
+## Qué se completó en este lote
+
+- MIM-01: matriz de contratos y 8 tickets upstream (MS-001..004, ML-001..003 + índice).
+- MIM-02: criptografía Home canónica + golden vectors (firma byte a byte).
+- MIM-03: identidad de servidor y 5 flags AirCat.
+- MIM-04: transporte Home HTTPS+SPKI y pruebas de rechazo.
+- MIM-05: state machine de enrollment + persistencia cifrada + polling acotado.
+- MIM-06: verificación de membership y auth mutua antes de publicar token.
+- MIM-08: comandos canónicos, identidad de cola, jump fencing, errores tipados y UI degradada.
+
+## Qué falta (no repetir lo anterior)
+
+1. **MIM-05.5 / MIM-11.2 (UI):** botón “Solicitar membresía” sobre un `AirCatHomeAnchor`; estados Pending/EnrolledOffline/Authenticated; polling; errores tipados. Punto de entrada: `MichiLinkTrustHost` / `AirCatExperienceHost`; coordinador ya en Koin.
+2. **MIM-07 (sesión):** autoridad única por Home; single-flight reauth; invalidación/revocación; stale fencing; limpiar token en `MEMBER_REVOKED`; backoff.
+3. **MIM-09/10.3:** usar `LinkClient.homeAuthenticatedGet` en `PlaybackSessionManager` y `AirCatOperationCoordinator`; no doble reproducción.
+4. **MIM-11.3/11.4:** UX de TLS/revocación, runbook ZimaOS, docs y F-Droid.
+5. **Certificación:** E2E red real + Android físico; no certificar sin evidencia.
+
+## Bloqueos
+
+- MS-001 (P0 documental) no bloquea a Mobile ya implementado, pero bloquea a otros consumidores.
+- MS-002/MS-003 impiden jump/add-next atómicos; Mobile usa el camino seguro posible.
+- MS-004 obliga a tolerar alias de respuesta.
+- No hay servidor Micro autorizado vivo ni dispositivo Android conectado en este entorno.
+
+## Reglas para el próximo ejecutor
+
+- Leer `STATE.md`, `BACKLOG.md`, `BASELINE.md`, `DECISIONS.md`, `EVIDENCE.md` antes de editar.
+- Verificar HEADs y `git status` de los tres repos; no asumir los SHAs de este checkpoint.
+- No commit/push; no tocar Micro/Link; no Gradle directo.
+- Actualizar los seis informes del Escritorio al cerrar el siguiente lote.

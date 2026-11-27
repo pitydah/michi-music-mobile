@@ -50,7 +50,7 @@ object AirCatEligibilityPolicy {
         // K49-04: An explicit feature/role hint is required. Capability hints
         // are NOT proof of cryptographic identity or transfer authorization.
         // Being a desktop/server/phone alone does NOT guarantee AirCat file transfer capability.
-        val hasExplicitAirCat = AirCatCapabilityPolicy.hasFeature(device.features) ||
+        val hasExplicitAirCat = AirCatCapabilityPolicy.supportsTransfer(device.features) ||
             device.roles.any(::hasExplicitAirCatRole)
 
         return hasExplicitAirCat

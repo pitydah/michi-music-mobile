@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class QueueReorderRequest(
-    @SerialName("from_index") val fromIndex: Int,
-    @SerialName("to_index") val toIndex: Int,
+    @SerialName("item_ids") val itemIds: List<String>,
+    @SerialName("queue_id") val queueId: String? = null,
 )
 
 @Serializable

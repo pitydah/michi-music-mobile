@@ -36,6 +36,7 @@ data class ServerInfoDto(
             "SERVER_CODE", "CODE", "PIN" -> PairingStrategy.SERVER_CODE
             "RECEIVER_BUTTON" -> PairingStrategy.RECEIVER_BUTTON
             "ED25519_CHALLENGE" -> PairingStrategy.ED25519_CHALLENGE
+            "HOME_MEMBERSHIP" -> PairingStrategy.HOME_MEMBERSHIP
             else -> PairingStrategy.LEGACY
         }
     }

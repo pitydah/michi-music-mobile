@@ -112,7 +112,7 @@ class RemoteCommandAuthorityTest {
         every { client.deviceToken } returns "valid-token"
 
         // Mock remote command success and authoritative state retrieval
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.success("OK")
+        coEvery { client.sendPlaybackCommand("play", "", "trk-a") } returns Result.success("OK")
         coEvery { client.getPlaybackState() } returns Result.success(
             PlaybackStateDto(
                 playing = true,
@@ -155,7 +155,7 @@ class RemoteCommandAuthorityTest {
         assertEquals(1, state.queue.size)
         assertEquals(true, state.isPlaying)
 
-        coVerify { client.sendPlaybackCommand("play_track", "trk-a") }
+        coVerify { client.sendPlaybackCommand("play", "", "trk-a") }
         coVerify { client.getPlaybackState() }
         coVerify { client.getQueue() }
     }
@@ -166,7 +166,7 @@ class RemoteCommandAuthorityTest {
         every { connectionManager.getClient("desktop-node-1") } returns client
         every { client.baseUrl } returns "http://192.168.1.50:8400"
         every { client.deviceToken } returns "valid-token"
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.failure(Exception("Action not supported"))
+        coEvery { client.sendPlaybackCommand("play", "", "trk-a") } returns Result.failure(Exception("Action not supported"))
 
         sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
 
@@ -190,7 +190,7 @@ class RemoteCommandAuthorityTest {
         every { client.baseUrl } returns "http://192.168.1.50:8400"
         every { client.deviceToken } returns "valid-token"
 
-        coEvery { client.removeQueueItem("trk-a") } returns Result.success(Unit)
+        coEvery { client.removeQueueItem("item-a") } returns Result.success(Unit)
         coEvery { client.getQueue() } returns Result.success(
             QueueDto(
                 tracks = listOf(
@@ -204,7 +204,13 @@ class RemoteCommandAuthorityTest {
 
         coEvery { client.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true))
         coEvery { client.getQueue() } returns Result.success(
-            QueueDto(tracks = listOf(QueueTrackDto(trackId = "trk-a", title = "Track A")), currentIndex = 0)
+            QueueDto(
+                tracks = listOf(QueueTrackDto(trackId = "trk-a", title = "Track A")),
+                currentIndex = 0,
+                itemIds = listOf("item-a"),
+                queueId = "q1",
+                queueVersion = 1,
+            )
         )
 
         sessionManager.playNow(trackA)
@@ -212,7 +218,21 @@ class RemoteCommandAuthorityTest {
 
         // Now remove it
         coEvery { client.getQueue() } returns Result.success(
-            QueueDto(tracks = listOf(QueueTrackDto(trackId = "trk-b", title = "Track B")), currentIndex = 0)
+            QueueDto(
+                tracks = listOf(QueueTrackDto(trackId = "trk-a", title = "Track A")),
+                currentIndex = 0,
+                itemIds = listOf("item-a"),
+                queueId = "q1",
+                queueVersion = 1,
+            )
+        ) andThen Result.success(
+            QueueDto(
+                tracks = listOf(QueueTrackDto(trackId = "trk-b", title = "Track B")),
+                currentIndex = 0,
+                itemIds = listOf("item-b"),
+                queueId = "q1",
+                queueVersion = 2,
+            )
         )
         sessionManager.removeFromQueue(0)
         advanceUntilIdle()
@@ -221,6 +241,8 @@ class RemoteCommandAuthorityTest {
         assertNotNull(lastCmd)
         assertEquals(RemoteCommandStatus.CONFIRMED, lastCmd!!.status)
         assertEquals("remove_queue_item", lastCmd.action)
+        // The pre-delete snapshot is authoritative: deletion targets the ITEM,
+        // not the track id that the UI held before the operation.
         assertEquals("trk-a", lastCmd.param)
 
         // Queue should now contain only Track B
@@ -237,7 +259,7 @@ class RemoteCommandAuthorityTest {
         every { client.deviceToken } returns "valid-token"
 
         // Command succeeds on server, but subsequent queue synchronization fails
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.success("OK")
+        coEvery { client.sendPlaybackCommand("play", "", "trk-a") } returns Result.success("OK")
         coEvery { client.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true))
         coEvery { client.getQueue() } returns Result.failure(Exception("Remote queue fetch failed"))
 
@@ -260,7 +282,7 @@ class RemoteCommandAuthorityTest {
         every { connectionManager.getClient("desktop-node-1") } returns client
         every { client.baseUrl } returns "http://192.168.1.50:8400"
         every { client.deviceToken } returns "valid-token"
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.failure(java.net.SocketTimeoutException("Read timeout"))
+        coEvery { client.sendPlaybackCommand("play", "", "trk-a") } returns Result.failure(java.net.SocketTimeoutException("Read timeout"))
 
         sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
 
@@ -329,7 +351,7 @@ class RemoteCommandAuthorityTest {
         every { client.deviceToken } returns "valid-token"
 
         // Setup delay so we can switch endpoints before response applies
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } coAnswers {
+        coEvery { client.sendPlaybackCommand("play", "", "trk-a") } coAnswers {
             kotlinx.coroutines.delay(50)
             Result.success("OK")
         }

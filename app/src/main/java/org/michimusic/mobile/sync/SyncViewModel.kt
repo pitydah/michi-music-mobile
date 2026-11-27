@@ -516,6 +516,11 @@ class SyncViewModel(
         _connectionState.value = SyncConnectionState.PAIRING
 
         when (strategy) {
+            PairingStrategy.HOME_MEMBERSHIP -> {
+                _error.value = org.michimusic.link.LinkAuthStrategyGate.refusal("HOME_MEMBERSHIP")
+                _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+                return
+            }
             PairingStrategy.SERVER_CODE -> {
                 if (pin.isBlank()) {
                     _error.value = "Se requiere el código PIN para este servidor"

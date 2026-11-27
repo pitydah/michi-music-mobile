@@ -303,6 +303,13 @@ fun DevicesScreen(
                                 org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> {
                                     viewModel.confirmPairing(pin = "", peer = peer)
                                 }
+                                org.michimusic.link.dto.PairingStrategy.HOME_MEMBERSHIP -> {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Este nodo requiere enrollment Home aprobado por el administrador; no se degrada a un pairing legacy",
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -977,6 +984,11 @@ fun DevicesScreen(
                             }
                             org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> pendingPeerForPassword = peer to serverName
                             org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> viewModel.confirmPairing(pin = "", peer = peer)
+                            org.michimusic.link.dto.PairingStrategy.HOME_MEMBERSHIP -> scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Este nodo requiere enrollment Home aprobado por el administrador; no se degrada a un pairing legacy",
+                                )
+                            }
                         }
                     }
                     }

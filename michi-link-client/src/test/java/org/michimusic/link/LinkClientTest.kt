@@ -488,7 +488,7 @@ class LinkClientTest {
     }
 
     @Test
-    fun reorderQueue_sendsCorrectPayload() = runBlocking {
+    fun reorderQueue_sendsCanonicalItemIdsPayload() = runBlocking {
         var requestBody = ""
         val engine = MockEngine { request ->
             requestBody = request.body.toByteArray().decodeToString()
@@ -499,9 +499,11 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
-        client.reorderQueue(QueueReorderRequest(fromIndex = 2, toIndex = 0)).getOrThrow()
-        assertTrue(requestBody.contains("from_index"))
-        assertTrue(requestBody.contains("to_index"))
+        client.reorderQueue(QueueReorderRequest(itemIds = listOf("item-2", "item-0", "item-1"))).getOrThrow()
+        assertTrue(requestBody.contains("\"item_ids\""))
+        assertTrue(requestBody.contains("item-2"))
+        assertFalse(requestBody.contains("from_index"))
+        assertFalse(requestBody.contains("to_index"))
     }
 
     @Test

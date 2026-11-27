@@ -5,5 +5,6 @@ enum class PairingStrategy {
     SERVER_CODE,
     ED25519_CHALLENGE,
     RECEIVER_BUTTON,
+    HOME_MEMBERSHIP,
     LEGACY
 }

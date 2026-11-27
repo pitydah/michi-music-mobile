@@ -102,6 +102,15 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import org.michimusic.link.port.RemoteFileSource
 import org.michimusic.link.port.PinnedOriginalFileSource
+import org.michimusic.link.home.HomeAuthSessionRequestDto
+import org.michimusic.link.home.HomeAuthSessionResponseDto
+import org.michimusic.link.home.HomeDeviceAuthChallengeRequestDto
+import org.michimusic.link.home.HomeDeviceAuthChallengeResponseDto
+import org.michimusic.link.home.HomeEnrollmentChallengeRequestDto
+import org.michimusic.link.home.HomeEnrollmentChallengeResponseDto
+import org.michimusic.link.home.HomeEnrollmentRequestDto
+import org.michimusic.link.home.HomeEnrollmentRequestResponseDto
+import org.michimusic.link.home.HomeEnrollmentStatusResponseDto
 
 class LinkClient(
     baseUrl: String,
@@ -124,6 +133,13 @@ class LinkClient(
     val baseUrl: String = LinkClientConfig.normalizeBaseUrl(baseUrl)
     @Volatile var tokenRefreshSupported: Boolean? = null
     @Volatile var currentReceiverSessionToken: String? = null
+    /**
+     * MIM-06: a `michi_home_*` token is a DIFFERENT authority from a legacy
+     * `SERVER_CODE` device token. It lives only in memory, only after the
+     * server membership + server signature were verified by the caller.
+     */
+    @Volatile private var homeSessionToken: String = ""
+    @Volatile private var homeSessionExpiresAtMillis: Long = 0L
     private val json = Json { ignoreUnknownKeys = true }
     private var ownsClient = true
     private var pinnedAirCatMetadata = false
@@ -168,6 +184,140 @@ class LinkClient(
         return EventClient(baseUrl, token, clientDeviceId, client)
     }
 
+    // --- Michi Home membership enrollment + mutual authentication (MIM-05/06) ---
+
+    /**
+     * Home enrollment, membership and session calls may only run over HTTPS with
+     * an SPKI pin obtained from an operator-confirmed administrative QR. Discovery,
+     * `/server/info` or a legacy token can never satisfy this gate.
+     */
+    private fun homeTransportRefusal(): String? = when {
+        !baseUrl.startsWith("https://") -> "HOME_HTTPS_REQUIRED"
+        !pinnedAirCatMetadata -> "HOME_TLS_PIN_REQUIRED"
+        else -> null
+    }
+
+    fun isHomeSessionValid(nowMillis: Long = System.currentTimeMillis()): Boolean =
+        homeSessionToken.startsWith("michi_home_") && homeSessionExpiresAtMillis > nowMillis
+
+    /** Publishes a token ONLY after [HomeServerSessionVerifier] accepted the response. */
+    fun acceptVerifiedHomeSession(token: String, expiresInSeconds: Long, nowMillis: Long = System.currentTimeMillis()) {
+        require(token.startsWith("michi_home_")) { "HOME_SESSION_TOKEN_INVALID" }
+        require(expiresInSeconds in 1..86_400) { "HOME_SESSION_TTL_INVALID" }
+        homeSessionToken = token
+        homeSessionExpiresAtMillis = nowMillis + expiresInSeconds * 1_000
+    }
+
+    fun clearHomeSession() {
+        homeSessionToken = ""
+        homeSessionExpiresAtMillis = 0L
+    }
+
+    private fun homeAuthHeader(): String = "Bearer $homeSessionToken"
+
+    suspend fun homeEnrollmentChallenge(
+        request: HomeEnrollmentChallengeRequestDto,
+    ): Result<HomeEnrollmentChallengeResponseDto> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        try {
+            val response = client.post("$baseUrl/api/v1/home/enrollment/challenge") {
+                contentType(ContentType.Application.Json)
+                header("X-Michi-Device-Id", request.clientMichiId)
+                setBody(request)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun homeEnrollmentRequest(
+        request: HomeEnrollmentRequestDto,
+    ): Result<HomeEnrollmentRequestResponseDto> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        try {
+            val response = client.post("$baseUrl/api/v1/home/enrollment/request") {
+                contentType(ContentType.Application.Json)
+                header("X-Michi-Device-Id", request.clientMichiId)
+                setBody(request)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun homeEnrollmentStatus(
+        requestId: String,
+        claimToken: String,
+    ): Result<HomeEnrollmentStatusResponseDto> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        try {
+            val response = client.get("$baseUrl/api/v1/home/enrollment/${encodePathSegment(requestId)}/status") {
+                header("X-Michi-Enrollment-Claim", claimToken)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun homeAuthChallenge(
+        request: HomeDeviceAuthChallengeRequestDto,
+    ): Result<HomeDeviceAuthChallengeResponseDto> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        try {
+            val response = client.post("$baseUrl/api/v1/auth/challenge") {
+                contentType(ContentType.Application.Json)
+                header("X-Michi-Device-Id", request.clientMichiId)
+                setBody(request)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun homeAuthSession(
+        request: HomeAuthSessionRequestDto,
+    ): Result<HomeAuthSessionResponseDto> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        try {
+            val response = client.post("$baseUrl/api/v1/auth/session") {
+                contentType(ContentType.Application.Json)
+                header("X-Michi-Device-Id", request.clientMichiId)
+                setBody(request)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Home-authenticated read for commands/state that reject legacy tokens. */
+    suspend fun homeAuthenticatedGet(path: String): Result<String> = withContext(Dispatchers.IO) {
+        homeTransportRefusal()?.let { return@withContext Result.failure(IllegalStateException(it)) }
+        if (!isHomeSessionValid()) return@withContext Result.failure(LinkException.HomeSessionRequired)
+        try {
+            val response = client.get("$baseUrl$path") {
+                header("Authorization", homeAuthHeader())
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.bodyAsText())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun authHeader(): String {
         return "Bearer ${deviceToken.ifEmpty { sessionToken }}"
     }
@@ -188,25 +338,43 @@ class LinkClient(
         }
     }
 
-    private fun parseError(body: String): LinkException {
-        return try {
-            val err = json.decodeFromString<LinkErrorResponse>(body)
-            when (err.error?.code) {
-                "UNAUTHORIZED" -> LinkException.Unauthorized
-                "FORBIDDEN" -> LinkException.Forbidden
-                "TOKEN_REVOKED" -> LinkException.Revoked
-                "NOT_IMPLEMENTED" -> LinkException.NotImplemented
-                "PAIRING_REQUIRED" -> LinkException.PairingRequired
-                else -> LinkException.ServerError(err.error?.code ?: "", err.error?.message ?: "")
-            }
-        } catch (_: Exception) {
-            LinkException.ServerError("UNKNOWN", body.take(200))
+    private fun parseErrorOrNull(body: String?): LinkException? {
+        if (body.isNullOrBlank()) return null
+        val err = runCatching { json.decodeFromString<LinkErrorResponse>(body) }.getOrNull()
+        val detail = err?.error ?: return null
+        return when (detail.code) {
+            "UNAUTHORIZED" -> LinkException.Unauthorized
+            "FORBIDDEN" -> LinkException.Forbidden
+            "TOKEN_REVOKED", "MEMBER_REVOKED" -> LinkException.MemberRevoked
+            "NOT_IMPLEMENTED" -> LinkException.NotImplemented
+            "PAIRING_REQUIRED" -> LinkException.PairingRequired
+            "HOME_SESSION_REQUIRED" -> LinkException.HomeSessionRequired
+            "TLS_REQUIRED" -> LinkException.TlsRequired
+            "REVOCATION_STORE_UNAVAILABLE" -> LinkException.RevocationStoreUnavailable
+            "QUEUE_DEGRADED" -> LinkException.QueueDegraded(detail.message)
+            "IDENTITY_MISMATCH", "BAD_SIGNATURE", "UNTRUSTED_MEMBER", "HOME_ID_MISMATCH" ->
+                LinkException.MembershipRejected(detail.code, detail.message)
+            else -> LinkException.ServerError(detail.code, detail.message)
         }
+    }
+
+    private fun parseError(body: String): LinkException =
+        parseErrorOrNull(body) ?: LinkException.ServerError("UNKNOWN", body.take(200))
+
+    /**
+     * Reads the error envelope before mapping the HTTP status. A bare 403 is never
+     * promoted to "revoked": MEMBER_REVOKED, HOME_SESSION_REQUIRED and plain
+     * FORBIDDEN require different client recovery.
+     */
+    internal suspend fun HttpResponse.errorOrNull(): LinkException? {
+        if (status.value < 400) return null
+        val body = runCatching { bodyAsText() }.getOrNull()
+        return parseErrorOrNull(body) ?: status.checkError(body)
     }
 
     private fun HttpStatusCode.checkError(body: String? = null): LinkException? = when {
         this == HttpStatusCode.Unauthorized -> LinkException.Unauthorized
-        this == HttpStatusCode.Forbidden -> LinkException.Revoked
+        this == HttpStatusCode.Forbidden -> LinkException.Forbidden
         this == HttpStatusCode.Conflict -> LinkException.SessionConflict
         this == HttpStatusCode.NotImplemented -> LinkException.NotImplemented
         this == HttpStatusCode.RequestedRangeNotSatisfiable -> LinkException.RangeNotSatisfiable
@@ -226,7 +394,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(json.encodeToString(body))
             }
-            response.status.checkError(response.bodyOrNull())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<T>())
         } catch (e: Exception) {
             Result.failure(e)
@@ -308,7 +476,8 @@ class LinkClient(
                         AirCatMetadataBudget.AUTHORIZATION_MAX_BYTES
                     else AirCatMetadataBudget.ERROR_MAX_BYTES)
                 if (response.status.value !in 200..299) {
-                    throw response.status.checkError(body)
+                    throw parseErrorOrNull(body)
+                        ?: response.status.checkError(body)
                         ?: IllegalStateException("AIRC_AUTH_HTTP_${response.status.value}")
                 }
                 require(body.length >= 2) { "AIRC_GRANT_RESPONSE_SIZE" }
@@ -335,8 +504,13 @@ class LinkClient(
     suspend fun getServerInfo(): Result<ServerInfoDto> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/v1/server/info")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val info = response.body<ServerInfoDto>()
+            org.michimusic.link.identity.ServerIdentityPolicy.refusal(info)?.let { reason ->
+                return@withContext Result.failure(
+                    LinkException.ServerError("SERVER_IDENTITY_UNVERIFIED", reason),
+                )
+            }
             updateRefreshSupport(info)
             Result.success(info)
         } catch (e: Exception) {
@@ -375,7 +549,7 @@ class LinkClient(
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
-            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             // Legacy uses PairStartResponseDto but we changed the DTO structure for v1. 
             // We should use a Map or JsonElement to parse legacy.
             Result.success(response.body<LegacyPairStartResponseDto>())
@@ -392,7 +566,7 @@ class LinkClient(
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
-            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<PairStartResponseDto>())
         } catch (e: Exception) {
             Result.failure(e)
@@ -424,7 +598,7 @@ class LinkClient(
             }
             if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.InvalidCredentials)
             if (response.status == HttpStatusCode.Forbidden) return@withContext Result.failure(LinkException.Forbidden)
-            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val body = response.body<LegacyPairConfirmResponseDto>()
             deviceToken = body.deviceToken.ifEmpty { body.sessionToken }
             if (deviceToken.isBlank()) return@withContext Result.failure(LinkException.InvalidCredentials)
@@ -444,7 +618,7 @@ class LinkClient(
             }
             if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.InvalidCredentials)
             if (response.status == HttpStatusCode.Forbidden) return@withContext Result.failure(LinkException.Forbidden)
-            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val body = response.body<PairConfirmResponseDto>()
             deviceToken = body.token
             if (deviceToken.isBlank()) return@withContext Result.failure(LinkException.InvalidCredentials)
@@ -495,7 +669,7 @@ class LinkClient(
     suspend fun getLibraryStats(): Result<org.michimusic.link.dto.LibraryStatsDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/library/stats")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -505,7 +679,7 @@ class LinkClient(
     suspend fun fetchLibrary(): Result<LibraryResponseDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/tracks")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val body = response.body<TrackListResponseDto>()
             Result.success(LibraryResponseDto(
                 tracks = body.effectiveTracks.map { it.normalized() },
@@ -514,7 +688,7 @@ class LinkClient(
         } catch (e: Exception) {
             try {
                 val response = httpGet("$baseUrl/api/library")
-                response.status.checkError()?.let { return@withContext Result.failure(it) }
+                response.errorOrNull()?.let { return@withContext Result.failure(it) }
                 val body = response.body<LibraryResponseDto>()
                 Result.success(body.copy(tracks = body.tracks.map { it.normalized() }))
             } catch (e2: Exception) {
@@ -528,7 +702,7 @@ class LinkClient(
     suspend fun search(query: String): Result<List<org.michimusic.link.dto.TrackResponseDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/search?q=${encodeQueryValue(query)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SearchResponseDto>().results.map { it.normalized() })
         } catch (e: Exception) {
             Result.failure(e)
@@ -540,7 +714,7 @@ class LinkClient(
     suspend fun fetchAlbums(page: Int = 1, pageSize: Int = 50): Result<ListResponse<AlbumDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/albums?page=$page&pageSize=$pageSize")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -550,7 +724,7 @@ class LinkClient(
     suspend fun fetchAlbum(id: String): Result<AlbumDetailDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/albums/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -562,7 +736,7 @@ class LinkClient(
     suspend fun fetchArtists(page: Int = 1, pageSize: Int = 50): Result<ListResponse<ArtistDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/artists?page=$page&pageSize=$pageSize")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -572,7 +746,7 @@ class LinkClient(
     suspend fun fetchArtist(id: String): Result<ArtistDetailDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/artists/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -584,7 +758,7 @@ class LinkClient(
     suspend fun fetchTrack(id: String): Result<TrackResponseDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/tracks/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<TrackResponseDto>().normalized())
         } catch (e: Exception) {
             Result.failure(e)
@@ -599,7 +773,7 @@ class LinkClient(
     suspend fun fetchPlaylists(page: Int = 1): Result<ListResponse<PlaylistDetailDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/playlists?page=$page")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -612,7 +786,7 @@ class LinkClient(
     suspend fun fetchPlaylist(id: String): Result<PlaylistDetailDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/playlists/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -629,7 +803,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -639,7 +813,7 @@ class LinkClient(
     suspend fun fetchPlaylistTracks(id: String): Result<List<TrackResponseDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/playlists/${encodePathSegment(id)}/tracks")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<TrackListResponseDto>().effectiveTracks.map { it.normalized() })
         } catch (e: Exception) {
             Result.failure(e)
@@ -828,7 +1002,7 @@ class LinkClient(
                 return@withContext Result.failure(IllegalStateException(
                     "AIRC_RAW_REDIRECT_REFUSED: raw downloads cannot redirect"))
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             if (route == "aircat/download") {
                 val contractRefusal = AirCatProducerContractPolicy.refusal(
                     AirCatProducerContractPolicy.Phase.ORIGINAL,
@@ -948,7 +1122,7 @@ class LinkClient(
     ): Result<Long> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/artwork/${encodePathSegment(coverId)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val channel = response.bodyAsChannel()
             var totalRead = 0L
             val buffer = ByteArray(8192)
@@ -1043,7 +1217,7 @@ class LinkClient(
     suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifestDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/sync/manifest?device_id=${encodeQueryValue(deviceId)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SyncManifestDto>())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1055,7 +1229,7 @@ class LinkClient(
             val response = httpGet(
                 "$baseUrl/api/v1/sync/manifest/delta?device_id=${encodeQueryValue(deviceId)}&cursor=${encodeQueryValue(cursor)}",
             )
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SyncManifestDto>())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1074,7 +1248,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(json.encodeToString(body))
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val result = json.decodeFromString<Map<String, Int>>(response.body())
             Result.success(result["synced"] ?: 0)
         } catch (e: Exception) {
@@ -1087,16 +1261,20 @@ class LinkClient(
     suspend fun getPlaybackState(): Result<PlaybackStateDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/playback/state")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<PlaybackStateDto>())
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun sendPlaybackCommand(command: String, value: String = ""): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun sendPlaybackCommand(
+        command: String,
+        value: String = "",
+        trackId: String? = null,
+    ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val request = PlaybackControlRequestDto(command = command, value = value)
+            val request = PlaybackControlRequestDto(command = command, value = value, trackId = trackId)
             val response = client.post("$baseUrl/api/v1/playback/control") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
@@ -1104,7 +1282,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1124,7 +1302,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1132,10 +1310,13 @@ class LinkClient(
     }
 
     suspend fun sendSetVolume(volume: Int): Result<String> = withContext(Dispatchers.IO) {
+        if (volume !in 0..100) {
+            return@withContext Result.failure(IllegalArgumentException("VOLUME_OUT_OF_RANGE"))
+        }
         try {
             val request = PlaybackControlRequestDto(
                 command = "set_volume",
-                volume = volume.coerceIn(0, 100),
+                volume = volume,
             )
             val response = client.post("$baseUrl/api/v1/playback/control") {
                 contentType(ContentType.Application.Json)
@@ -1144,7 +1325,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1156,10 +1337,32 @@ class LinkClient(
     suspend fun getQueue(): Result<QueueDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/queue")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val raw = response.body<String>()
+            // R1.4 `ActiveQueueCoordinator` shape first: items carry queue-item
+            // identity, queue_version and queue_degraded.
+            val server = runCatching { json.decodeFromString<ServerQueueDto>(raw) }.getOrNull()
+            if (server != null && raw.contains("\"queue_version\"")) {
+                return@withContext Result.success(
+                    QueueDto(
+                        tracks = server.items.map { it.toQueueTrack() },
+                        currentIndex = server.currentIndex ?: -1,
+                        queueId = server.queueId,
+                        queueVersion = server.queueVersion,
+                        queueDegraded = server.queueDegraded,
+                        queueDegradedReason = server.queueDegradedReason,
+                        currentTrackId = server.currentTrackId.orEmpty(),
+                        positionMs = server.positionMs ?: -1,
+                        playing = server.playing ?: false,
+                        volume = server.volume ?: -1,
+                        itemIds = server.items.map { it.id },
+                        itemPositions = server.items.map { it.position },
+                    ),
+                )
+            }
             val parsed = json.decodeFromString<QueueDto>(raw)
-            // If empty and server uses items/current_index, try alternate parsing
+            // Older camelCase/`items` variants remain readable, but they cannot
+            // claim stable queue-item ids.
             if (parsed.tracks.isEmpty() && raw.contains("items")) {
                 val alt = json.decodeFromString<AltQueueDto>(raw)
                 Result.success(QueueDto(
@@ -1176,9 +1379,9 @@ class LinkClient(
         }
     }
 
-    suspend fun queueJump(index: Int): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun queueJump(index: Int, queueId: String? = null): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val request = QueueJumpRequestDto(index = index)
+            val request = QueueJumpRequestDto(index = index, queueId = queueId)
             val response = client.post("$baseUrl/api/v1/queue/jump") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
@@ -1186,7 +1389,66 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * MIM-08: jump by queue INSTANCE identity, resolving the index from a fresh
+     * queue snapshot whose `queue_version` must match the caller's last confirmed
+     * snapshot. The producer only accepts `index`, so this remains a bounded
+     * GET+POST window; that contract gap is tracked upstream (MS/ML tickets).
+     */
+    suspend fun jumpQueueToItem(
+        itemId: String,
+        expectedQueueVersion: Long? = null,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (itemId.isBlank()) return@withContext Result.failure(
+            IllegalArgumentException("QUEUE_ITEM_ID_REQUIRED"),
+        )
+        val snapshot = getQueue().getOrElse { return@withContext Result.failure(it) }
+        if (snapshot.queueDegraded) {
+            return@withContext Result.failure(
+                LinkException.QueueDegraded(snapshot.queueDegradedReason.orEmpty()),
+            )
+        }
+        if (expectedQueueVersion != null && snapshot.queueVersion != expectedQueueVersion) {
+            return@withContext Result.failure(
+                LinkException.SessionConflict,
+            )
+        }
+        if (!snapshot.hasStableItemIds()) {
+            return@withContext Result.failure(
+                IllegalStateException("QUEUE_ITEM_IDS_UNAVAILABLE"),
+            )
+        }
+        val matches = snapshot.itemIds.indices.filter { snapshot.itemIds[it] == itemId }
+        if (matches.size != 1) {
+            return@withContext Result.failure(
+                IllegalArgumentException("QUEUE_ITEM_NOT_UNIQUE"),
+            )
+        }
+        queueJump(matches.single(), snapshot.queueId.ifBlank { null })
+    }
+
+    /** Append canonical track ids through the R1.4 queue coordinator. */
+    suspend fun addQueueItems(trackIds: List<String>): Result<String> = withContext(Dispatchers.IO) {
+        val clean = trackIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (clean.isEmpty()) return@withContext Result.failure(
+            IllegalArgumentException("QUEUE_TRACK_IDS_REQUIRED"),
+        )
+        try {
+            val response = client.post("$baseUrl/api/v1/queue/items") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                setBody(mapOf("track_ids" to clean))
+            }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1203,7 +1465,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1220,7 +1482,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1238,11 +1500,22 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * Reorder by the complete canonical item-id permutation. Never by track id
+     * and never with from/to indices, which the producer does not accept.
+     */
+    suspend fun reorderQueueItems(itemIds: List<String>, queueId: String? = null): Result<Unit> {
+        if (itemIds.isEmpty() || itemIds.any { it.isBlank() } || itemIds.distinct().size != itemIds.size) {
+            return Result.failure(IllegalArgumentException("QUEUE_ITEM_IDS_INVALID"))
+        }
+        return reorderQueue(QueueReorderRequest(itemIds = itemIds, queueId = queueId))
     }
 
     suspend fun removeQueueItem(queueItemId: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -1252,7 +1525,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1265,7 +1538,7 @@ class LinkClient(
     suspend fun fetchSavedQueues(): Result<List<SavedQueueDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/queue/saved")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1280,7 +1553,7 @@ class LinkClient(
     suspend fun fetchStarred(page: Int = 1): Result<StarredListResponse> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/starred?page=$page")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1297,7 +1570,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<StarResponse>())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1310,7 +1583,7 @@ class LinkClient(
     suspend fun fetchHistory(page: Int = 1): Result<HistoryResponse> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/history?page=$page")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1324,7 +1597,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1334,7 +1607,7 @@ class LinkClient(
     suspend fun fetchBookmarks(): Result<List<BookmarkDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/bookmarks")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val body = response.body<Map<String, List<BookmarkDto>>>()
             Result.success(body["bookmarks"] ?: body["items"] ?: emptyList())
         } catch (e: Exception) {
@@ -1352,7 +1625,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1364,7 +1637,7 @@ class LinkClient(
     suspend fun fetchReceivers(): Result<List<ReceiverDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/receivers")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1374,7 +1647,7 @@ class LinkClient(
     suspend fun fetchReceiver(id: String): Result<ReceiverDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/receivers/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1391,7 +1664,7 @@ class LinkClient(
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1414,7 +1687,7 @@ class LinkClient(
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
-            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             val resp: ReceiverSessionCreateResponse = response.body()
             currentReceiverSessionToken = resp.sessionToken
             Result.success(resp)
@@ -1434,7 +1707,7 @@ class LinkClient(
                 val sTok = sessionToken ?: currentReceiverSessionToken
                 if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1455,7 +1728,7 @@ class LinkClient(
                 if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1473,7 +1746,7 @@ class LinkClient(
                 val sTok = sessionToken ?: currentReceiverSessionToken
                 if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             currentReceiverSessionToken = null
             Result.success(Unit)
         } catch (e: Exception) {
@@ -1501,7 +1774,7 @@ class LinkClient(
                 if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
                 setBody(request)
             }
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1513,7 +1786,7 @@ class LinkClient(
     suspend fun fetchRooms(): Result<List<RoomDto>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/rooms")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1526,7 +1799,7 @@ class LinkClient(
     suspend fun fetchRoom(id: String): Result<RoomDto> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/rooms/${encodePathSegment(id)}")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1552,7 +1825,7 @@ class LinkClient(
     suspend fun fetchServerDiagnostics(): Result<Map<String, JsonElement>> = withContext(Dispatchers.IO) {
         try {
             val response = httpGet("$baseUrl/api/v1/diagnostics")
-            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            response.errorOrNull()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
             Result.failure(e)
@@ -1594,6 +1867,20 @@ class LinkClient(
         if (ownsClient) client.close()
     }
 }
+
+@kotlinx.serialization.Serializable
+internal data class ServerQueueDto(
+    @kotlinx.serialization.SerialName("queue_id") val queueId: String = "",
+    @kotlinx.serialization.SerialName("queue_version") val queueVersion: Long = 0L,
+    @kotlinx.serialization.SerialName("queue_degraded") val queueDegraded: Boolean = false,
+    @kotlinx.serialization.SerialName("queue_degraded_reason") val queueDegradedReason: String? = null,
+    val items: List<org.michimusic.link.dto.QueueItemDto> = emptyList(),
+    @kotlinx.serialization.SerialName("current_index") val currentIndex: Int? = null,
+    @kotlinx.serialization.SerialName("current_track_id") val currentTrackId: String? = null,
+    @kotlinx.serialization.SerialName("position_ms") val positionMs: Long? = null,
+    val playing: Boolean? = null,
+    val volume: Int? = null,
+)
 
 @kotlinx.serialization.Serializable
 internal data class AltQueueDto(

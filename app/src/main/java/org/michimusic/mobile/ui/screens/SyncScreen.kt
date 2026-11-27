@@ -112,6 +112,7 @@ fun SyncScreen(
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showStreamProvisioningNotice by remember { mutableStateOf(false) }
+    var showHomeMembershipNotice by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
     var showUnverifiedReceiverNotice by remember { mutableStateOf(false) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
@@ -351,6 +352,9 @@ fun SyncScreen(
                                         org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> {
                                             viewModel.confirmPairing(pin = "", peer = peer)
                                         }
+                                        org.michimusic.link.dto.PairingStrategy.HOME_MEMBERSHIP -> {
+                                            showHomeMembershipNotice = true
+                                        }
                                     }
                                 }
                             },
@@ -478,6 +482,7 @@ fun SyncScreen(
                             }
                             org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> pendingPeerForPassword = peer to serverName
                             org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> viewModel.confirmPairing(pin = "", peer = peer)
+                            org.michimusic.link.dto.PairingStrategy.HOME_MEMBERSHIP -> showHomeMembershipNotice = true
                         }
                     }
                     }
@@ -509,6 +514,17 @@ fun SyncScreen(
                     pendingPeerForPin = null
                 },
                 onDismiss = { pendingPeerForPin = null },
+            )
+        }
+
+        if (showHomeMembershipNotice) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showHomeMembershipNotice = false },
+                title = { Text("Enrollment Home requerido") },
+                text = { Text("Este nodo exige una membresía Home aprobada por su administrador. Escaneá el QR administrativo en Dispositivos y completá el enrollment; la app no degrada este nodo a un pairing legacy.") },
+                confirmButton = {
+                    TextButton(onClick = { showHomeMembershipNotice = false }) { Text("Entendido") }
+                },
             )
         }
 

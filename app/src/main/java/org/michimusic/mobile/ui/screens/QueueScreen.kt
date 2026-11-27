@@ -116,6 +116,10 @@ fun QueueScreen(
 
     // QueueEntry.entryId (local) identifies the occurrence; a Track ID does not.
     val queueTrackIds = queue.map { it.id }
+    val remoteQueueHasStableItems = isRemote &&
+        sessionState.queueItemIds.size == queue.size &&
+        sessionState.queueItemIds.all { it.isNotBlank() } &&
+        sessionState.queueItemIds.distinct().size == sessionState.queueItemIds.size
     val localEntryIds = if (isRemote) emptyList() else localState.queueEntries.map { it.entryId }
     val endpointId = sessionState.activeEndpoint.id
     val lastCommand = sessionState.lastRemoteCommand?.takeIf {
@@ -309,10 +313,19 @@ fun QueueScreen(
                     ?: "La operación de cola remota no se completó"
                 else -> null
             }
-            if (isRemote && queueTrackIds.size != queueTrackIds.distinct().size) {
+            if (isRemote && !remoteQueueHasStableItems && queueTrackIds.size != queueTrackIds.distinct().size) {
                 Text(
-                    "La cola remota contiene pistas repetidas; eliminar una aparición requiere identificadores del host",
+                    "La cola remota contiene pistas repetidas y el host no informa IDs de elemento; no se puede eliminar una aparición de forma segura",
                     color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+            }
+            if (isRemote && sessionState.queueDegraded) {
+                Text(
+                    "Cola remota degradada: el host bloquea cambios hasta reconciliar" +
+                        (sessionState.queueDegradedReason?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""),
+                    color = org.michimusic.mobile.ui.theme.ErrorColor,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 )
@@ -515,16 +528,19 @@ fun QueueScreen(
                                     }
                                     MichiIconAction(
                                         icon = Icons.Default.Clear,
-                                        contentDescription = if (isRemote && !remoteQueueRemovalUnambiguous(queueTrackIds, idx))
+                                        contentDescription = if (isRemote && !remoteQueueHasStableItems &&
+                                            !remoteQueueRemovalUnambiguous(queueTrackIds, idx))
                                             "No se puede quitar ${track.title}: identificador remoto repetido"
                                         else "Quitar ${track.title} de la cola",
                                         onClick = { actOnSelection(selection) {
-                                            if (!isRemote || remoteQueueRemovalUnambiguous(queueTrackIds, idx)) {
+                                            if (!isRemote || remoteQueueHasStableItems ||
+                                                remoteQueueRemovalUnambiguous(queueTrackIds, idx)) {
                                                 queueNotice = null
                                                 sessionManager.removeFromQueue(idx)
                                             }
                                         } },
-                                        enabled = canEditQueue && (!isRemote || remoteQueueRemovalUnambiguous(queueTrackIds, idx)),
+                                        enabled = canEditQueue && (!isRemote || remoteQueueHasStableItems ||
+                                            remoteQueueRemovalUnambiguous(queueTrackIds, idx)),
                                         testTag = "queue_remove_$idx",
                                         tint = org.michimusic.mobile.ui.theme.ErrorColor,
                                         iconSize = 18.dp,

@@ -17,6 +17,13 @@ val syncModule = module {
     // Empty until explicit, operator-confirmed administrative QR enrollment.
     // Trust never comes from UDP, mDNS, /server/info or legacy device tokens.
     single { org.michimusic.mobile.devices.aircat.AirCatHomeEnrollmentStore(androidContext()) }
+    single { org.michimusic.mobile.devices.home.HomeMembershipStore(androidContext()) }
+    single {
+        org.michimusic.mobile.devices.home.HomeEnrollmentCoordinator(
+            identityProvider = { get<org.michimusic.link.identity.MichiIdentityAuthority>().await() },
+            membershipStore = get(),
+        )
+    }
     single<AirCatHomeAuthorityProvider> {
         get<org.michimusic.mobile.devices.aircat.AirCatHomeEnrollmentStore>()
     }

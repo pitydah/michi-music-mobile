@@ -960,14 +960,20 @@ class PlaybackSessionManagerTest {
         val track2 = Track("track_456", "Second Track", "Artist")
         val queueDto1 = org.michimusic.link.dto.QueueDto(
             tracks = listOf(org.michimusic.link.dto.QueueTrackDto(track.id, track.title, track.artist, "", 100, "")),
-            currentIndex = 0
+            currentIndex = 0,
+            queueId = "q1",
+            queueVersion = 1,
+            itemIds = listOf("item-1"),
         )
         val queueDto2 = org.michimusic.link.dto.QueueDto(
             tracks = listOf(
                 org.michimusic.link.dto.QueueTrackDto(track.id, track.title, track.artist, "", 100, ""),
                 org.michimusic.link.dto.QueueTrackDto(track2.id, track2.title, track2.artist, "", 120, "")
             ),
-            currentIndex = 0
+            currentIndex = 0,
+            queueId = "q1",
+            queueVersion = 2,
+            itemIds = listOf("item-1", "item-2"),
         )
         val playStateDto = org.michimusic.link.dto.PlaybackStateDto(
             state = "playing",
@@ -977,8 +983,9 @@ class PlaybackSessionManagerTest {
             duration = 100_000L
         )
 
-        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
-        coEvery { linkClient.reorderQueue(any()) } returns Result.success(Unit)
+        coEvery { linkClient.sendPlaybackCommand(any(), any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.addQueueItems(any()) } returns Result.success("ok")
+        coEvery { linkClient.reorderQueueItems(any(), any()) } returns Result.success(Unit)
         coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
         coEvery { linkClient.getQueue() } returns Result.success(queueDto1) andThen Result.success(queueDto1) andThen Result.success(queueDto2)
 
@@ -1012,27 +1019,27 @@ class PlaybackSessionManagerTest {
         // 1. playNow
         manager.playNow(track)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify { linkClient.sendPlaybackCommand("play_track", "track_123") }
+        coVerify { linkClient.sendPlaybackCommand("play", "", "track_123") }
         verify(exactly = 0) { audioController.playQueue(any(), any()) }
 
         // 2. playNext
         manager.playNext(track)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify { linkClient.sendPlaybackCommand("play_next", "track_123") }
+        coVerify { linkClient.addQueueItems(listOf("track_123")) }
         verify(exactly = 0) { audioController.playNext(any()) }
         assertTrue(manager.sessionState.value.queue.any { it.id == track.id })
 
         // 3. addToQueue
         manager.addToQueue(track2)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify { linkClient.sendPlaybackCommand("add_to_queue", "track_456") }
+        coVerify { linkClient.addQueueItems(listOf("track_456")) }
         verify(exactly = 0) { audioController.addToQueue(any()) }
         assertTrue(manager.sessionState.value.queue.any { it.id == track2.id })
 
         // 4. moveQueueItem
         manager.moveQueueItem(0, 1)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify { linkClient.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = 0, toIndex = 1)) }
+        coVerify { linkClient.reorderQueueItems(listOf("item-2", "item-1"), "q1") }
         verify(exactly = 0) { audioController.moveQueueItem(any(), any()) }
 
         // 5. playQueue in Remote Mode with Remote-playable track:
@@ -1079,7 +1086,7 @@ class PlaybackSessionManagerTest {
     fun handoffToLocal_whenPlaying_pausesRemoteAndPreservesPlayingIntent() {
         val linkClient = mockk<LinkClient>(relaxed = true)
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.sendPlaybackCommand(any(), any(), any()) } returns Result.success("ok")
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_host_1") linkClient else null
         }
@@ -1163,7 +1170,7 @@ class PlaybackSessionManagerTest {
 
         verify(exactly = 1) { audioController.playQueue(queue, 0) }
         coVerify(exactly = 0) { linkClient.transferQueue(any()) }
-        coVerify(exactly = 0) { linkClient.sendPlaybackCommand(any(), any()) }
+        coVerify(exactly = 0) { linkClient.sendPlaybackCommand(any(), any(), any()) }
     }
 
     @Test
@@ -1171,7 +1178,7 @@ class PlaybackSessionManagerTest {
         val linkClient = mockk<LinkClient>(relaxed = true)
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s1"))
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.sendPlaybackCommand(any(), any(), any()) } returns Result.success("ok")
         coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(state = "playing", playing = true))
         coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = 0))
 
@@ -1272,7 +1279,7 @@ class PlaybackSessionManagerTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         // K46D-39: Must NOT silently fall back to play_track
-        coVerify(exactly = 0) { linkClient.sendPlaybackCommand("play_track", any()) }
+        coVerify(exactly = 0) { linkClient.sendPlaybackCommand("play_track", any(), any()) }
         val lastCmd = manager.sessionState.value.lastRemoteCommand
         assertTrue(lastCmd?.status == RemoteCommandStatus.DISCONNECTED || lastCmd?.status == RemoteCommandStatus.REJECTED || lastCmd?.status == RemoteCommandStatus.FAILED)
         assertFalse("Should not be CONFIRMED", lastCmd?.status == RemoteCommandStatus.CONFIRMED)

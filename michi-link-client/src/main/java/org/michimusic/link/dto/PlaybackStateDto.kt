@@ -60,6 +60,7 @@ data class CurrentTrackDto(
 data class PlaybackControlRequestDto(
     val command: String,
     val value: String = "",
+    @SerialName("track_id") val trackId: String? = null,
     @SerialName("position_ms") val positionMs: Long? = null,
     val volume: Int? = null,
 )

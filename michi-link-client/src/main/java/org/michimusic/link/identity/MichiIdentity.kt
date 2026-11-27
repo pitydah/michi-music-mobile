@@ -41,7 +41,7 @@ enum class IdentityStatus {
     UNRECOVERABLE,
 }
 
-class MichiIdentity(private val context: Context) {
+class MichiIdentity(private val context: Context) : MichiSigner {
 
     private companion object {
         private const val TAG = "MichiIdentity"
@@ -86,47 +86,29 @@ class MichiIdentity(private val context: Context) {
         )
     }
 
-    val publicKeyBase64Url: String
+    override val publicKeyBase64Url: String
         get() = encodeBase64Url(publicKey!!.encoded)
 
-    val michiId: String
-        get() = try {
-            val digest = Class.forName("org.bouncycastle.crypto.digests.Blake3Digest").getConstructor(Int::class.java).newInstance(256)
-            val pubBytes = publicKey!!.encoded
-            val updateMethod = digest.javaClass.getMethod("update", ByteArray::class.java, Int::class.java, Int::class.java)
-            updateMethod.invoke(digest, pubBytes, 0, pubBytes.size)
-            val hash = ByteArray(32)
-            val doFinalMethod = digest.javaClass.getMethod("doFinal", ByteArray::class.java, Int::class.java)
-            doFinalMethod.invoke(digest, hash, 0)
-            encodeBase64Url(hash)
-        } catch (e: Exception) {
-            throw IllegalStateException("BLAKE3 digest is not available. MichiIdentity requires BouncyCastle with BLAKE3 support.", e)
-        }
+    override val michiId: String
+        get() = org.michimusic.link.home.MichiIdentityHash.deriveMichiId(publicKeyBase64Url)
+            ?: throw IllegalStateException("BLAKE3 identity derivation failed")
 
-    fun signChallenge(nonceBase64Url: String): String {
-        val nonceBytes = decodeBase64Url(nonceBase64Url)
+    fun signChallenge(nonceBase64Url: String): String =
+        signCanonicalPayload(decodeBase64Url(nonceBase64Url))
+
+    override fun signCanonicalPayload(payload: ByteArray): String {
+        require(payload.isNotEmpty()) { "canonical payload must not be empty" }
         val signer = Ed25519Signer()
         signer.init(true, privateKey)
-        signer.update(nonceBytes, 0, nonceBytes.size)
-        val signature = signer.generateSignature()
-        return encodeBase64Url(signature)
+        signer.update(payload, 0, payload.size)
+        return encodeBase64Url(signer.generateSignature())
     }
 
-    fun verifyServerIdentity(serverMichiId: String, serverPublicKeyBase64Url: String): Boolean {
-        return try {
-            val pubBytes = decodeBase64Url(serverPublicKeyBase64Url)
-            val digest = Class.forName("org.bouncycastle.crypto.digests.Blake3Digest").getConstructor(Int::class.java).newInstance(256)
-            val updateMethod = digest.javaClass.getMethod("update", ByteArray::class.java, Int::class.java, Int::class.java)
-            updateMethod.invoke(digest, pubBytes, 0, pubBytes.size)
-            val hash = ByteArray(32)
-            val doFinalMethod = digest.javaClass.getMethod("doFinal", ByteArray::class.java, Int::class.java)
-            doFinalMethod.invoke(digest, hash, 0)
-            val computedId = encodeBase64Url(hash)
-            computedId == serverMichiId
-        } catch (e: Exception) {
-            false
-        }
-    }
+    /** Raw 32-byte Ed25519 public key; exported only for canonical derivation. */
+    fun publicKeyBytes(): ByteArray = publicKey!!.encoded.copyOf()
+
+    fun verifyServerIdentity(serverMichiId: String, serverPublicKeyBase64Url: String): Boolean =
+        org.michimusic.link.home.MichiIdentityHash.deriveMichiId(serverPublicKeyBase64Url) == serverMichiId
 
     fun generateNonce(): String {
         val bytes = ByteArray(32)

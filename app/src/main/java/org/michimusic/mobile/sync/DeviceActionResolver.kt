@@ -28,7 +28,7 @@ data class DeviceAction(
 object DeviceActionResolver {
     /** AirCat transfers are a Michi Devices capability, not a generic sync-host
      * feature. Never show this action unless the peer advertises it explicitly. */
-    fun supportsAirCat(device: UnifiedDevice): Boolean = AirCatCapabilityPolicy.hasFeature(device.features)
+    fun supportsAirCat(device: UnifiedDevice): Boolean = AirCatCapabilityPolicy.supportsTransfer(device.features)
 
     /**
      * Resolves actions ensuring EXACTLY ONE primary action (isPrimary == true).

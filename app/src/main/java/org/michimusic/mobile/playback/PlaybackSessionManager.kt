@@ -501,6 +501,10 @@ class PlaybackSessionManager(
                 // An explicitly empty remote queue must clear the previous host's queue.
                 queue = if (queueDto != null) qTracks else _sessionState.value.queue,
                 queueIndex = queueDto?.currentIndex ?: _sessionState.value.queueIndex,
+                queueItemIds = queueDto?.itemIds ?: _sessionState.value.queueItemIds,
+                remoteQueueVersion = queueDto?.queueVersion ?: _sessionState.value.remoteQueueVersion,
+                queueDegraded = queueDto?.queueDegraded ?: _sessionState.value.queueDegraded,
+                queueDegradedReason = queueDto?.queueDegradedReason ?: _sessionState.value.queueDegradedReason,
                 repeatMode = when (dto.repeat) { "one" -> 1; "all" -> 2; else -> 0 },
                 shuffleMode = if (dto.shuffle) 1 else 0,
                 isRemoteActive = true,
@@ -862,7 +866,10 @@ class PlaybackSessionManager(
                             if (hbResult.isFailure) {
                                 val err = hbResult.exceptionOrNull()
                                 if (err is org.michimusic.link.errors.LinkException.Unauthorized ||
+                                    err is org.michimusic.link.errors.LinkException.Forbidden ||
                                     err is org.michimusic.link.errors.LinkException.Revoked ||
+                                    err is org.michimusic.link.errors.LinkException.MemberRevoked ||
+                                    err is org.michimusic.link.errors.LinkException.HomeSessionRequired ||
                                     err is org.michimusic.link.errors.LinkException.SessionConflict ||
                                     err is org.michimusic.link.errors.LinkException.ServerError) {
                                     withContext(Dispatchers.Main) {
@@ -1242,7 +1249,12 @@ class PlaybackSessionManager(
                     _sessionState.value.lastRemoteCommand?.commandId == cmd.commandId
                 if (!stillCurrent()) return@launch
                 val client = connectionManager.getClient(targetEndpoint.id)
-                val result = client?.queueJump(index)
+                val itemId = state.queueItemIds.getOrNull(index)
+                val result = if (!itemId.isNullOrBlank()) {
+                    client?.jumpQueueToItem(itemId, state.remoteQueueVersion)
+                } else {
+                    client?.queueJump(index)
+                }
                 if (!stillCurrent()) return@launch
                 val outcome = if (result?.isSuccess == true) {
                     // The transport ACK does not prove that the host selected the index.
@@ -1254,6 +1266,10 @@ class PlaybackSessionManager(
                         _sessionState.value = _sessionState.value.copy(
                             queue = tracks,
                             queueIndex = observedIndex,
+                            queueItemIds = observed.itemIds,
+                            remoteQueueVersion = observed.queueVersion,
+                            queueDegraded = observed.queueDegraded,
+                            queueDegradedReason = observed.queueDegradedReason,
                             currentTrack = tracks.getOrNull(observedIndex),
                         )
                         if (remoteQueueJumpWasObserved(index, selectedId, observedIndex, tracks.getOrNull(observedIndex)?.id)) {
@@ -1314,56 +1330,78 @@ class PlaybackSessionManager(
             val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val currentQ = _sessionState.value.queue
-            if (index in currentQ.indices) {
-                val item = currentQ[index]
-                if (!remoteQueueRemovalUnambiguous(currentQ.map { it.id }, index)) {
+            if (index !in currentQ.indices) return
+            val expectedTrackId = currentQ[index].id
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                epoch = opEpoch,
+                action = "remove_queue_item",
+                param = expectedTrackId,
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
+            scope.launch {
+                // R1.4 deletes by queue-ITEM id, never by track id. Fetch the
+                // authoritative snapshot so duplicate tracks remain distinct and
+                // a stale list index cannot delete a different occurrence.
+                val snapshot = client?.getQueue()?.getOrNull()
+                if (snapshot == null || snapshot.queueDegraded || !snapshot.hasStableItemIds()) {
                     _sessionState.value = _sessionState.value.copy(
-                        lastRemoteCommand = RemoteCommandRecord(
-                            endpointId = targetEndpoint.id,
-                            epoch = opEpoch,
-                            action = "remove_queue_item",
-                            param = item.id,
+                        lastRemoteCommand = cmd.copy(
                             status = RemoteCommandStatus.UNSUPPORTED,
-                            resultMessage = "No se puede eliminar una aparición repetida: el servidor no informa un ID único de elemento",
+                            resultMessage = when {
+                                snapshot == null -> "No se pudo leer la cola remota; no se eliminó nada"
+                                snapshot.queueDegraded -> "Cola remota degradada; no se eliminó nada"
+                                else -> "El servidor no informa IDs únicos de elemento; no se eliminó nada"
+                            },
                         ),
                     )
-                    return
+                    return@launch
                 }
-                val cmd = RemoteCommandRecord(
-                    endpointId = targetEndpoint.id,
-                    epoch = opEpoch,
-                    action = "remove_queue_item",
-                    param = item.id,
-                    status = RemoteCommandStatus.PENDING,
-                )
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
-                scope.launch {
-                    val result = client?.removeQueueItem(item.id)
-                    if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                    val outcome = if (result != null && result.isSuccess) {
-                        var queueSynced = false
-                        var queueErr = ""
-                        client.getQueue().onSuccess { qDto ->
-                            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                                val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
-                                _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
-                            }
-                            queueSynced = true
-                        }.onFailure { err ->
-                            queueErr = err.message ?: "Fallo al sincronizar cola remota"
+                val itemId = snapshot.itemIdAt(index)
+                val observedTrackId = snapshot.tracks.getOrNull(index)?.trackId
+                if (itemId == null || observedTrackId != expectedTrackId ||
+                    snapshot.itemIds.count { it == itemId } != 1) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(
+                            status = RemoteCommandStatus.REJECTED,
+                            resultMessage = "La cola remota cambió; no se eliminó un elemento distinto",
+                        ),
+                    )
+                    return@launch
+                }
+                val result = client.removeQueueItem(itemId)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+                val outcome = if (result.isSuccess) {
+                    var queueSynced = false
+                    var queueErr = ""
+                    client.getQueue().onSuccess { qDto ->
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
+                            val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                            _sessionState.value = _sessionState.value.copy(
+                                queue = tracks,
+                                queueIndex = qDto.currentIndex,
+                                queueItemIds = qDto.itemIds,
+                                remoteQueueVersion = qDto.queueVersion,
+                                queueDegraded = qDto.queueDegraded,
+                                queueDegradedReason = qDto.queueDegradedReason,
+                            )
                         }
-                        if (queueSynced) {
-                            cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
-                        } else {
-                            cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
-                        }
+                        queueSynced = true
+                    }.onFailure { err ->
+                        queueErr = err.message ?: "Fallo al sincronizar cola remota"
+                    }
+                    if (queueSynced) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                     } else {
-                        val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                        cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
-                    }
+                } else {
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
+                }
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
         } else {
@@ -1385,7 +1423,7 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val result = client?.sendPlaybackCommand("play_track", track.id)
+                val result = client?.sendPlaybackCommand("play", trackId = track.id)
                 if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var synced = false
@@ -1404,7 +1442,11 @@ class PlaybackSessionManager(
                                 position = st.effectivePosition,
                                 duration = st.effectiveDuration,
                                 queue = tracks,
-                                queueIndex = st.queueIndex
+                                queueIndex = st.queueIndex,
+                                queueItemIds = q.itemIds,
+                                remoteQueueVersion = q.queueVersion,
+                                queueDegraded = q.queueDegraded,
+                                queueDegradedReason = q.queueDegradedReason,
                             )
                         }
                         synced = true
@@ -1650,6 +1692,10 @@ class PlaybackSessionManager(
                     duration = freshSt.effectiveDuration,
                     queue = qTracks,
                     queueIndex = freshSt.queueIndex,
+                    queueItemIds = freshQ.itemIds,
+                    remoteQueueVersion = freshQ.queueVersion,
+                    queueDegraded = freshQ.queueDegraded,
+                    queueDegradedReason = freshQ.queueDegradedReason,
                 )
                 val remoteFingerprint = freshQ.tracks.joinToString(",") { it.trackId }
                 initialRemoteFingerprint = remoteFingerprint
@@ -1902,7 +1948,11 @@ class PlaybackSessionManager(
                         position = st.effectivePosition,
                         duration = st.effectiveDuration,
                         queue = qTracks,
-                        queueIndex = st.queueIndex
+                        queueIndex = st.queueIndex,
+                        queueItemIds = q.itemIds,
+                        remoteQueueVersion = q.queueVersion,
+                        queueDegraded = q.queueDegraded,
+                        queueDegradedReason = q.queueDegradedReason,
                     )
                 }
 
@@ -2051,28 +2101,86 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val result = client?.sendPlaybackCommand("play_next", track.id)
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                val outcome = if (result != null && result.isSuccess) {
-                    var queueSynced = false
-                    var queueErr = ""
-                    client.getQueue().onSuccess { qDto ->
-                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                            val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
-                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
-                        }
-                        queueSynced = true
-                    }.onFailure { err ->
-                        queueErr = err.message ?: "Fallo al sincronizar cola remota"
+                // No canonical "insert next" primitive exists: Link advertises
+                // queue-add position=next, but the R1.4 producer ignores that
+                // field and always appends. Perform an explicit, verified
+                // append + full item-id reorder instead of faking success.
+                val before = client?.getQueue()?.getOrNull()
+                if (before == null || !before.hasStableItemIds() || before.queueDegraded) {
+                    val reason = when {
+                        before == null -> "No se pudo leer la cola remota; no se insertó nada"
+                        before.queueDegraded -> "Cola remota degradada; no se insertó nada"
+                        else -> "El servidor no informa IDs únicos de elemento; no se insertó nada"
                     }
-                    if (queueSynced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
-                    } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = reason,
+                        ),
+                    )
+                    return@launch
+                }
+                val add = client.addQueueItems(listOf(track.id))
+                if (add.isFailure) {
+                    val (failStatus, failMsg) = resolveFailureStatus(client, add)
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(status = failStatus, resultMessage = failMsg),
+                    )
+                    return@launch
+                }
+                val afterAdd = client.getQueue().getOrNull()
+                val newItemId = afterAdd?.itemIds
+                    ?.firstOrNull { it !in before.itemIds }
+                    ?.takeIf { afterAdd.itemIds.size == before.itemIds.size + 1 }
+                var reorderApplied = false
+                var reorderError = "No se pudo identificar el elemento recién insertado"
+                if (afterAdd != null && newItemId != null && afterAdd.hasStableItemIds() &&
+                    afterAdd.queueVersion > before.queueVersion &&
+                    before.currentIndex in afterAdd.itemIds.indices) {
+                    val order = afterAdd.itemIds.toMutableList().apply { remove(newItemId) }
+                    val insertAt = (before.currentIndex + 1).coerceIn(0, order.size)
+                    order.add(insertAt, newItemId)
+                    val reorder = client.reorderQueueItems(order, afterAdd.queueId.ifBlank { null })
+                    reorderApplied = reorder.isSuccess
+                    if (!reorderApplied) {
+                        reorderError = reorder.exceptionOrNull()?.message ?: "Reorder rechazado"
                     }
-                } else {
-                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
+                }
+                var queueSynced = false
+                var queueErr = ""
+                var placedAfterCurrent = false
+                client.getQueue().onSuccess { qDto ->
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
+                        val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                        _sessionState.value = _sessionState.value.copy(
+                                queue = tracks,
+                                queueIndex = qDto.currentIndex,
+                                queueItemIds = qDto.itemIds,
+                                remoteQueueVersion = qDto.queueVersion,
+                                queueDegraded = qDto.queueDegraded,
+                                queueDegradedReason = qDto.queueDegradedReason,
+                            )
+                        val newIndex = newItemId?.let { qDto.itemIds.indexOf(it) } ?: -1
+                        placedAfterCurrent = reorderApplied && newIndex == before.currentIndex + 1
+                    }
+                    queueSynced = true
+                }.onFailure { err ->
+                    queueErr = err.message ?: "Fallo al sincronizar cola remota"
+                }
+                val outcome = when {
+                    !queueSynced -> cmd.copy(
+                        status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch,
+                        resultMessage = "Añadido al final, pero el reorden no se pudo verificar ($queueErr)",
+                    )
+                    placedAfterCurrent -> cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    else -> cmd.copy(
+                        status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch,
+                        resultMessage = if (reorderApplied) {
+                            "La pista se añadió, pero el host informó otra posición"
+                        } else {
+                            "La pista se añadió al final; inserción siguiente no aplicada ($reorderError)"
+                        },
+                    )
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -2097,7 +2205,7 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val result = client?.sendPlaybackCommand("add_to_queue", track.id)
+                val result = client?.addQueueItems(listOf(track.id))
                 if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var queueSynced = false
@@ -2105,7 +2213,14 @@ class PlaybackSessionManager(
                     client.getQueue().onSuccess { qDto ->
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
-                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                            _sessionState.value = _sessionState.value.copy(
+                                queue = tracks,
+                                queueIndex = qDto.currentIndex,
+                                queueItemIds = qDto.itemIds,
+                                remoteQueueVersion = qDto.queueVersion,
+                                queueDegraded = qDto.queueDegraded,
+                                queueDegradedReason = qDto.queueDegradedReason,
+                            )
                         }
                         queueSynced = true
                     }.onFailure { err ->
@@ -2143,15 +2258,36 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val result = client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
+                val snapshot = client?.getQueue()?.getOrNull()
+                if (snapshot == null || snapshot.queueDegraded || !snapshot.hasStableItemIds() ||
+                    fromIndex !in snapshot.itemIds.indices || toIndex !in snapshot.itemIds.indices) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = "La cola remota no expone IDs de elemento estables; no se reordenó",
+                        ),
+                    )
+                    return@launch
+                }
+                val order = snapshot.itemIds.toMutableList()
+                val moved = order.removeAt(fromIndex)
+                order.add(toIndex.coerceIn(0, order.size), moved)
+                val result = client.reorderQueueItems(order, snapshot.queueId.ifBlank { null })
                 if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                val outcome = if (result != null && result.isSuccess) {
+                val outcome = if (result.isSuccess) {
                     var queueSynced = false
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
-                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                            _sessionState.value = _sessionState.value.copy(
+                                queue = tracks,
+                                queueIndex = qDto.currentIndex,
+                                queueItemIds = qDto.itemIds,
+                                remoteQueueVersion = qDto.queueVersion,
+                                queueDegraded = qDto.queueDegraded,
+                                queueDegradedReason = qDto.queueDegradedReason,
+                            )
                         }
                         queueSynced = true
                     }.onFailure { err ->
@@ -2188,16 +2324,65 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val result = client?.sendPlaybackCommand("clear_queue")
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                val outcome = if (result != null && result.isSuccess) {
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                        _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
+                val snapshot = client?.getQueue()?.getOrNull()
+                if (snapshot == null || snapshot.queueDegraded || !snapshot.hasStableItemIds()) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = "La cola remota no expone IDs de elemento estables; no se vació nada",
+                        ),
+                    )
+                    return@launch
+                }
+                val firstUpcoming = if (snapshot.currentIndex >= 0) snapshot.currentIndex + 1 else 0
+                val upcoming = snapshot.itemIds.drop(firstUpcoming)
+                if (upcoming.size > 500) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = cmd.copy(
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = "Cola remota demasiado grande para vaciado seguro (>500 elementos)",
+                        ),
+                    )
+                    return@launch
+                }
+                var removed = 0
+                var firstFailure: Throwable? = null
+                for (itemId in upcoming) {
+                    val result = client.removeQueueItem(itemId)
+                    if (result.isSuccess) removed++ else {
+                        firstFailure = result.exceptionOrNull()
+                        break
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
-                } else {
-                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
+                }
+                val fresh = client.getQueue().getOrNull()
+                if (fresh != null && _sessionState.value.activeEndpoint.id == targetEndpoint.id &&
+                    opEpoch == _sessionEpoch.get()) {
+                    val tracks = fresh.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                    _sessionState.value = _sessionState.value.copy(
+                        queue = tracks,
+                        queueIndex = fresh.currentIndex,
+                        queueItemIds = fresh.itemIds,
+                        remoteQueueVersion = fresh.queueVersion,
+                        queueDegraded = fresh.queueDegraded,
+                        queueDegradedReason = fresh.queueDegradedReason,
+                    )
+                }
+                val complete = firstFailure == null && fresh != null &&
+                    upcoming.none { it in fresh.itemIds }
+                val outcome = when {
+                    complete -> cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    removed > 0 -> cmd.copy(
+                        status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch,
+                        resultMessage = "Se eliminaron $removed de ${upcoming.size}; fallo: ${firstFailure?.message ?: "verificación incompleta"}",
+                    )
+                    firstFailure != null -> cmd.copy(
+                        status = RemoteCommandStatus.REJECTED, epoch = opEpoch,
+                        resultMessage = firstFailure?.message ?: "El host rechazó el vaciado",
+                    )
+                    else -> cmd.copy(
+                        status = RemoteCommandStatus.REJECTED, epoch = opEpoch,
+                        resultMessage = "El vaciado no se pudo verificar",
+                    )
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)

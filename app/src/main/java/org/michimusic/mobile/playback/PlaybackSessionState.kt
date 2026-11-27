@@ -79,6 +79,12 @@ data class PlaybackSessionState(
     val duration: Long = 0L,
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = -1,
+    /** R1.4 queue-item instance ids, parallel to [queue]. Empty when unknown. */
+    val queueItemIds: List<String> = emptyList(),
+    /** Monotonic producer queue version used for stale-update fencing. */
+    val remoteQueueVersion: Long = 0L,
+    val queueDegraded: Boolean = false,
+    val queueDegradedReason: String? = null,
     val repeatMode: Int = 0, // 0 = off, 1 = all, 2 = one
     val shuffleMode: Int = 0, // 0 = off, 1 = all
     val isRemoteActive: Boolean = false,
