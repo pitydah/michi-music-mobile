@@ -69,7 +69,10 @@ class K48R12SurfacePerformanceProbeTest {
 
     @Test
     fun artistSummaryOpeningIsMeasuredOnDevice() {
-        measureSurface("artist_enrichment_summary", "artist_artwork_primary_action") {
+        // The summary suppresses a duplicate primary button when ViewPhotos opens
+        // the same picker as the slot cards, so the stable surface-ready signal is
+        // the first artwork slot, not a button that intentionally may not exist.
+        measureSurface("artist_enrichment_summary", "artist_artwork_slot_ARTIST_THUMB") {
             ArtistEnrichmentSummaryContent(
                 uiState = summaryState(),
                 onChoosePhoto = {},

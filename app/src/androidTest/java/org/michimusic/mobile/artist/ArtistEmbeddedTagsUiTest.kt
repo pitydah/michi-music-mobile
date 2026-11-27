@@ -16,6 +16,38 @@ class ArtistEmbeddedTagsUiTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
 
+    private object NoArtworkStore : org.michimusic.mobile.artist.artwork.ArtistArtworkStore {
+        override suspend fun load(
+            anchor: org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor,
+        ): List<org.michimusic.mobile.artist.artwork.ArtistArtworkSelection> = emptyList()
+
+        override suspend fun loadAsset(
+            assetId: String,
+        ): org.michimusic.mobile.artist.artwork.ArtistArtworkSelection? = null
+
+        override suspend fun save(
+            anchor: org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor,
+            candidate: org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate,
+            slot: org.michimusic.mobile.artist.artwork.ArtworkSlot,
+            downloaded: org.michimusic.mobile.artist.artwork.DownloadedArtwork,
+            focus: org.michimusic.mobile.artist.artwork.ArtworkFocus,
+            manuallyChosen: Boolean,
+        ): org.michimusic.mobile.artist.artwork.ArtistArtworkSelection =
+            error("test store does not write artwork")
+
+        override suspend fun updateFocus(
+            anchor: org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor,
+            slot: org.michimusic.mobile.artist.artwork.ArtworkSlot,
+            focus: org.michimusic.mobile.artist.artwork.ArtworkFocus,
+        ): Boolean = false
+
+        override suspend fun clear(
+            anchor: org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor,
+        ) = Unit
+
+        override suspend fun counts(): Pair<Int, Int> = 0 to 0
+    }
+
     @Test fun tagProbeRunsOnlyWhenTappedAndProviderBindingWaitsForConfirmation() {
         var scans = 0
         var remote = 0
@@ -62,6 +94,7 @@ class ArtistEmbeddedTagsUiTest {
                 albumIds = listOf("album-local"),
                 localAudioUris = listOf(uri),
                 tagProbe = probe,
+                artworkStore = NoArtworkStore,
                 selectionStore = object : ArtistEnrichmentSelectionStore {
                     override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) = null
                     override suspend fun save(libraryId: String, credit: String, albumIds: List<String>, profile: ArtistExternalProfile) = Unit
@@ -72,12 +105,13 @@ class ArtistEmbeddedTagsUiTest {
         rule.waitForIdle()
         assertEquals(0, scans)
         assertEquals(0, remote) // Opening the panel is local-only.
-        // K48-S7: the artwork slots are the first answer, so the technical identity
-        // block starts collapsed. Open it instead of weakening the assertion.
+        // With no confirmed identity, the summary's single primary action is the
+        // supported way into the identity task. Opening that task must still be
+        // local-only; it is not the tag scan or a provider call.
         rule.waitUntil(5_000) {
-            rule.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodesWithTag("artist_artwork_primary_action").fetchSemanticsNodes().isNotEmpty()
         }
-        rule.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
+        rule.onNodeWithTag("artist_artwork_primary_action").performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("artist_embedded_tags_scan").performScrollTo().performClick()
         rule.waitForIdle()
