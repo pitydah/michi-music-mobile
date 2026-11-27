@@ -1,6 +1,8 @@
 package org.michimusic.data.metadata
 
 import kotlinx.coroutines.CancellationException
+import org.michimusic.core.metadata.MetadataAudioContainer
+import org.michimusic.core.metadata.MetadataWriteProfileRegistry
 import org.michimusic.core.metadata.MetadataCommitCertification
 import org.michimusic.core.metadata.MetadataIndexPublicationPolicy
 import org.michimusic.core.metadata.MetadataRecoveryPhase
@@ -21,6 +23,15 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
         /** Must perform an ATOMIC compare/version check in one Room transaction. */
         suspend fun updateIfVersion(expected: MetadataIndexPublicationPolicy.IndexIdentity,
                                     delta: MetadataSourceIndexDelta.Delta): Boolean
+        /**
+         * Scoped variant used by structured CAS ports. The default keeps the
+         * historical two-argument port contract for scalar ports and tests.
+         */
+        suspend fun updateIfVersion(
+            expected: MetadataIndexPublicationPolicy.IndexIdentity,
+            delta: MetadataSourceIndexDelta.Delta,
+            scopedPermit: MetadataWritePermit?,
+        ): Boolean = updateIfVersion(expected, delta)
     }
     enum class Refusal { NOT_CERTIFIED, NO_VERIFIED_RECEIPT, STALE_INDEX,
         OWNER_MISMATCH, SOURCE_UNVERIFIED, PROVIDER_FAILURE, ATOMIC_CAS_REFUSED }
@@ -36,26 +47,57 @@ internal class MetadataIndexCasCoordinator(private val port: Port) {
         verifiedReceipt: MetadataVerifiedReceiptGate.Decision,
         playbackClosed: Boolean,
         ownerCurrent: () -> Boolean,
+        permit: MetadataWritePermit? = null,
     ): Result {
-        if (!MetadataCommitCertification.mayMutateOriginal())
-            return Result.Blocked(Refusal.NOT_CERTIFIED)
         val delta=(prepared as? MetadataSourceIndexDelta.Result.PreparedForExternalCas)?.delta
             ?: return Result.Blocked(Refusal.SOURCE_UNVERIFIED)
+        val profile = permit?.let { MetadataWriteProfileRegistry.byId(it.profileId) }
+        val permitContainer = permit?.let {
+            runCatching { MetadataAudioContainer.valueOf(it.container) }.getOrNull()
+        }
+        val scoped = permit != null && profile != null && permit.explicitUserAction &&
+            permit.evidenceId == profile.capabilityEvidenceId &&
+            permitContainer != null &&
+            (permit.fields.isNotEmpty() || permit.resources.isNotEmpty()) &&
+            profile.supports(
+                permitContainer,
+                permit.revision,
+                permit.fields,
+                permit.multiValueFields,
+                artworkChanged = false,
+            ) &&
+            profile.supports(permit.resources) &&
+            permit.transactionId == delta.transactionId &&
+            permit.candidateSha256 == delta.sourceSha256 &&
+            permit.stageBytes == delta.candidateBytes &&
+            permit.uri == delta.target.uri &&
+            permit.sourceId == delta.target.sourceId &&
+            permit.trackId == delta.target.trackId
+        if (!scoped && !MetadataCommitCertification.mayMutateOriginal())
+            return Result.Blocked(Refusal.NOT_CERTIFIED)
         if (!ownerCurrent() || expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri)
             return Result.Blocked(Refusal.OWNER_MISMATCH)
-        // No forged caller boolean can manufacture a certified receipt.
-        val decision=MetadataIndexPublicationPolicy.assess(MetadataIndexPublicationPolicy.Request(
-            expected,expected,delta.transactionId,delta.sourceSha256,phase,
-            verifiedReceipt,semanticReadbackVerified=true,playbackClosed=playbackClosed))
-        if (decision !is MetadataIndexPublicationPolicy.Decision.PreparedCas)
-            return Result.Blocked(Refusal.NO_VERIFIED_RECEIPT)
+        val request = MetadataIndexPublicationPolicy.Request(
+            expected, expected, delta.transactionId, delta.sourceSha256, phase,
+            verifiedReceipt, semanticReadbackVerified = true, playbackClosed = playbackClosed)
+        // No forged caller boolean can manufacture a certified receipt. A typed,
+        // exact permit only opens the same structural CAS when the durable
+        // finalization already produced its exact source receipt.
+        val structuralReady = if (scoped) {
+            MetadataIndexPublicationPolicy.inspectStructure(request) ==
+                MetadataIndexPublicationPolicy.Structural.Comparable
+        } else {
+            MetadataIndexPublicationPolicy.assess(request) is
+                MetadataIndexPublicationPolicy.Decision.PreparedCas
+        }
+        if (!structuralReady) return Result.Blocked(Refusal.NO_VERIFIED_RECEIPT)
         return try {
             val now=port.current(expected.sourceId,expected.trackId)
                 ?: return Result.Blocked(Refusal.STALE_INDEX)
             if (!ownerCurrent() || now != expected)
                 return Result.Blocked(Refusal.STALE_INDEX)
-            if (!port.updateIfVersion(expected,delta))
+            if (!port.updateIfVersion(expected,delta,permit))
                 Result.Blocked(Refusal.ATOMIC_CAS_REFUSED)
             else Result.AppliedToIndexOnly(delta.transactionId)
         } catch (cancel: CancellationException) { throw cancel }

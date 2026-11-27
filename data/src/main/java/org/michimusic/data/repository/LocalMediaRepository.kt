@@ -15,12 +15,15 @@ import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.core.metadata.MetadataCommittedLibraryChange
+import org.michimusic.core.metadata.MetadataReadAccessPolicy
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.RecoveredSafGenre
 import org.michimusic.data.cache.LibraryExclusionDao
 import org.michimusic.data.cache.LibraryExclusionEntity
+import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.cache.TrackDao
@@ -67,20 +70,20 @@ open class LocalMediaRepository(
         val tracks: List<Track>,
     )
 
-    open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
-        val albums = loadAlbums()
-        return albums.groupBy { it.album.artist }
-            .map { (name, artistAlbums) ->
-                val first = artistAlbums.first().album
-                Artist(
-                    id = name.lowercase().replace(" ", "_"),
-                    name = name.ifEmpty { "Unknown" },
-                    albumCount = artistAlbums.size,
-                    trackCount = artistAlbums.sumOf { it.tracks.size },
-                ) to artistAlbums
-            }
-            .sortedBy { it.first.name }
+    sealed interface MetadataCachePatch {
+        data class Applied(
+            val changedTrack: Track,
+            val tracks: List<Track>,
+            val albums: List<LocalAlbum>,
+        ) : MetadataCachePatch
+        /** The durable revision is already published; the in-memory cache is not stale. */
+        data class Ignored(val reason: String) : MetadataCachePatch
+        data object CacheUnavailable : MetadataCachePatch
+        data class Refused(val reason: String) : MetadataCachePatch
     }
+
+    open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> =
+        artistsFromAlbums(loadAlbums())
 
     /**
      * Legacy list API kept for callers and test doubles that override [loadTracks]; the
@@ -99,41 +102,8 @@ open class LocalMediaRepository(
             is MediaResult.QueryFailed -> tracks
         }
 
-    internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> {
-        // MediaStore's album ID is the authoritative disc identity, so a
-        // compilation stays one album even when every song has a guest artist.
-        // Tag-based libraries group by album title + album artist; the track
-        // artist is only a last-resort fallback when no album credit exists.
-        val grouped = tracks.groupBy { track ->
-            if (track.albumId.isNotBlank()) {
-                "mediastore:${track.albumId}"
-            } else {
-                val albumArtist = track.albumArtist.ifBlank { track.artist }
-                "tags:${track.album.trim().lowercase()}|${albumArtist.trim().lowercase()}"
-            }
-        }
-        return grouped.map { (_, albumTracks) ->
-            val first = albumTracks.first()
-            val albumName = first.album.ifEmpty { "Unknown Album" }
-            val artistName = first.albumArtist.ifBlank { first.artist }.ifEmpty { "Unknown" }
-            val albumId = if (first.albumId.isNotBlank()) {
-                "mediastore_${first.albumId}"
-            } else {
-                "${albumName.lowercase().replace(" ", "_")}_${artistName.lowercase().replace(" ", "_")}"
-            }
-            LocalAlbum(
-                album = Album(
-                    id = "album_$albumId",
-                    title = albumName,
-                    artist = artistName,
-                    year = first.year,
-                    trackCount = albumTracks.size,
-                    coverId = first.coverId,
-                ),
-                tracks = albumTracks,
-            )
-        }.sortedBy { it.album.title }
-    }
+    internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> =
+        groupAlbumsFromTracks(tracks)
 
     open suspend fun fetchTracksResult(): MediaResult<List<Track>> {
         // Construct only one notification from an actual fresh query; callback is invoked
@@ -196,6 +166,73 @@ open class LocalMediaRepository(
             cachedTracks = null
             cachedCoverage = MediaCoverage.FULL
         }
+    }
+
+    /**
+     * Durable revision for one already committed row. Search uses it to ignore
+     * a replayed or stale notification without rescanning the provider.
+     */
+    suspend fun metadataRevisionFor(sourceId: String, trackId: String): Long? =
+        importedTrackDao?.getTrackBySource(sourceId, trackId)?.metadataRevision
+
+    /**
+     * Patches one already-loaded local row after an exact metadata commit.
+     * It never queries MediaStore and never upgrades incomplete cache coverage.
+     */
+    open suspend fun applyMetadataCommittedChange(
+        change: MetadataCommittedLibraryChange,
+    ): MetadataCachePatch = cacheMutex.withLock {
+        // The marker and the durable revision are the publication authority. A
+        // repository without an index cannot prove either one, so it must not
+        // patch the cache from a notification alone.
+        val dao = importedTrackDao
+            ?: return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        val marker = try {
+            dao.getAppliedMetadataTransaction(change.transactionId)
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        }
+        val durableRevision = try {
+            dao.getTrackBySource(change.sourceId, change.trackId)?.metadataRevision
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            return@withLock MetadataCachePatch.Refused("DURABLE_EVIDENCE_UNAVAILABLE")
+        }
+        when (val decision = MetadataLibraryPublicationGate.evaluate(
+            change, marker, durableRevision,
+        )) {
+            is MetadataLibraryPublicationGate.Decision.Ignore ->
+                return@withLock MetadataCachePatch.Ignored(decision.reason)
+            is MetadataLibraryPublicationGate.Decision.Refuse ->
+                return@withLock MetadataCachePatch.Refused(decision.reason)
+            MetadataLibraryPublicationGate.Decision.Apply -> Unit
+        }
+        val current = cachedTracks
+            ?: return@withLock MetadataCachePatch.Ignored("CACHE_NOT_LOADED")
+        val indices = current.indices.filter { index ->
+            val track = current[index]
+            val sourceMatches = track.sourceId == change.sourceId ||
+                (track.sourceId.isBlank() &&
+                    change.sourceId == MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID)
+            sourceMatches && track.id == change.trackId && track.filepath == change.uri
+        }
+        if (indices.size != 1) {
+            return@withLock MetadataCachePatch.Refused("TARGET_NOT_UNIQUE")
+        }
+        val index = indices.single()
+        val projected = when (val result =
+            MetadataCommittedTrackProjection.apply(current[index], change)
+        ) {
+            is MetadataCommittedTrackProjection.Result.Applied -> result.track
+            is MetadataCommittedTrackProjection.Result.Refused ->
+                return@withLock MetadataCachePatch.Refused(result.reason)
+        }
+        val updated = current.toMutableList().also { it[index] = projected }.toList()
+        cachedTracks = updated
+        MetadataCachePatch.Applied(projected, updated, groupAlbums(updated))
     }
     /**
      * Manual, cancelable recovery. Every 32-track page is a committed Room
@@ -681,6 +718,10 @@ open class LocalMediaRepository(
         val pendingTracks = mutableListOf<PendingTrack>()
         var needsGenreMembershipRecovery = !genreProjected
         var genreReadBudget = MAX_EMBEDDED_GENRE_READS_PER_QUERY
+        val durableOwner = durableLibrarySource(root)
+        val providerKind = providerCapability(durableOwner, primaryAudio)
+        val providerObservations =
+            ArrayList<MetadataLibraryDurableOverlay.ProviderObservation>()
         val scanFromRow = nextGenreScanRow
         var nextRow = scanFromRow
         val savedEvidence = try {
@@ -778,6 +819,16 @@ open class LocalMediaRepository(
                 // The cursor advances on each refresh, avoiding starvation after 1,024 entries.
                 val fileSize = c.getLong(sizeCol).coerceAtLeast(0L)
                 val modified = c.getLong(modifiedCol).coerceAtLeast(0L)
+                providerObservations.add(
+                    MetadataLibraryDurableOverlay.ProviderObservation(
+                        sourceId = durableOwner,
+                        trackId = trackId,
+                        uri = contentUri,
+                        sizeBytes = fileSize,
+                        modifiedAt = modified,
+                        capability = providerKind,
+                    ),
+                )
                 val needsProbe = TagEvidencePolicy.needsProbe(providerGenre, title, artist, album)
                 // Reuse an already-verified embedded tag even when MediaStore now
                 // reports all four basic fields. This adds no file I/O and stops a
@@ -869,8 +920,55 @@ open class LocalMediaRepository(
                 )
             }
         }
-        return MediaResult.Success(applyReplayGain(completed))
+        // MediaStore may lag the exact bytes this app just committed. The
+        // overlay only replays an exact Metadata Editor publication whose
+        // revision, owner, track, URI and candidate still bind this row. A
+        // missing or contradictory provider stamp is never substituted.
+        val durable = try {
+            importedTrackDao?.getTracksForSource(durableOwner)
+                ?.first().orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val publications = if (durable.isEmpty()) emptyList() else try {
+            importedTrackDao?.getAppliedMetadataTransactionsForSource(durableOwner).orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val evidence = if (durable.isEmpty()) emptyList() else try {
+            importedTrackDao?.getTagEvidenceForSource(durableOwner).orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return MediaResult.Success(applyReplayGain(
+            MetadataLibraryDurableOverlay.apply(
+                completed,
+                durable,
+                publications,
+                evidence,
+                providerObservations,
+            ),
+        ))
     }
+
+    private fun providerCapability(
+        sourceId: String,
+        uri: android.net.Uri,
+    ): MetadataLibraryDurableOverlay.ProviderCapability =
+        when (MetadataReadAccessPolicy.classify(sourceId, uri.scheme, uri.authority)) {
+            MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                MetadataLibraryDurableOverlay.ProviderCapability.MEDIASTORE
+            MetadataReadAccessPolicy.Kind.SAF_LOCAL ->
+                MetadataLibraryDurableOverlay.ProviderCapability.SAF_LOCAL
+            MetadataReadAccessPolicy.Kind.REJECT ->
+                MetadataLibraryDurableOverlay.ProviderCapability.UNSUPPORTED
+        }
 
     private suspend fun customRootTracks(): MediaResult<List<Track>> {
         val ctx = context ?: return MediaResult.Success(emptyList())
@@ -896,7 +994,21 @@ open class LocalMediaRepository(
         } catch (_: Exception) {
             return MediaResult.QueryFailed(IllegalStateException("No se pudo leer la carpeta elegida"))
         }
-        val tracks = rows.map { it.toTrack() }
+        // SAF reopen reads the committed rows directly. Keep their complete
+        // ordered genre list when the same source-owned sidecar still matches;
+        // a missing/old sidecar leaves only the honest scalar value.
+        val evidence = try {
+            dao.getTagEvidenceForSource(sourceId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val tracks = MetadataLibraryDurableOverlay.attachDurableGenres(
+            rows.map { it.toTrack() },
+            rows,
+            evidence,
+        )
             .filter { track ->
                 !isLikelyNonMusicGenericAudio(
                     title = track.title,

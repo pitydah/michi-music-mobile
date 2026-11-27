@@ -27,7 +27,7 @@ object MetadataId3StageRewriter {
         NOT_READY, NOT_VERIFIED, UNSUPPORTED_FIELD, UNSAFE_CACHE, STAGE_EXISTS,
         INVALID_ID3, ID3V1_CONFLICT, UNSUPPORTED_VERSION_OR_FLAGS,
         BROKEN_FRAME, AMBIGUOUS_OR_STALE_TAGS, TOO_MANY_VALUES, TAG_OVERFLOW,
-        STAGING_SPACE_UNAVAILABLE, CACHE_CHANGED,
+        STAGING_SPACE_UNAVAILABLE, CACHE_CHANGED, INVALID_NUMBER_PAIR, INVALID_DATE,
     }
     data class Result(
         val format: MetadataAudioContainer,
@@ -60,8 +60,27 @@ object MetadataId3StageRewriter {
         MetadataField.CONDUCTOR to "TPE3",
         MetadataField.REMIXER to "TPE4",
     )
+    private val dateFrames = mapOf(3 to "TYER", 4 to "TDRC")
+    private data class Composite(
+        val number: MetadataField,
+        val total: MetadataField,
+        val frameId: String,
+    )
+    private val composites = listOf(
+        Composite(MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL, "TRCK"),
+        Composite(MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL, "TPOS"),
+    )
+    private val compositeFields =
+        composites.flatMap { listOf(it.number, it.total) }.toSet()
+    private val compositeByFrame = composites.associateBy { it.frameId }
     /** The stage writer owns the authoritative single-frame mapping. Other frame kinds require a richer audit. */
-    fun preservationFrameId(field: MetadataField): String? = keys[field]
+    fun preservationFrameId(field: MetadataField, version: Int? = null): String? =
+        when {
+            field == MetadataField.RELEASE_DATE -> version?.let(dateFrames::get)
+            field in compositeFields ->
+                composites.first { field == it.number || field == it.total }.frameId
+            else -> keys[field]
+        }
     private data class Frame(val id: String, val raw: ByteArray, val payload: ByteArray)
     private fun u(b: Byte) = b.toInt() and 255
     private fun big(bytes: ByteArray, at: Int) =
@@ -82,6 +101,37 @@ object MetadataId3StageRewriter {
     private fun textValues(frame: Frame, version: Int): List<String> =
         MetadataId3TextListCodec.decode(version, frame.payload)
             ?: throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+
+    private val canonicalNumber = Regex("[0-9]{1,4}")
+    private fun checkedNumber(values: List<String>): String? {
+        if (values.isEmpty()) return null
+        val value = values.singleOrNull() ?: throw Rejected(Code.INVALID_NUMBER_PAIR)
+        if (!canonicalNumber.matches(value) || value.toInt() !in 1..9999)
+            throw Rejected(Code.INVALID_NUMBER_PAIR)
+        return value
+    }
+    private fun checkedDate(version: Int, values: List<String>): String? {
+        if (values.isEmpty()) return null
+        val value = values.singleOrNull() ?: throw Rejected(Code.INVALID_DATE)
+        val pattern = if (version == 3) Regex("[0-9]{4}")
+            else Regex("[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?")
+        if (!pattern.matches(value)) throw Rejected(Code.INVALID_DATE)
+        return value
+    }
+    private fun parsePair(frame: Frame?, version: Int): Pair<String?, String?> {
+        if (frame == null) return null to null
+        val values = textValues(frame, version)
+        if (values.size != 1) throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+        val parts = values.single().split('/')
+        if (parts.size !in 1..2 || parts.any { it.isEmpty() })
+            throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+        fun part(raw: String): String {
+            if (!Regex("[0-9]{1,4}").matches(raw) || raw.toInt() !in 1..9999)
+                throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            return raw
+        }
+        return part(parts[0]) to parts.getOrNull(1)?.let(::part)
+    }
 
     private fun encodedFrame(version: Int, id: String, values: List<String>): Frame {
         val bytes = MetadataId3TextListCodec.encode(version, values)
@@ -148,7 +198,8 @@ object MetadataId3StageRewriter {
             ready.diffs.any { it.field !in ready.original.verifiedFields })
             throw Rejected(Code.NOT_VERIFIED)
         if (ready.diffs.any { it.field !in keys && it.field !in MetadataMusicBrainzTagMap.id3Fields &&
-            it.field !in MetadataId3DescribedTagCodec.fields })
+            it.field !in MetadataId3DescribedTagCodec.fields &&
+            it.field != MetadataField.RELEASE_DATE && it.field !in compositeFields })
             throw Rejected(Code.UNSUPPORTED_FIELD)
         if (ready.diffs.any { it.after.size > 1 &&
             (it.field !in keys || !it.field.multiple) }) throw Rejected(Code.TOO_MANY_VALUES)
@@ -160,13 +211,9 @@ object MetadataId3StageRewriter {
         if (staging.exists()) throw Rejected(Code.STAGE_EXISTS)
         val originalSize=sourceCache.length()
         val originalModified=sourceCache.lastModified()
-        if (originalSize >= 128) RandomAccessFile(sourceCache,"r").use { raf ->
-            raf.seek(originalSize-128)
-            val legacy=ByteArray(3)
-            raf.readFully(legacy)
-            if (String(legacy,StandardCharsets.US_ASCII)=="TAG")
-                throw Rejected(Code.ID3V1_CONFLICT)
-        }
+        // A pre-existing ID3v1 footer is preserved byte-for-byte in the audio tail.
+        // ID3v2 remains the authoritative edited tag; the certified server profile
+        // documents this coexistence instead of silently deleting the legacy footer.
         val header=ByteArray(10)
         FileInputStream(sourceCache).use { input ->
             if(input.read(header)!=10) throw Rejected(Code.INVALID_ID3)
@@ -188,6 +235,43 @@ object MetadataId3StageRewriter {
         if (version == 3 && ready.diffs.any { it.after.size > 1 })
             throw Rejected(Code.TOO_MANY_VALUES)
         val changes=ready.diffs.associateBy { it.field }
+        val compositeBefore = mutableMapOf<Composite, Pair<String?, String?>>()
+        for (composite in composites) {
+            if (composite.number !in changes && composite.total !in changes) continue
+            val frames = inputFrames.filter { it.id == composite.frameId }
+            if (frames.size > 1) throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            val parsed = parsePair(frames.singleOrNull(), version)
+            if (listOfNotNull(parsed.first) !=
+                    ready.original.known[composite.number].orEmpty() ||
+                listOfNotNull(parsed.second) !=
+                    ready.original.known[composite.total].orEmpty())
+                throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            changes[composite.number]?.let { diff ->
+                if (diff.before != listOfNotNull(parsed.first))
+                    throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            }
+            changes[composite.total]?.let { diff ->
+                if (diff.before != listOfNotNull(parsed.second))
+                    throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            }
+            val number = checkedNumber(
+                changes[composite.number]?.after ?: listOfNotNull(parsed.first))
+            val total = checkedNumber(
+                changes[composite.total]?.after ?: listOfNotNull(parsed.second))
+            if (number == null && total != null)
+                throw Rejected(Code.INVALID_NUMBER_PAIR)
+            compositeBefore[composite] = parsed
+        }
+        if (MetadataField.RELEASE_DATE in changes) {
+            val frames = inputFrames.filter { it.id == dateFrames.getValue(version) }
+            if (frames.size > 1) throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            val current = frames.singleOrNull()?.let { textValues(it, version) }.orEmpty()
+            val diff = changes.getValue(MetadataField.RELEASE_DATE)
+            if (current != diff.before ||
+                current != ready.original.known[MetadataField.RELEASE_DATE].orEmpty())
+                throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
+            checkedDate(version, diff.after)
+        }
         val newFrames=mutableListOf<Frame>()
         val emitted=mutableSetOf<MetadataField>()
         val owner=keys.entries.associate { (field,key) -> key to field }
@@ -219,6 +303,8 @@ object MetadataId3StageRewriter {
             else -> owner[frame.id]
         }
         for(diff in ready.diffs){
+            if (diff.field == MetadataField.RELEASE_DATE ||
+                diff.field in compositeFields) continue
             val mbid = diff.field in MetadataMusicBrainzTagMap.id3Fields
             val described = diff.field in MetadataId3DescribedTagCodec.fields
             val current = if (described) {
@@ -240,20 +326,51 @@ object MetadataId3StageRewriter {
                 throw Rejected(Code.AMBIGUOUS_OR_STALE_TAGS)
         }
         fun emit(field: MetadataField){
+            if(field in compositeFields)return
             if(!emitted.add(field))return
             val diff=changes[field] ?: return
             if(diff.after.isNotEmpty()) newFrames += when {
+                field == MetadataField.RELEASE_DATE ->
+                    encodedFrame(version, dateFrames.getValue(version),
+                        listOf(checkedDate(version, diff.after)!!))
                 field in MetadataId3DescribedTagCodec.fields -> describedFrame(version,field,diff.after.single())
                 field in MetadataMusicBrainzTagMap.id3Fields -> userTextFrame(version,field,diff.after.single())
                 else -> encodedFrame(version, keys.getValue(field), diff.after)
             }
         }
+        val emittedComposites = mutableSetOf<String>()
+        fun emitComposite(composite: Composite){
+            if(!emittedComposites.add(composite.frameId))return
+            val before = compositeBefore.getValue(composite)
+            val number = checkedNumber(
+                changes[composite.number]?.after ?: listOfNotNull(before.first))
+            val total = checkedNumber(
+                changes[composite.total]?.after ?: listOfNotNull(before.second))
+            if(number == null && total != null) throw Rejected(Code.INVALID_NUMBER_PAIR)
+            if(number == null) return
+            newFrames += encodedFrame(version, composite.frameId,
+                listOf(if(total == null) number else "$number/$total"))
+        }
         for(frame in inputFrames){
             checkCancelled()
+            val composite = compositeByFrame[frame.id]
+            if (composite != null &&
+                (composite.number in changes || composite.total in changes)) {
+                emitComposite(composite)
+                continue
+            }
+            if (frame.id == dateFrames[version] &&
+                MetadataField.RELEASE_DATE in changes) {
+                emit(MetadataField.RELEASE_DATE)
+                continue
+            }
             val field=selectedField(frame)
             if(field!=null && field in changes)emit(field) else newFrames+=frame
         }
         for(field in changes.keys)emit(field)
+        for(composite in composites)
+            if(composite.number in changes || composite.total in changes)
+                emitComposite(composite)
         val replacement=ByteArrayOutputStream()
         newFrames.forEach{replacement.write(it.raw)}
         if(replacement.size()>MAX_ID3)throw Rejected(Code.TAG_OVERFLOW)

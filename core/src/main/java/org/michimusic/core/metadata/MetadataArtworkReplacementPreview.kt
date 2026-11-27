@@ -25,7 +25,10 @@ object MetadataArtworkReplacementPreview {
         if (original == null) return Result.Blocked(Reason.ORIGINAL_NOT_VERIFIED)
         val item = original.artworks.singleOrNull { it.ordinal == ordinal }
             ?: return Result.Blocked(Reason.INVALID_SELECTION)
-        if (original.artworks.count { it.info.type == item.info.type } != 1)
+        // M4A `covr` has no per-image type slots: every image is a cover and the
+        // ordinal is the stable identity. Other formats still require one type.
+        if (original.format != MetadataArtworkLyricsProbe.Format.MP4 &&
+            original.artworks.count { it.info.type == item.info.type } != 1)
             return Result.Blocked(Reason.MULTIPLE_TARGETS)
         val originalHash = MessageDigest.getInstance("SHA-256").digest(item.image)
             .joinToString("") { (it.toInt() and 255).toString(16).padStart(2,'0') }

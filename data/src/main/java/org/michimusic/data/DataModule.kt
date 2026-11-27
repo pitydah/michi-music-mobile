@@ -29,7 +29,8 @@ val dataModule = module {
             MichiDatabase.MIGRATION_10_11,
             MichiDatabase.MIGRATION_11_12,
             MichiDatabase.MIGRATION_12_13,
-        ).build()
+            MichiDatabase.MIGRATION_13_14,
+        ).addCallback(MichiDatabase.METADATA_REVISION_CALLBACK).build()
     }
     single { get<MichiDatabase>().trackDao() }
     single { get<MichiDatabase>().metadataPersonEvidenceDao() }

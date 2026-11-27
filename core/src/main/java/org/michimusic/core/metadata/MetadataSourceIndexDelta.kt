@@ -43,6 +43,13 @@ object MetadataSourceIndexDelta {
             !is MetadataPostSourceFieldPolicy.Verdict.Compared)
             return Result.Blocked(Reason.SOURCE_FIELDS_NOT_VERIFIED)
         val changes=intent.changes.mapTo(hashSetOf()) { it.field }
+        // A described-text resource is verified by its exact identity digest in
+        // MetadataResourceSemanticPolicy.compareCandidate, not by the scalar
+        // alias reader. Its field may therefore legitimately gain, change or
+        // lose a scalar alias without that being unselected drift.
+        val resourceFields=intent.resources.mapNotNullTo(hashSetOf()) {
+            (it as? MetadataCommitIntentManifest.ResourceChange.DescribedText)?.kind?.field
+        }
         val values=linkedMapOf<MetadataField,List<String>>()
         val unknown=linkedSetOf<MetadataField>()
         // Only compare already-proven fields from the ORIGINAL snapshot; a field
@@ -52,12 +59,12 @@ object MetadataSourceIndexDelta {
                 is MetadataFieldObservation.Present -> values[field]=observed.values.toList()
                 MetadataFieldObservation.VerifiedAbsent -> values[field]=emptyList()
                 is MetadataFieldObservation.Conflicted, is MetadataFieldObservation.Unverifiable -> {
-                    if (field in changes || field in original.verifiedFields)
+                    if (field in changes || (field in original.verifiedFields && field !in resourceFields))
                         return Result.Blocked(Reason.INVALID_RECONCILIATION,field)
                     unknown += field
                 }
             }
-            if (field !in changes && field in original.verifiedFields &&
+            if (field !in changes && field !in resourceFields && field in original.verifiedFields &&
                 values[field] != original.known[field].orEmpty())
                 return Result.Blocked(Reason.UNCHANGED_FIELD_DRIFT,field)
         }

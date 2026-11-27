@@ -1,0 +1,72 @@
+ME-13 journal and recovery proof
+================================
+
+A) Product journal states (JVM, final HEAD)
+-------------------------------------------
+Class MetadataRecoveryJournalV1Test (all passed):
+  - initiallyClearAndPersistsSnapshottingAfterReopen
+  - durablePhaseTransitionAndReadback
+  - stageCannotBeDeclaredWithEmptyDigest
+  - doubleStartBlockedAndFirstEntryNeverReplaced
+  - alteredJournalNeverBecomesClear
+  - privateBackupDigestMismatchBlocksRecoveryEvidence
+  - explicitDiscardDeletesOnlyPrivateArtifacts
+  - noUserIdCanDiscardAnotherTransaction
+  - stableLocalOwnerEmptyAndVersionOneRoundTrips
+  - refusesIllegalDirectJumpToMutation
+  - unsafeFilenameRejectedBeforeFileAccess
+  - privateTrialScratchBlocksDiscardUntilSeparatelyRemoved
+
+V2 journal stores the owner evidence token after `format` and still reads V1
+entries with an empty token. Decode rejects oversized/control-character tokens.
+
+B) Cross-track protection
+-------------------------
+Class MetadataSaveRecoveryRoutingTest (all passed):
+  - pendingPostMutationMustSkipFreshSavePreflight
+  - onlySameTrackPrivatePhasesCanBeDiscarded
+  - aDifferentSongCannotDiscardAnyPrivatePreparation
+The caller must supply the exact sourceId, trackId and URI.
+
+C) Real process kill / restart (opt-in synthetic provider)
+----------------------------------------------------------
+Instrumentation command phase one:
+  -e class ...MetadataSyntheticRestartInstrumentedTest#phaseOneSeedThenKillRunnerOptInOnly
+  -e ME09_KILL_SYNTHETIC_RUNNER I_ACCEPT_RUNNER_TERMINATION
+Observed:
+  INSTRUMENTATION_RESULT: shortMsg=Process crashed.
+  INSTRUMENTATION_CODE: 0
+
+Separate process, phase two:
+  -e class ...MetadataSyntheticRestartInstrumentedTest#phaseTwoRestartAndRestoreOptInOnly
+  -e ME09_RESTORE_SYNTHETIC_RUNNER I_ACCEPT_SYNTHETIC_RESTORE
+Observed:
+  OK (1 test)
+
+Scope: the harness uses the test DocumentsProvider and a disposable UUID. It
+proves durable cold reconstruction and restore after a real process death, but
+it is NOT a production MediaStore Save kill. No product save was interrupted.
+
+D) Typed restore product path (JVM, fake provider)
+--------------------------------------------------
+Class MetadataSourceRestoreCoordinatorTest (all passed):
+  - truncatedSourceIsRestoredAndIndependentlyReadBack
+  - alreadyInstalledCandidateIsFinalizedNotRestored
+  - originalAlreadyIntactIsNotOverwritten
+  - failedRestoreKeepsRollbackPendingAndBothPrivateCopies
+  - revokedPermissionNeverOpensTheSource
+  - ownerChangeRefusesBeforeAnyReservationOrWrite
+  - permitCannotBeReusedForAnotherTransactionOrOwner
+The coordinator persists ROLLBACK_PENDING before destructive open and only
+publishes RESTORED_VERIFIED after an independent original SHA readback.
+
+E) Recovery UI
+--------------
+MichiMetadataRecoveryPanel exposes a two-step restore action only for
+MUTATING/MUTATION_UNKNOWN with an intact backup. The Compose tests verify
+inspection and the no-pending state:
+  - recoveryPanelInspectsTheExactTrackAndReportsNoPendingWork
+  - recoveryPendingDisablesNewSaveAndExplainsTheObligation
+
+Not run: a production Save killed between MUTATING and MUTATION_UNKNOWN on a
+real MediaStore item. This remains NOT RUN; Xiaomi physical input is BLOCKED_HARDWARE.

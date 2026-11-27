@@ -110,6 +110,12 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         val stageSha256: String = "",
         val stageBytes: Long = 0,
         val format: String = "",
+        /**
+         * V2: exact opaque evidence token bound into the durable intent owner
+         * digest. It is persisted so a typed restore can be authorized after a
+         * process restart without trusting a Compose draft. Empty for V1 records.
+         */
+        val ownerEvidenceToken: String = "",
     )
 
     sealed interface Inspection {
@@ -155,8 +161,10 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
 
     private companion object {
         const val MAGIC = 0x4d453035 // ME05
-        const val VERSION = 1
+        const val VERSION = 2
+        const val VERSION_LEGACY = 1
         const val MAX_RECORD = 32 * 1024
+        const val MAX_OWNER_TOKEN = 256
         val validId = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val digestRegex = Regex("[a-f0-9]{64}")
 
@@ -260,6 +268,10 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
     /** ME-10N: an independent V1 journal intent, never the V2 preview receipt. */
     fun intent(entry: Entry): File = File(root, "intent-${validatedId(entry.id)}.bin")
 
+    /** Durable owner evidence written before MUTATING; optional for legacy V2. */
+    fun owner(entry: Entry): File = File(root, "owner-${validatedId(entry.id)}.bin")
+    fun preimage(entry: Entry): File = File(root, "preimage-${validatedId(entry.id)}.bin")
+
     private fun validatedId(id: String): String {
         require(validId.matches(id)) { "INVALID_PRIVATE_TRANSACTION_ID" }
         return id
@@ -328,7 +340,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         persist(entry, initial = true)
     }
 
-    fun advance(before: Entry, next: Entry) {
+    fun advance(before: Entry, next: Entry, permit: MetadataWritePermit? = null) {
         require(before.id == next.id && before.sourceId == next.sourceId &&
             before.trackId == next.trackId && before.uri == next.uri &&
             before.expectedBytes == next.expectedBytes &&
@@ -351,7 +363,10 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         // The prepared stage exists, but no physical commit profile is certified
         // in ME-06. Explicit consent and a journal are not enough.
         if (next.phase == MetadataRecoveryPhase.MUTATING) {
-            check(MetadataCommitCertification.mayMutateOriginal()) { "SOURCE_COMMIT_NOT_CERTIFIED" }
+            val permitted = permit?.matches(before) == true
+            check(permitted || MetadataCommitCertification.mayMutateOriginal()) {
+                "SOURCE_COMMIT_NOT_CERTIFIED"
+            }
             check(privateArtifactsIntact(before)) { "PRIVATE_BACKUP_NOT_VERIFIED" }
         }
         val live = inspect() as? Inspection.Pending ?: error("JOURNAL_NOT_READABLE")
@@ -371,12 +386,58 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
             Files.exists(scratch.toPath(), LinkOption.NOFOLLOW_LINKS)
     }
 
+    /**
+     * Terminal cleanup after a verified physical write and coherent index CAS.
+     * Never call after an uncertain postcheck or an index-pending outcome.
+     */
+    /**
+     * Terminal cleanup, resumable after a process kill. The first call advances
+     * POSTCHECK_VERIFIED to CLEANUP_SAFE and then deletes private artifacts
+     * idempotently. A later call accepts CLEANUP_SAFE directly, so a kill after
+     * the phase transition or after any single delete can continue without
+     * re-running the provider postcheck or requiring both hashes again.
+     */
+    fun completeVerified(id: String): Boolean {
+        return completeTerminal(id, MetadataRecoveryPhase.POSTCHECK_VERIFIED)
+    }
+
+    /**
+     * Terminal cleanup after an independently verified restoration. The source
+     * contains the durable preimage again, so private artifacts are no longer
+     * the only surviving copy of user data.
+     */
+    fun completeRestoredVerified(id: String): Boolean {
+        return completeTerminal(id, MetadataRecoveryPhase.RESTORED_VERIFIED)
+    }
+
+    private fun completeTerminal(
+        id: String,
+        verifiedPhase: MetadataRecoveryPhase,
+    ): Boolean {
+        val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
+        if (entry.id != id) return false
+        val cleanup = when (entry.phase) {
+            verifiedPhase ->
+                entry.copy(phase = MetadataRecoveryPhase.CLEANUP_SAFE)
+            MetadataRecoveryPhase.CLEANUP_SAFE -> entry
+            else -> return false
+        }
+        return try {
+            if (cleanup !== entry) advance(entry, cleanup)
+            for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry), preimage(entry))) {
+                if (Files.isSymbolicLink(file.toPath())) return false
+                if (file.exists() && !file.delete()) return false
+            }
+            !record.exists() || record.delete()
+        } catch (_: Exception) { false }
+    }
+
     /** No mutation is ever attempted here. Keep journal if a private delete fails. */
     fun discardPrepared(id: String): Boolean {
         val entry = (inspect() as? Inspection.Pending)?.entry ?: return false
         if (entry.id != id || !MetadataRecoveryPhasePolicy.canDiscardPrivateOnly(entry.phase) ||
             privateTrialPresent(entry)) return false
-        for (file in listOf(intent(entry), stage(entry), backup(entry))) {
+        for (file in listOf(intent(entry), stage(entry), backup(entry), owner(entry), preimage(entry))) {
             if (Files.isSymbolicLink(file.toPath())) return false
             if (file.exists() && !file.delete()) return false
         }
@@ -400,10 +461,11 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
                 Files.move(tmp.toPath(), record.toPath(), StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING)
             }
-            // Directory fsync is not supported by every Android filesystem. Failure is
-            // deliberately NOT converted into false permission to commit to source.
-            try { FileChannel.open(root.toPath(), StandardOpenOption.READ).use { it.force(true) } }
-            catch (_: Exception) { /* prepare remains non-mutating */ }
+            if (MetadataDurableFile.syncDirectory(root) !=
+                MetadataDurableFile.DirectorySyncResult.FORCED) {
+                runCatching { Files.deleteIfExists(record.toPath()) }
+                throw IllegalStateException("JOURNAL_NOT_DURABLE")
+            }
         } finally { tmp.delete() }
     }
 
@@ -417,6 +479,7 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
             out.writeLong(e.expectedBytes); out.writeLong(e.expectedModifiedAt)
             out.writeUTF(e.originalSha256); out.writeUTF(e.stageSha256)
             out.writeLong(e.stageBytes); out.writeUTF(e.format)
+            out.writeUTF(e.ownerEvidenceToken)
         }
         val data = payload.toByteArray()
         require(data.size in 1..MAX_RECORD) { "RECORD_TOO_BIG" }
@@ -439,18 +502,24 @@ internal class MetadataRecoveryJournalV1(private val root: File) {
         stream.readFully(hash)
         require(MessageDigest.isEqual(hash,MessageDigest.getInstance("SHA-256").digest(payload)))
         DataInputStream(ByteArrayInputStream(payload)).use { input ->
-            require(input.readInt() == MAGIC && input.readInt() == VERSION)
+            require(input.readInt() == MAGIC)
+            val version = input.readInt()
+            require(version == VERSION || version == VERSION_LEGACY)
             val id=validatedId(input.readUTF())
             val phase=MetadataRecoveryPhase.valueOf(input.readUTF())
             val sourceId=input.readUTF();val trackId=input.readUTF();val uri=input.readUTF()
             val expectedBytes=input.readLong(); val modifiedAt=input.readLong()
             val original=input.readUTF();val staged=input.readUTF()
             val stageBytes=input.readLong();val format=input.readUTF()
+            val ownerToken = if (version >= VERSION) input.readUTF() else ""
             require(input.available() == 0 && trackId.isNotBlank() && uri.startsWith("content://") &&
                 expectedBytes > 0 && modifiedAt > 0 && stageBytes >= 0)
             require(original.isEmpty() || digestRegex.matches(original))
             require(staged.isEmpty() || digestRegex.matches(staged))
-            return Entry(id,phase,sourceId,trackId,uri,expectedBytes,modifiedAt,original,staged,stageBytes,format)
+            require(ownerToken.length <= MAX_OWNER_TOKEN &&
+                ownerToken.none { it.isISOControl() })
+            return Entry(id,phase,sourceId,trackId,uri,expectedBytes,modifiedAt,original,
+                staged,stageBytes,format,ownerToken)
         }
     }
 }

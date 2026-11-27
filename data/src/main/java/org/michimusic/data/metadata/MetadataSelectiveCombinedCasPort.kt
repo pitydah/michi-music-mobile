@@ -10,6 +10,7 @@ import org.michimusic.core.metadata.MetadataStructuredCombinedRefreshPolicy
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.MetadataPersonEvidence
+import org.michimusic.data.cache.MetadataTrackTransactionResult
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.cache.TrackDao
 
@@ -23,21 +24,27 @@ import org.michimusic.data.cache.TrackDao
 internal class MetadataSelectiveCombinedCasPort(
     context: Context,
     private val database: MichiDatabase,
+    private val preimages: MetadataIndexPreimageStore? = null,
 ) : MetadataIndexCasCoordinator.Port {
     private val dao: TrackDao = database.trackDao()
     private val scalar = MetadataTrackDaoCasPort(dao)
     private val stamps = MetadataExactSourceStampReader(context)
     private val bytes = MetadataCurrentBytesReader(context)
-    private val hash = Regex("[0-9a-f]{64}")
-
     override suspend fun current(targetSource: String, targetTrack: String):
         MetadataIndexPublicationPolicy.IndexIdentity? = scalar.current(targetSource, targetTrack)
 
     override suspend fun updateIfVersion(
         expected: MetadataIndexPublicationPolicy.IndexIdentity,
         delta: MetadataSourceIndexDelta.Delta,
+    ): Boolean = updateIfVersion(expected, delta, null)
+
+    override suspend fun updateIfVersion(
+        expected: MetadataIndexPublicationPolicy.IndexIdentity,
+        delta: MetadataSourceIndexDelta.Delta,
+        scopedPermit: MetadataWritePermit?,
     ): Boolean {
-        if (!MetadataCommitCertification.mayMutateOriginal() ||
+        if ((!MetadataCommitCertification.mayMutateOriginal() &&
+                scopedPermit?.authorizes(delta) != true) ||
             expected.sourceId != delta.target.sourceId ||
             expected.trackId != delta.target.trackId || expected.uri != delta.target.uri)
             return false
@@ -45,6 +52,8 @@ internal class MetadataSelectiveCombinedCasPort(
             as? MetadataStructuredCombinedRefreshPolicy.Result.Prepared ?: return false
         val indexed = dao.getTrackBySource(expected.sourceId, expected.trackId) ?: return false
         if (indexed.filepath != expected.uri) return false
+        val durable = preimages?.durableFor(expected, scopedPermit) ?: return false
+        if (indexed.asMetadataPreimage() != durable) return false
         val scalarDelta = delta.copy(observedValues = delta.observedValues + mapOf(
             MetadataField.GENRE to listOf(prepared.genre),
             MetadataField.ARTIST to listOfNotNull(prepared.artist.takeIf(String::isNotEmpty)),
@@ -74,34 +83,17 @@ internal class MetadataSelectiveCombinedCasPort(
             genre.artist != projected.artist || genre.albumArtist != projected.albumArtist ||
             genre.title != projected.title || genre.album != projected.album ||
             genre.trackNumber != projected.trackNumber) return false
-        val verified = expected.version > 0L && hash.matches(expected.observedSourceSha256)
-        val historical = expected.version == 0L && expected.observedSourceSha256.isEmpty()
-        if (!verified && !historical) return false
+        val request = metadataTrackTransactionRequest(
+            durable, expected, projected, delta,
+        ) ?: return false
         return database.withTransaction {
-            val applied = if (verified) dao.commitMetadataAfterVerifiedWrite(
-                sourceId = indexed.sourceId, trackId = indexed.id, filepath = indexed.filepath,
-                previousSize = indexed.size, previousVerifiedAt = expected.version,
-                previousSha256 = expected.observedSourceSha256,
-                previousTitle = indexed.title, previousArtist = indexed.artist,
-                previousAlbum = indexed.album, previousAlbumArtist = indexed.albumArtist,
-                previousGenre = indexed.genre, previousTrackNumber = indexed.trackNumber,
-                previousYear = indexed.year, newSize = delta.candidateBytes,
-                newTitle = projected.title, newArtist = projected.artist,
-                newAlbum = projected.album, newAlbumArtist = projected.albumArtist,
-                newGenre = projected.genre, newTrackNumber = projected.trackNumber,
-                newYear = projected.year,
-            ) else dao.commitMetadataAfterVerifiedWriteUnhashed(
-                sourceId = indexed.sourceId, trackId = indexed.id, filepath = indexed.filepath,
-                previousSize = indexed.size, previousTitle = indexed.title,
-                previousArtist = indexed.artist, previousAlbum = indexed.album,
-                previousAlbumArtist = indexed.albumArtist, previousGenre = indexed.genre,
-                previousTrackNumber = indexed.trackNumber, previousYear = indexed.year,
-                newSize = delta.candidateBytes, newTitle = projected.title,
-                newArtist = projected.artist, newAlbum = projected.album,
-                newAlbumArtist = projected.albumArtist, newGenre = projected.genre,
-                newTrackNumber = projected.trackNumber, newYear = projected.year,
-            )
-            if (!applied) return@withTransaction false
+            when (dao.applyMetadataTransaction(request)) {
+                is MetadataTrackTransactionResult.Applied -> Unit
+                is MetadataTrackTransactionResult.AlreadyApplied ->
+                    return@withTransaction true
+                MetadataTrackTransactionResult.Conflict ->
+                    return@withTransaction false
+            }
             // The same transaction invalidated stale evidence. Restore BOTH new
             // verified observations atomically; any exception rolls back all 3.
             dao.putTagEvidence(listOf(genre))

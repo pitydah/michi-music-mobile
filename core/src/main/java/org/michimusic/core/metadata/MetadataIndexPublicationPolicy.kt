@@ -9,6 +9,8 @@ object MetadataIndexPublicationPolicy {
     data class IndexIdentity(
         val sourceId: String, val trackId: String, val uri: String,
         val version: Long, val observedSourceSha256: String,
+        /** Monotonic Room identity; independent from the verification timestamp. */
+        val metadataRevision: Long = 0,
     )
     data class Request(
         val expected: IndexIdentity,

@@ -1,0 +1,49 @@
+scenario,requirement,status,evidence,scope
+T01,ID3v2.3 TITLE save verified and indexed,PASS,MetadataSaveMediaStoreE2EInstrumentedTest#saveRewritesMediaStoreVerifiesAndPublishesTheExactCachedRow; gradle-run 0027,Real disposable MediaStore MP3 plus real Room row; independent full SHA readback and exact CAS
+T02,ID3v2.4 TITLE save verified and indexed,NOT RUN,No MediaStore E2E for ID3v2.4; only MetadataId3StageRewriterTest#v24EditsOneFrameAndPreservesOthersAndAudio,"Unit-level rewriter evidence exists, not a full product save"
+T03,ARTIST save verified and indexed,NOT RUN,No MediaStore E2E changing ARTIST,Scenario not executed at the product point
+T04,ALBUM save verified and indexed,NOT RUN,No MediaStore E2E changing ALBUM,Scenario not executed at the product point
+T05,GENRE save verified and indexed,NOT RUN,No MediaStore E2E changing GENRE,Scenario not executed at the product point
+T06,Four fields in one save verified and indexed,NOT RUN,No MediaStore E2E changing TITLE+ARTIST+ALBUM+GENRE,Scenario not executed at the product point
+T07,Unchanged value performs no write,PASS,MichiMetadataEditorWorkbenchTest#returningToTheOriginalValueLeavesZeroEffectiveChanges; MetadataEditPreview tests,Draft/preview evidence; no provider write requested
+T08,Unknown frames and TXXX preserved,PASS,MetadataId3StageRewriterTest#v24EditsOneFrameAndPreservesOthersAndAudio; MetadataOpaquePreservationAuditTest#id3AllowsExactChangeWithUnchangedPrivAndAudio,Byte-level private-stage and opaque-record evidence
+T09,ID3v1 128-byte footer preserved,PASS,MetadataId3StageRewriterTest#sourceID3v1FooterIsPreservedByteForByte,Byte-for-byte unit evidence
+T10,MediaStore consent granted then save succeeds,NOT RUN,No automated interaction with the real system consent dialog,Requires human/system dialog interaction
+T11,Permission denied never opens the source,PASS,MetadataSourceRestoreCoordinatorTest#revokedPermissionNeverOpensTheSource; restore policy tests,Zero provider write callbacks observed
+T12,Source SHA changed before MUTATING is refused,NOT RUN,No product-point fault injection between preflight and MUTATING,Scenario not executed at the product point
+T13,Playback open blocks save,NOT RUN,No product-point test with an active playback descriptor,Scenario not executed at the product point
+T14,Owner change blocks save or restore,PASS,MetadataSourceRestoreCoordinatorTest#ownerChangeRefusesBeforeAnyReservationOrWrite; recovery routing tests,No write or reservation on owner change
+T15,Double tap creates one transaction and one destructive open,NOT RUN,No scripted double-tap product test,Scenario not executed at the product point
+T16,Another song's journal backup is never discarded,PASS,MetadataSaveRecoveryRoutingTest#aDifferentSongCannotDiscardAnyPrivatePreparation; MetadataRecoveryConsoleTest#mismatchedTransactionCannotDiscardSomeOtherPreparation,Exact source/track/URI routing
+T17,Private-phase failure discards only private preparation,PASS,MetadataRecoveryConsoleTest#snapshottingCanBeDiscardedButOnlyAfterSecondClick; MetadataRecoveryJournalCleanupTest#cleanupAfterPostcheckDeletesEveryPrivateArtifactAndOwner,No provider write path
+T18,Kill after BACKUP_DURABLE resumes conservatively,NOT RUN,No production Save kill at this exact phase,Only the opt-in synthetic-provider kill harness exists
+T19,Kill after STAGE_READY resumes conservatively,NOT RUN,No production Save kill at this exact phase,Only the opt-in synthetic-provider kill harness exists
+T20,Kill after MUTATING rehashes and never writes twice,NOT RUN,No production Save kill at this exact phase,Scenario not executed at the product point
+T21,Kill after MUTATION_UNKNOWN resumes without Compose review,PASS,MetadataRecoveryCoordinatorInstrumentedTest#recoversCommittedCandidateWithoutReviewAndPublishesExactCas,Real MediaStore fixture; no MetadataReview input; no second destructive open
+T22,Reboot with a clean editor resolves the durable transaction,NOT RUN,Instrumented coordinator uses a fresh instance but the same process; no real reboot,Scenario not executed after reboot
+T23,Altered manifest or candidate is rejected and backup kept,PASS,MetadataDurableEvidenceBuilderTest#alteredCandidateIsRefusedBeforeAnyDigestProof; #foreignOwnerTokenCannotReconstructTheReceipt,Private copies retained
+T24,Owner receipt absent or corrupt fails closed,PASS,MetadataRecoveryCoordinatorInstrumentedTest#missingOwnerReceiptFailsClosedWithoutCasOrSourceWrite,No CAS and no source write; journal remains MUTATION_UNKNOWN
+T25,Foreign URI never opens the source,PASS,MetadataTrackDaoCasPortTest#aDifferentOwnerOrUriCannotMutate; MetadataRecoveryOwnerStoreTest#foreignTargetCannotWriteTheReceipt,Identity-bound permit/owner evidence
+T26,MediaStore SIZE lag accepted only with exact bytes and SHA,PASS,MetadataCommittedCandidateStabilityTest (10 cases); 5 consecutive full data-instrumented runs after the fix,Only one fresh read is retried; persistent movement fails closed
+T27,Different candidate SHA is rejected and backup kept,PASS,MetadataCommittedCandidateStabilityTest wrong-SHA cases; MetadataDurableEvidenceBuilderTest#alteredCandidateIsRefusedBeforeAnyDigestProof,Content is authoritative; no stamp-only acceptance
+T28,Unverifiable tag is not certified and does not update Room,PASS,MetadataVerifiedReceiptGateTest; MetadataOpaquePreservationAuditTest; core semantic policy tests,Unit/audit evidence; no certified receipt is forged
+T29,Audio payload SHA remains identical after edit,PASS,MetadataSaveMediaStoreE2EInstrumentedTest; MetadataOpaquePreservationAuditTest#id3BlocksChangedAudio,Full audio suffix and opaque audit
+T30,Real indexed row is updated by a one-row CAS,PASS,MetadataSaveMediaStoreE2EInstrumentedTest; MetadataTrackDaoCasPortTest#exactVerifiedCasUpdatesTheRowAndInvalidatesEvidence,Real Room row in the E2E; exact preimage
+T31,Missing row leaves a durable pending receipt and no rollback,PASS,MetadataRecoveryCoordinatorInstrumentedTest#missingRowLeavesActionableReceiptAndNeverRollsBackCandidate,Journal stays POSTCHECK_VERIFIED; V2 receipt actionable
+T32,Field CAS conflict does not overwrite,PASS,MetadataIndexReconcilerTest#concurrentRowChangeIsKeptWithoutOverwriteOrPublisherCall; MetadataTrackDaoCasPortTest#concurrentVerificationChangeIsRejectedWithoutOverwrite,Conflict retained for recovery
+T33,Version or SHA conflict never falls back to unhashed CAS,PASS,MetadataIndexCasCoordinatorTest; MetadataTrackDaoCasPortTest; MetadataUnverifiedIndexRowPolicyTest,Exact identity required; no degraded path
+T34,Historically unhashed row accepts only exact original proof and version,PASS,MetadataUnverifiedIndexRowPolicyTest; MetadataIndexReconciliationReceiptTest#unhashedPreimageIsActionableOnlyWithEmptyVerification,Policy/unit evidence
+T35,Same transaction twice is idempotent,PASS,MetadataIndexReconcilerTest#preWriteRowPublishesOnceAndRepeatedOpensDoNothing; #alreadyAppliedRowIsCleanedWithoutSecondCasAndSurvivesRestart,No second CAS or source write
+T36,Room unavailable before CAS leaves a durable pending obligation,NOT RUN,No forced Room-down product test,Scenario not executed at the product point
+T37,Kill after CAS before receipt detects the applied row without re-CAS,PASS,MetadataIndexReconcilerTest#alreadyAppliedRowIsCleanedWithoutSecondCasAndSurvivesRestart,Applied row is detected from exact source and row values
+T38,Kill after the index receipt resumes cleanup,PASS,MetadataRecoveryJournalCleanupTest#cleanupAfterPostcheckDeletesEveryPrivateArtifactAndOwner,Cleanup is resumable and journal-last
+T39,Kill between CLEANUP_SAFE deletes resumes,PASS,MetadataRecoveryJournalCleanupTest#cleanupResumesFromCleanupSafeWithMissingStage,Missing artifacts are tolerated only in CLEANUP_SAFE
+T40,Corrupt index receipt is retained and never fakes success,PASS,MetadataIndexReconcilerTest#corruptReceiptIsRetainedAndNeverPublished; MetadataIndexReconciliationReceiptTest#tamperedBytesAreRejected,No cleanup of corrupt evidence
+T41,Restore permission denied performs no overwrite,PASS,MetadataSourceRestoreCoordinatorTest#revokedPermissionNeverOpensTheSource,Zero provider write callbacks
+T42,Exact candidate rollback restores the original SHA,PASS,MetadataSourceRestoreCoordinatorTest#truncatedSourceIsRestoredAndIndependentlyReadBack,Independent full SHA readback
+T43,Kill during rollback leaves a durable resumable state,NOT RUN,No production kill during rollback,Scenario not executed at the product point
+T44,Mid-rollback failure keeps both private copies and no success,PASS,MetadataSourceRestoreCoordinatorTest#failedRestoreKeepsRollbackPendingAndBothPrivateCopies,Journal remains ROLLBACK_PENDING
+T45,Already restored source completes RESTORED_VERIFIED with no write,PASS,MetadataSourceRestoreCoordinatorTest#alreadyRestoredCompletesTerminalStateWithoutWrite,Scoped permit; zero provider writes; terminal journal phase
+T46,Unknown audio after failure blocks destructive retry,PASS,MetadataSourceRestoreCoordinatorTest failed/unknown cases; MetadataPhysicalOutcomePolicyTest,Unknown bytes require the typed permit and revalidation
+T47,UI Save and Recover are separate actions,PASS,MichiMetadataEditorWorkbenchTest#fourSectionsAndOnlyTwoPrimaryActions; #recoveryPendingDisablesNewSaveAndExplainsTheObligation; #recoveryPanelInspectsTheExactTrackAndReportsNoPendingWork,ME-12 four tabs and footer preserved
+T48,Library and editor reopen show the same physical and cached values,NOT RUN,Editor cold reopen is proven by the Save E2E; full Library plus editor traversal is not,Scenario not executed end-to-end

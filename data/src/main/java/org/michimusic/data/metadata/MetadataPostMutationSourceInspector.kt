@@ -10,7 +10,9 @@ import org.michimusic.core.metadata.MetadataColdFieldParser
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataPhysicalOutcomePolicy
 import org.michimusic.core.metadata.MetadataPostSourceFieldPolicy
+import org.michimusic.core.metadata.MetadataPrivateBundleStage
 import org.michimusic.core.metadata.MetadataPrivateSessionIdentity
+import org.michimusic.core.metadata.MetadataResourceSemanticPolicy
 import org.michimusic.core.metadata.MetadataTarget
 
 /**
@@ -22,9 +24,13 @@ import org.michimusic.core.metadata.MetadataTarget
  */
 internal class MetadataPostMutationSourceInspector(private val context: Context) {
     enum class Reason { NO_USER_REQUEST, OWNER_CHANGED, BYTES_UNKNOWN,
-        PARSE_UNAVAILABLE, FIELD_READBACK_FAILED, SOURCE_CHANGED_DURING_READ }
+        PARSE_UNAVAILABLE, FIELD_READBACK_FAILED, RESOURCE_READBACK_FAILED,
+        SOURCE_CHANGED_DURING_READ }
     sealed interface Result {
-        data class Inspected(val changedFieldsVerified: Int) : Result {
+        data class Inspected(
+            val changedFieldsVerified: Int,
+            val changedResourcesVerified: Int = 0,
+        ) : Result {
             val mayPublishIndex: Boolean get() = false
         }
         data class Blocked(val reason: Reason) : Result
@@ -40,30 +46,42 @@ internal class MetadataPostMutationSourceInspector(private val context: Context)
             target.sourceId != sourceId || target.uri != uri ||
             MetadataPrivateSessionIdentity.digest(target) != manifest.ownerSha256)
             return@withContext Result.Blocked(Reason.OWNER_CHANGED)
-        val size=manifest.candidateBytes
-        val first=bytes.read(sourceId,uri,size,checkCancellation)
-        if (first !is MetadataCurrentBytesReader.Result.Read ||
-            MetadataPhysicalOutcomePolicy.classify(
-                MetadataPhysicalOutcomePolicy.Expected(manifest.originalBytes,
-                    manifest.originalSha256,manifest.candidateBytes,manifest.candidateSha256),
-                first.fingerprint) != MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
+        val first=bytes.readCommittedCandidate(
+            sourceId,uri,manifest.candidateBytes,manifest.candidateSha256,checkCancellation,
+        )
+        if (first !is MetadataCurrentBytesReader.PostCommitRead.Exact)
             return@withContext Result.Blocked(Reason.BYTES_UNKNOWN)
         val parsed=try {
             val descriptor=context.contentResolver.openFileDescriptor(Uri.parse(uri),"r")
                 ?: return@withContext Result.Blocked(Reason.PARSE_UNAVAILABLE)
             ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { stream ->
-                MetadataColdFieldParser.observe(stream.channel)
+                val report = MetadataColdFieldParser.observe(stream.channel)
+                val resources = if (manifest.resources.isEmpty()) null
+                else MetadataPrivateBundleStage.observeChannel(stream.channel)
+                report to resources
             }
         } catch (cancel: CancellationException) { throw cancel }
           catch (_: Exception) { return@withContext Result.Blocked(Reason.PARSE_UNAVAILABLE) }
-        val fields=MetadataPostSourceFieldPolicy.compare(manifest,parsed)
+        val fields=MetadataPostSourceFieldPolicy.compare(manifest,parsed.first)
         if (fields !is MetadataPostSourceFieldPolicy.Verdict.Compared)
             return@withContext Result.Blocked(Reason.FIELD_READBACK_FAILED)
+        val resources = if (manifest.resources.isEmpty()) {
+            MetadataResourceSemanticPolicy.Verdict.ResourcesMatch(0)
+        } else {
+            val snapshot = parsed.second
+                ?: return@withContext Result.Blocked(Reason.RESOURCE_READBACK_FAILED)
+            MetadataResourceSemanticPolicy.compareCandidate(manifest, snapshot)
+        }
+        if (resources !is MetadataResourceSemanticPolicy.Verdict.ResourcesMatch)
+            return@withContext Result.Blocked(Reason.RESOURCE_READBACK_FAILED)
         if (!ownerCurrent()) return@withContext Result.Blocked(Reason.OWNER_CHANGED)
-        val second=bytes.read(sourceId,uri,size,checkCancellation)
-        if (second !is MetadataCurrentBytesReader.Result.Read ||
-            second.fingerprint != first.fingerprint)
+        val second=bytes.readCommittedCandidate(
+            sourceId,uri,manifest.candidateBytes,manifest.candidateSha256,checkCancellation,
+        )
+        if (second !is MetadataCurrentBytesReader.PostCommitRead.Exact ||
+            second.actualSha256 != first.actualSha256 ||
+            second.actualSize != first.actualSize)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED_DURING_READ)
-        Result.Inspected(fields.verifiedChanges)
+        Result.Inspected(fields.verifiedChanges, resources.verifiedChanges)
     }
 }

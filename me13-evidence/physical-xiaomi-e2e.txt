@@ -1,0 +1,78 @@
+ME-13 Xiaomi physical production E2E
+====================================
+
+Device
+------
+Model:       25010PN30G
+Android:     16
+Fingerprint: Xiaomi/xuanyuan_global/xuanyuan:16/BP2A.250605.031.A3/OS3.0.305.0.WOAMIDC:user/release-keys
+Connection:  adb serial 26dfb91d
+
+Code under test
+---------------
+Product code: c5664eda
+Evidence HEAD when run: 2d42df14 (adds only me13-evidence/)
+Evidence commit: 1259a1dc (this report; product code unchanged)
+Test APK:     data-debug-androidTest.apk built from the final product tree
+Runner:       org.michimusic.data.test/androidx.test.runner.AndroidJUnitRunner
+Test:         org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest
+              #saveRewritesMediaStoreVerifiesAndPublishesTheExactCachedRow
+
+Run
+---
+Command:
+  adb -s 26dfb91d shell am instrument -w -r \
+    -e class org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest \
+    org.michimusic.data.test/androidx.test.runner.AndroidJUnitRunner
+
+Observed result:
+  OK (1 test)
+
+Observed logcat lines (synthetic fixture):
+  ME13_E2E fixture uri=content://media/external/audio/media/224614
+    trackId=local_224614 bytes=1878
+    sha=7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+  ME13_E2E outcome=Saved(... indexPublished=true)
+  ME13_E2E PASS originalSha=7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+    candidateSha=5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3
+    rowTitle=ME13 Renombrada rowSize=1897 journal=Clear
+
+What the test proves on physical hardware
+-----------------------------------------
+- A real MediaStore MP3 document was created, written, saved through the
+  production MetadataSaveService, and deleted by its exact URI afterwards.
+- The production postcheck independently reread the committed candidate bytes:
+  original 7e584dc6..., candidate 5ff86739..., candidate size 1897.
+- The exact cached_tracks row was updated: title ME13 Renombrada, size 1897,
+  verifiedAt/verifiedSha256/verifiedSize/verifiedAlgorithm invalidated.
+- The production publication path returned indexPublished=true, and the durable
+  journal was Clear after cleanup.
+- The test asserts the synthetic audio payload remains byte-identical after the
+  tag, and reopens the saved MP3 through the production cold reader.
+- This test uses an in-memory Room database and a disposable app-owned MediaStore
+  item. It is not a mock provider and no personal audio is touched.
+
+Disclosure
+----------
+An earlier attempt returned RecoveryRequired(OTHER_OR_CHANGED_TRANSACTION)
+because the disposable org.michimusic.data.test package still contained a
+pending journal from a previous run. That test-only journal was removed and the
+same final APK passed cleanly. It was not a product-code refusal.
+
+Not claimed
+-----------
+Manual app-UI traversal (Biblioteca -> Editor -> Guardar) on this phone is NOT
+RUN: HyperOS denies automated input injection (INJECT_EVENTS). The physical
+certification above is the production engine path through an instrumented test,
+not a human tap certification.
+
+Cleanup
+-------
+- The disposable test package org.michimusic.data.test was uninstalled.
+- The separately prepared production fixture under Music/MichiME13Phone and its
+  seeded cached_tracks row were removed after the run; the app's production
+  journal directory is empty.
+- A stale baseline V1 recovery journal found in the app was archived privately
+  under no_backup/me13journalarchive. It is not consumed by the new reconciler
+  (V1 is non-actionable) and no music file was modified or restored.
+

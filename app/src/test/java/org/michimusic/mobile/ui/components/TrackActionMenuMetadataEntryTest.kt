@@ -34,7 +34,7 @@ class TrackActionMenuMetadataEntryTest {
             }
         }
         compose.onNodeWithTag("track_action_sheet").assertExists()
-        compose.onNodeWithText("Metadatos del archivo").assertExists()
+        compose.onNodeWithText("Ver información del archivo").assertExists()
         compose.onNodeWithText("Editar metadatos").assertExists()
     }
 
@@ -46,6 +46,6 @@ class TrackActionMenuMetadataEntryTest {
         }
         compose.onNodeWithTag("track_action_sheet").assertExists()
         compose.onNodeWithText("Editar metadatos").assertDoesNotExist()
-        compose.onNodeWithText("Metadatos del archivo").assertDoesNotExist()
+        compose.onNodeWithText("Ver información del archivo").assertDoesNotExist()
     }
 }

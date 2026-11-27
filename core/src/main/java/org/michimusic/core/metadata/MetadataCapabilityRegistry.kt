@@ -103,6 +103,9 @@ object MetadataCapabilityRegistry {
         MetadataField.LYRICIST,
         MetadataField.CONDUCTOR,
         MetadataField.REMIXER,
+        MetadataField.RELEASE_DATE,
+        MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+        MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
     ) + MetadataMusicBrainzTagMap.id3Fields + MetadataId3DescribedTagCodec.fields
     /** APEv2 is limited to a proven, footer-only private candidate. No provider write. */
     val apeStageFields: Set<MetadataField> = MetadataField.entries
@@ -110,7 +113,10 @@ object MetadataCapabilityRegistry {
     val wavStageFields: Set<MetadataField> = MetadataRiffStageRewriter.supportedFields
     val aiffStageFields: Set<MetadataField> = MetadataAiffStageRewriter.supportedFields
     val oggStageFields: Set<MetadataField> = MetadataOggStageRewriter.supportedFields
-    val mp4StageFields: Set<MetadataField> = MetadataMp4StageRewriter.supportedFields
+    val mp4StageFields: Set<MetadataField> = MetadataMp4StageRewriter.supportedFields + setOf(
+        MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+        MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+    )
     // All engines only produce PRIVATE staged cache files and never gain write grants.
     // The genre-only existing writer is NOT promoted to a generic writer.
 

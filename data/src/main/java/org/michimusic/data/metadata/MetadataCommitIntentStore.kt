@@ -17,6 +17,8 @@ import org.michimusic.core.metadata.MetadataAudioContainer
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataDocumentProvider
 import org.michimusic.core.metadata.MetadataField
+import org.michimusic.core.metadata.MetadataArtworkEvidence
+import org.michimusic.core.metadata.MetadataId3DescribedTagCodec
 
 /**
  * ME-10N. Private, per-transaction manifest: no raw tag strings, no source writes.
@@ -31,7 +33,7 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
     }
     private companion object {
         const val MAGIC = 0x4d45314e // ME1N
-        const val VERSION = 1
+        const val VERSION = 4
         const val MAX_BYTES = 12 * 1024
     }
 
@@ -54,10 +56,11 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                 channel.force(true)
             }
             Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            // Directory fsync is best effort on Android. This never authorizes a
-            // source write; any missing record on restart is a hard refusal.
-            try { FileChannel.open(parent, StandardOpenOption.READ).use { it.force(true) } }
-            catch (_: Exception) { /* fail closed on missing record at next inspection */ }
+            if (MetadataDurableFile.syncDirectory(file.parentFile) !=
+                MetadataDurableFile.DirectorySyncResult.FORCED) {
+                runCatching { Files.deleteIfExists(file.toPath()) }
+                throw IllegalStateException("INTENT_NOT_DURABLE")
+            }
         } finally { tmp.delete() }
     }
 
@@ -97,6 +100,54 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
                     out.writeUTF(c.field.name);out.writeInt(c.beforeCount);out.writeInt(c.afterCount)
                     out.writeUTF(c.beforeSha256);out.writeUTF(c.afterSha256)
                 }
+                out.writeInt(r.resources.size)
+                for (resource in r.resources) when (resource) {
+                    is MetadataCommitIntentManifest.ResourceChange.PictureReplacement -> {
+                        out.writeByte(1)
+                        out.writeInt(resource.ordinal)
+                        out.writeUTF(resource.format.name)
+                        out.writeInt(resource.type)
+                        out.writeUTF(resource.description)
+                        out.writeUTF(resource.beforeMime)
+                        out.writeInt(resource.beforeBytes)
+                        out.writeUTF(resource.beforeSha256)
+                        out.writeUTF(resource.afterMime)
+                        out.writeInt(resource.afterBytes)
+                        out.writeUTF(resource.afterSha256)
+                    }
+                    is MetadataCommitIntentManifest.ResourceChange.DescribedText -> {
+                        out.writeByte(2)
+                        out.writeUTF(resource.kind.name)
+                        out.writeUTF(resource.language)
+                        out.writeUTF(resource.description)
+                        out.writeInt(resource.beforeCount)
+                        out.writeInt(resource.afterCount)
+                        out.writeUTF(resource.beforeSha256)
+                        out.writeUTF(resource.afterSha256)
+                    }
+                    is MetadataCommitIntentManifest.ResourceChange.PictureAdd -> {
+                        out.writeByte(3)
+                        out.writeInt(resource.ordinal)
+                        out.writeUTF(resource.format.name)
+                        out.writeInt(resource.type)
+                        out.writeUTF(resource.description)
+                        out.writeUTF(resource.afterMime)
+                        out.writeInt(resource.afterBytes)
+                        out.writeUTF(resource.afterSha256)
+                    }
+                    is MetadataCommitIntentManifest.ResourceChange.PictureRemove -> {
+                        out.writeByte(4)
+                        out.writeInt(resource.ordinal)
+                        out.writeUTF(resource.format.name)
+                        out.writeInt(resource.type)
+                        out.writeUTF(resource.description)
+                        out.writeUTF(resource.beforeMime)
+                        out.writeInt(resource.beforeBytes)
+                        out.writeUTF(resource.beforeSha256)
+                    }
+                }
+                out.writeUTF(r.profileId.orEmpty())
+                out.writeUTF(r.evidenceId.orEmpty())
             }
         }.toByteArray()
         check(body.size + 4 + 32 <= MAX_BYTES) { "INTENT_RECORD_TOO_LARGE" }
@@ -119,7 +170,9 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
         require(input.available() == 0)
         require(MessageDigest.isEqual(expectedDigest, MessageDigest.getInstance("SHA-256").digest(body)))
         val decoded = DataInputStream(ByteArrayInputStream(body))
-        require(decoded.readInt() == MAGIC && decoded.readInt() == VERSION)
+        require(decoded.readInt() == MAGIC)
+        val version = decoded.readInt()
+        require(version in 1..VERSION)
         val id = decoded.readUTF()
         val owner = decoded.readUTF()
         val provider = MetadataDocumentProvider.valueOf(decoded.readUTF())
@@ -129,14 +182,72 @@ internal class MetadataCommitIntentStore(private val journal: MetadataRecoveryJo
         val candidateBytes = decoded.readLong()
         val candidateHash = decoded.readUTF()
         val count = decoded.readInt()
-        require(count in 1..64)
+        require(count in if (version == 1) 1..64 else 0..64)
         val changes = List(count) {
             MetadataCommitIntentManifest.Change(MetadataField.valueOf(decoded.readUTF()),
                 decoded.readInt(),decoded.readInt(),decoded.readUTF(),decoded.readUTF())
         }
+        val resources = if (version == 1) emptyList() else {
+            val resourceCount = decoded.readInt()
+            require(resourceCount in 0..4)
+            List(resourceCount) {
+                when (decoded.readUnsignedByte()) {
+                    1 -> MetadataCommitIntentManifest.ResourceChange.PictureReplacement(
+                        ordinal = decoded.readInt(),
+                        format = MetadataArtworkEvidence.Format.valueOf(decoded.readUTF()),
+                        type = decoded.readInt(),
+                        description = decoded.readUTF(),
+                        beforeMime = decoded.readUTF(),
+                        beforeBytes = decoded.readInt(),
+                        beforeSha256 = decoded.readUTF(),
+                        afterMime = decoded.readUTF(),
+                        afterBytes = decoded.readInt(),
+                        afterSha256 = decoded.readUTF(),
+                    )
+                    2 -> MetadataCommitIntentManifest.ResourceChange.DescribedText(
+                        kind = MetadataId3DescribedTagCodec.Kind.valueOf(decoded.readUTF()),
+                        language = decoded.readUTF(),
+                        description = decoded.readUTF(),
+                        beforeCount = decoded.readInt(),
+                        afterCount = decoded.readInt(),
+                        beforeSha256 = decoded.readUTF(),
+                        afterSha256 = decoded.readUTF(),
+                    )
+                    3 -> {
+                        require(version >= 3)
+                        MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+                            ordinal = decoded.readInt(),
+                            format = MetadataArtworkEvidence.Format.valueOf(decoded.readUTF()),
+                            type = decoded.readInt(),
+                            description = decoded.readUTF(),
+                            afterMime = decoded.readUTF(),
+                            afterBytes = decoded.readInt(),
+                            afterSha256 = decoded.readUTF(),
+                        )
+                    }
+                    4 -> {
+                        require(version >= 3)
+                        MetadataCommitIntentManifest.ResourceChange.PictureRemove(
+                            ordinal = decoded.readInt(),
+                            format = MetadataArtworkEvidence.Format.valueOf(decoded.readUTF()),
+                            type = decoded.readInt(),
+                            description = decoded.readUTF(),
+                            beforeMime = decoded.readUTF(),
+                            beforeBytes = decoded.readInt(),
+                            beforeSha256 = decoded.readUTF(),
+                        )
+                    }
+                    else -> error("INTENT_RESOURCE_KIND")
+                }
+            }
+        }
+        val profileId = if (version >= 4) decoded.readUTF().ifEmpty { null } else null
+        val evidenceId = if (version >= 4) decoded.readUTF().ifEmpty { null } else null
+        require(changes.isNotEmpty() || resources.isNotEmpty())
         require(decoded.available() == 0)
         val result = MetadataCommitIntentManifest.Receipt(id,owner,provider,container,
-            originalBytes,originalHash,candidateBytes,candidateHash,changes)
+            originalBytes,originalHash,candidateBytes,candidateHash,changes,resources,
+            profileId = profileId, evidenceId = evidenceId)
         require(MetadataCommitIntentManifest.valid(result))
         return result
     }

@@ -3,27 +3,45 @@ package org.michimusic.mobile.ui.components
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Album
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,7 +50,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -66,6 +88,8 @@ import org.michimusic.core.metadata.MetadataCsvPreview
 import org.michimusic.core.metadata.MetadataLibraryDiagnostics
 import org.michimusic.core.metadata.MetadataChange
 import org.michimusic.core.metadata.MetadataEditPreview
+import androidx.compose.ui.text.font.FontWeight
+import coil3.compose.SubcomposeAsyncImage
 import org.michimusic.core.metadata.MetadataField
 import org.michimusic.core.metadata.MetadataReview
 import org.michimusic.core.metadata.MetadataSelectionItem
@@ -76,19 +100,23 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.metadata.MetadataBatchSequentialPreparationCoordinator
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.data.repository.ExtendedTagUnavailableReason
-import org.michimusic.data.repository.MetadataEditorEvidenceResult
+import org.michimusic.data.repository.MetadataEditorColdRead
 import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.library.LibraryScopeStore
 import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.playback.HandoffState
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 private enum class AlbumBatchMode(val label: String) {
@@ -159,6 +187,12 @@ internal fun MichiMetadataAlbumBatchEditor(
         mutableStateOf(tracks.size <= 20 || tracks.size > MetadataBatchSelectionPolicy.MAX_SELECTED)
     }
     var queuedActions by remember(candidates) { mutableStateOf<List<MetadataBatchAction>>(emptyList()) }
+    // ME-11U: direct edits on shared fields become explicit Replace actions during the
+    // same per-track review. This map is local state; it is never persisted or written.
+    var batchEdits by remember(candidates) {
+        mutableStateOf<Map<MetadataField, List<String>>>(emptyMap())
+    }
+    var advancedTouched by remember(candidates) { mutableStateOf(false) }
     var privateStageConfirmed by remember(candidates) { mutableStateOf(false) }
     var privateStageBusy by remember(candidates) { mutableStateOf(false) }
     var privateStageNotice by remember(candidates) { mutableStateOf<String?>(null) }
@@ -170,6 +204,7 @@ internal fun MichiMetadataAlbumBatchEditor(
 
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val imeVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val scope = rememberCoroutineScope()
     val scopeStore: LibraryScopeStore = koinInject()
     val rootAuthority: MusicRootAuthority = koinInject()
@@ -258,6 +293,8 @@ internal fun MichiMetadataAlbumBatchEditor(
         resultPage = 0
         showDiagnostics = false
         queuedActions = emptyList()
+        batchEdits = emptyMap()
+        advancedTouched = false
         csvReview = null
         csvOpen = false
         pastedCsv = ""
@@ -276,10 +313,10 @@ internal fun MichiMetadataAlbumBatchEditor(
         try {
             for ((position, track) in current.selected.withIndex()) {
                 yield() // responsive cancellation, bounded explicit work only
-                val proof = repository.loadVerifiedEditorSnapshotResult(
+                val proof = repository.loadEditorColdRead(
                     track.sourceId, track.id, track.filepath, track.size)
                 when (proof) {
-                    is MetadataEditorEvidenceResult.Verified -> {
+                    is MetadataEditorColdRead.Verified -> {
                         val target = proof.snapshot.target
                         if (target.sourceId != track.sourceId || target.trackId != track.id ||
                             target.uri != track.filepath) {
@@ -290,7 +327,22 @@ internal fun MichiMetadataAlbumBatchEditor(
                         loaded += proof.snapshot
                         load = AlbumBatchRead.Loading(loaded.size, current.selected.size)
                     }
-                    is MetadataEditorEvidenceResult.Unavailable -> {
+                    is MetadataEditorColdRead.Partial -> {
+                        val target = proof.snapshot.target
+                        if (target.sourceId != track.sourceId || target.trackId != track.id ||
+                            target.uri != track.filepath) {
+                            load = AlbumBatchRead.Unavailable(position,
+                                ExtendedTagUnavailableReason.TAG_MISMATCH)
+                            return@LaunchedEffect
+                        }
+                        loaded += proof.snapshot
+                        load = AlbumBatchRead.Loading(loaded.size, current.selected.size)
+                    }
+                    is MetadataEditorColdRead.IndexedOnly -> {
+                        load = AlbumBatchRead.Unavailable(position, proof.reason)
+                        return@LaunchedEffect
+                    }
+                    is MetadataEditorColdRead.Unavailable -> {
                         load = AlbumBatchRead.Unavailable(position, proof.reason)
                         return@LaunchedEffect
                     }
@@ -308,7 +360,7 @@ internal fun MichiMetadataAlbumBatchEditor(
     val actualField = if (mode == AlbumBatchMode.TRACK_SEQUENCE) MetadataField.TRACK_NUMBER
         else chosenField
     val selectionValue = ready?.let { MetadataEditPreview.selectionValue(it.snapshots, actualField) }
-    val action: MetadataBatchAction? = when (mode) {
+    val action: MetadataBatchAction? = if (!advancedTouched) null else when (mode) {
         AlbumBatchMode.REPLACE -> MetadataBatchAction.Set(MetadataChange.Replace(chosenField, proposedValues))
         AlbumBatchMode.APPEND -> if (chosenField.multiple && proposedValues.all { it.isNotBlank() })
             MetadataBatchAction.Append(chosenField, proposedValues) else null
@@ -329,12 +381,16 @@ internal fun MichiMetadataAlbumBatchEditor(
         AlbumBatchMode.FIND_REPLACE -> MetadataBatchAction.FindReplace(chosenField, findText, replaceText)
         AlbumBatchMode.TRACK_SEQUENCE -> firstTrack.toIntOrNull()?.let { MetadataBatchAction.TrackSequence(it) }
     }
-    val candidateActions = queuedActions + listOfNotNull(action)
+    val directActions = batchEdits.map { (field, values) ->
+        MetadataBatchAction.Set(MetadataChange.Replace(field, values))
+    }
+    val candidateActions = queuedActions + directActions + listOfNotNull(action)
     val candidateReview = remember(ready, candidateActions) {
         if (ready != null && candidateActions.isNotEmpty()) MetadataBatchToolkit.review(
             ready.snapshots.map { MetadataBatchEntry(it) }, candidateActions) else null
     }
-    val previewActions = if (queuedActions.isNotEmpty()) queuedActions else listOfNotNull(action)
+    val previewActions = if (queuedActions.isNotEmpty()) queuedActions + directActions
+        else directActions + listOfNotNull(action)
     val review = remember(ready, previewActions) {
         if (ready != null && previewActions.isNotEmpty()) MetadataBatchToolkit.review(
             ready.snapshots.map { MetadataBatchEntry(it) }, previewActions) else null
@@ -359,47 +415,119 @@ internal fun MichiMetadataAlbumBatchEditor(
         privateStageNotice = null
     }
     val fieldVerified = selectionValue !is MetadataEditPreview.SelectionValue.Unverified
-    val allowedPreview = ready != null && (queuedActions.isNotEmpty() || (fieldVerified && action != null))
+    val allowedPreview = ready != null && previewActions.isNotEmpty() &&
+        (batchEdits.isNotEmpty() || queuedActions.isNotEmpty() || (fieldVerified && action != null))
     val loadedTracks = request?.selected.orEmpty()
 
-    MichiBottomSheet(onDismissRequest = onDismiss) {
+    Column(
+        Modifier.fillMaxSize().background(SurfaceObsidian).imePadding()
+            .testTag("metadata_album_batch_screen"),
+    ) {
+        MetadataEditorTopBar(
+            title = "Editar metadatos",
+            subtitle = "${tracks.size} canciones del álbum",
+            onBack = onDismiss,
+            backDescription = "Volver",
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 700.dp)
+            modifier = Modifier.fillMaxWidth().weight(1f)
                 .testTag("metadata_album_batch_editor"),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "heading") {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("BIBLIOTECA · EDICIÓN MASIVA", style = MichiTypography.screenEyebrow)
-                    Text("Metadatos del álbum", style = MichiTypography.screenTitle)
-                    Column(Modifier.fillMaxWidth().background(AeroGraphite, MichiShapes.md)
-                        .border(1.dp, AeroHairline, MichiShapes.md)
-                        .padding(MichiSpacing.md), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("${selected.size} de ${tracks.size} pistas seleccionadas",
-                            style = MaterialTheme.typography.titleMedium)
-                        Text("Máximo ${MetadataBatchSelectionPolicy.MAX_SELECTED} por operación. " +
-                            "Solo revisión; los archivos no cambian.",
-                            color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                val lead = tracks.firstOrNull()
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(13.dp),
+                    ) {
+                        BatchHeroArtwork(lead)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("ÁLBUM · EDICIÓN POR LOTES",
+                                style = MichiTypography.microLabel, color = PrimaryPinkContainer,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(lead?.album?.takeIf(String::isNotBlank) ?: "Álbum seleccionado",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold, color = PureWhite,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                listOfNotNull(
+                                    lead?.albumArtist?.takeIf(String::isNotBlank) ?: lead?.artist,
+                                    "${selected.size} pistas seleccionadas",
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val verified = load is AlbumBatchRead.Ready
+                                Box(Modifier.size(6.dp).background(
+                                    if (verified) Color(0xFF79DEB6) else Color(0xFFA1A5B2),
+                                    CircleShape))
+                                Text(
+                                    when {
+                                        verified -> "Etiquetas verificadas en la selección"
+                                        load is AlbumBatchRead.Loading -> "Leyendo evidencia de la selección…"
+                                        else -> "Etiquetas sin verificar hasta leer la evidencia"
+                                    },
+                                    style = MichiTypography.microLabel, color = TextSecondary,
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = AeroHairline)
+                    Column(
+                        Modifier.padding(top = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("EDICIÓN POR LOTES", style = MichiTypography.screenEyebrow,
+                            color = PrimaryPinkContainer)
+                        Text("Campos compartidos", style = MichiTypography.sectionTitle)
+                        Text("La propuesta se revisa por canción. Ninguna pista se omite silenciosamente.",
+                            style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        Spacer(Modifier.height(10.dp))
+                        Column(Modifier.fillMaxWidth().background(AeroGraphite, MichiShapes.md)
+                            .border(1.dp, AeroHairline, MichiShapes.md)
+                            .padding(MichiSpacing.md),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${selected.size} pistas seleccionadas",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = PureWhite, modifier = Modifier.weight(1f))
+                                Text("1 álbum", style = MichiTypography.microLabel,
+                                    color = TertiaryCyan,
+                                    modifier = Modifier.background(SurfaceObsidian, MichiShapes.lg)
+                                        .padding(horizontal = 10.dp, vertical = 4.dp))
+                            }
+                        }
                     }
                 }
             }
             item(key = "select_actions") {
-                Text("01 · SELECCIONAR PISTAS", style = MichiTypography.screenEyebrowTechnical)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = {
-                        selected = if (selectableIndices.size <= MetadataBatchSelectionPolicy.MAX_SELECTED)
-                            selectableIndices else selectableIndices.sorted().take(
-                                MetadataBatchSelectionPolicy.MAX_SELECTED).toSet()
-                        invalidateSelection()
-                    }) { Text("Seleccionar hasta 128") }
-                    TextButton(onClick = { selected = emptySet(); invalidateSelection() }) {
-                        Text("Ninguna")
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("01 · SELECCIONAR PISTAS", style = MichiTypography.screenEyebrowTechnical)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = {
+                            selected = if (selectableIndices.size <= MetadataBatchSelectionPolicy.MAX_SELECTED)
+                                selectableIndices else selectableIndices.sorted().take(
+                                    MetadataBatchSelectionPolicy.MAX_SELECTED).toSet()
+                            invalidateSelection()
+                        }) { Text("Todas") }
+                        TextButton(onClick = { selected = emptySet(); invalidateSelection() }) {
+                            Text("Ninguna")
+                        }
+                        TextButton(onClick = { showTrackList = !showTrackList },
+                            modifier = Modifier.testTag("metadata_batch_toggle_tracks")) {
+                            Text(if (showTrackList) "Ocultar pistas" else "Ver pistas")
+                        }
                     }
-                    TextButton(onClick = { showTrackList = !showTrackList },
-                        modifier = Modifier.testTag("metadata_batch_toggle_tracks")) {
-                        Text(if (showTrackList) "Ocultar pistas" else "Ver pistas")
-                    }
+                    Text("Máximo 128 pistas por operación.", style = MichiTypography.microLabel,
+                        color = TextSecondary)
                 }
             }
             if (showTrackList) itemsIndexed(tracks, key = { index, _ -> "batch_album_track_$index" }) { index, track ->
@@ -420,9 +548,11 @@ internal fun MichiMetadataAlbumBatchEditor(
                             }
                         })
                     Column(Modifier.weight(1f)) {
-                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = PureWhite)
                         Text(if (enabled) track.artist else "No verificable o en otra biblioteca",
-                            style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                            color = TextSecondary)
                     }
                 }
             }
@@ -430,7 +560,11 @@ internal fun MichiMetadataAlbumBatchEditor(
                 HorizontalDivider()
                 Text("02 · LEER EVIDENCIA", style = MichiTypography.screenEyebrowTechnical)
                 Button(
-                    enabled = load !is AlbumBatchRead.Loading,
+                    enabled = selected.isNotEmpty() && load !is AlbumBatchRead.Loading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryPinkContainer,
+                        contentColor = SurfaceObsidian,
+                    ),
                     modifier = Modifier.fillMaxWidth().testTag("metadata_batch_read_selected"),
                     onClick = {
                         when (val plan = MetadataBatchSelectionPolicy.prepare(candidates, selected)) {
@@ -445,6 +579,10 @@ internal fun MichiMetadataAlbumBatchEditor(
                         }
                     },
                 ) { Text("Leer etiquetas seleccionadas") }
+                if (selected.isEmpty()) {
+                    Text("Selecciona al menos una pista para leer su evidencia.",
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
                 issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 when (val state = load) {
                     AlbumBatchRead.Idle -> Unit
@@ -461,10 +599,38 @@ internal fun MichiMetadataAlbumBatchEditor(
                             " Ninguna pista se ha modificado.",
                         color = MaterialTheme.colorScheme.error,
                     )
-                    is AlbumBatchRead.Ready -> Text("${state.snapshots.size} archivos leídos con evidencia vigente")
+                    is AlbumBatchRead.Ready -> Text(
+                        "${state.snapshots.size} archivos leídos con evidencia vigente. " +
+                            "Los campos no confirmados aparecen como no verificables.")
                 }
             }
             if (ready != null) {
+                item(key = "batch_shared_fields") {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.testTag("metadata_batch_shared_fields"),
+                    ) {
+                        Text("CAMPOS COMPARTIDOS",
+                            style = MichiTypography.screenEyebrow, color = PrimaryPinkContainer)
+                        Text("Edita un valor y se propondrá en todas las pistas seleccionadas. " +
+                            "La revisión sigue siendo por pista.",
+                            style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                            modifier = Modifier.padding(bottom = 6.dp))
+                        BatchSharedFieldOrder.forEach { field ->
+                            val value = MetadataEditPreview.selectionValue(ready.snapshots, field)
+                            BatchSharedFieldRow(
+                                field = field,
+                                selection = value,
+                                edited = batchEdits[field],
+                                onEdit = { values ->
+                                    batchEdits = if (values.isEmpty()) batchEdits - field
+                                    else batchEdits + (field to values)
+                                    showPreview = false
+                                },
+                            )
+                        }
+                    }
+                }
                 item(key = "batch_diagnostics_action") {
                     TextButton(onClick = { showDiagnostics = !showDiagnostics },
                         modifier = Modifier.testTag("metadata_batch_diagnostics")) {
@@ -557,7 +723,7 @@ internal fun MichiMetadataAlbumBatchEditor(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("03 · PREPARAR OPERACIONES", style = MichiTypography.screenEyebrowTechnical)
                         Text("Aplicar cambios a la selección", style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { fieldMenu = true }) {
+                        TextButton(onClick = { fieldMenu = true; advancedTouched = true }) {
                             Text("Campo: ${metadataFieldLabel(chosenField)} ▾")
                         }
                         DropdownMenu(expanded = fieldMenu, onDismissRequest = { fieldMenu = false }) {
@@ -580,11 +746,11 @@ internal fun MichiMetadataAlbumBatchEditor(
                         val stateLabel = when (selectionValue) {
                             is MetadataEditPreview.SelectionValue.Same ->
                                 "Valor uniforme: ${selectionValue.values.joinToString(" · ")}"
-                            MetadataEditPreview.SelectionValue.Mixed -> "Valores diferentes entre pistas (MIXED)"
+                            MetadataEditPreview.SelectionValue.Mixed -> "Valores diferentes entre pistas"
                             else -> "Campo sin verificación completa: operación bloqueada"
                         }
                         Text(stateLabel, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { modeMenu = true }) { Text("Acción: ${mode.label} ▾") }
+                        TextButton(onClick = { modeMenu = true; advancedTouched = true }) { Text("Acción: ${mode.label} ▾") }
                         DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
                             AlbumBatchMode.entries.forEach { candidate ->
                                 DropdownMenuItem(text = { Text(candidate.label) }, onClick = {
@@ -978,10 +1144,162 @@ internal fun MichiMetadataAlbumBatchEditor(
                     }
                 }
             }
-            item(key = "footer") {
-                Text("Guardar en el archivo: no disponible hasta certificar el escritor.",
-                    style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onDismiss) { Text("Cerrar editor") }
+        }
+        if (!imeVisible) {
+            HorizontalDivider(color = AeroHairline)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = MichiSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Sin escribir en el archivo",
+                    style = MichiTypography.microLabel,
+                    color = TextSecondary,
+                    modifier = Modifier.background(AeroGraphite, MichiShapes.lg)
+                        .padding(horizontal = MichiSpacing.md, vertical = MichiSpacing.sm),
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("Cerrar editor") }
+            }
+            Text(
+                "Todavía no se pueden guardar cambios en el archivo original.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = MichiSpacing.md),
+            )
+        }
+    }
+}
+
+private val BatchSharedFieldOrder = listOf(
+    MetadataField.TITLE,
+    MetadataField.ARTIST,
+    MetadataField.ALBUM,
+    MetadataField.ALBUM_ARTIST,
+    MetadataField.GENRE,
+    MetadataField.RELEASE_DATE,
+    MetadataField.TRACK_NUMBER,
+    MetadataField.TRACK_TOTAL,
+    MetadataField.DISC_NUMBER,
+    MetadataField.DISC_TOTAL,
+    MetadataField.COMMENT,
+)
+
+/** Direct shared-field editing on top of the same per-track review pipeline. */
+@Composable
+internal fun BatchSharedFieldRow(
+    field: MetadataField,
+    selection: MetadataEditPreview.SelectionValue,
+    edited: List<String>?,
+    onEdit: (List<String>) -> Unit,
+) {
+    val unverified = selection is MetadataEditPreview.SelectionValue.Unverified
+    val statusLabel = when (selection) {
+        is MetadataEditPreview.SelectionValue.Unverified -> "NO VERIFICABLE"
+        is MetadataEditPreview.SelectionValue.Mixed -> "MIXTO"
+        is MetadataEditPreview.SelectionValue.Same ->
+            if (selection.values.isEmpty()) "AUSENTE" else "COMÚN"
+    }
+    val statusColor = when {
+        unverified -> TextMuted
+        edited != null -> PrimaryPinkContainer
+        selection is MetadataEditPreview.SelectionValue.Mixed -> Color(0xFFFFC46B)
+        selection is MetadataEditPreview.SelectionValue.Same && selection.values.isEmpty() -> TextSecondary
+        else -> TertiaryCyan
+    }
+    val values = edited ?: when (selection) {
+        is MetadataEditPreview.SelectionValue.Same -> selection.values
+        else -> listOf("")
+    }
+    val rows = if (field.multiple) values else listOf(values.firstOrNull().orEmpty())
+    var focusedRows by remember(field) { mutableStateOf<Set<Int>>(emptySet()) }
+    MetadataFieldShell(
+        field = field,
+        statusLabel = statusLabel,
+        statusColor = statusColor,
+        focused = focusedRows.isNotEmpty(),
+        modified = edited != null,
+        errorText = null,
+        showStatusText = true,
+        modifier = Modifier.testTag("metadata_batch_shared_${field.name.lowercase()}"),
+    ) {
+        if (unverified) {
+            Text(
+                "No todas las pistas de la selección tienen evidencia verificada para este campo.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        } else {
+            rows.forEachIndexed { index, value ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(MichiSpacing.xs),
+                ) {
+                    MetadataInlineValueField(
+                        field = field,
+                        value = value,
+                        index = index,
+                        tag = "metadata_batch_shared_input_${field.name.lowercase()}_$index",
+                        modifier = Modifier.weight(1f),
+                        placeholder = if (selection is MetadataEditPreview.SelectionValue.Mixed) {
+                            "Valores diferentes · toca para proponer"
+                        } else {
+                            if (field.multiple) "Toca para añadir un valor"
+                            else "Sin etiqueta · toca para escribir"
+                        },
+                        onFocusChanged = { focused ->
+                            focusedRows = if (focused) focusedRows + index else focusedRows - index
+                        },
+                        onValueChange = { changed ->
+                            onEdit(rows.toMutableList().also { it[index] = changed })
+                        },
+                    )
+                    if (field.multiple) {
+                        var valueMenuOpen by remember(field, index) { mutableStateOf(false) }
+                        IconButton(
+                            onClick = { valueMenuOpen = true },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.MoreVert,
+                                contentDescription =
+                                    "Acciones del valor ${index + 1} de ${metadataFieldLabel(field)}",
+                                tint = TextSecondary,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = valueMenuOpen,
+                            onDismissRequest = { valueMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Quitar este valor") },
+                                enabled = rows.size > 1,
+                                onClick = {
+                                    valueMenuOpen = false
+                                    onEdit(rows.filterIndexed { i, _ -> i != index })
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            if (field.multiple && rows.size < 32) {
+                TextButton(
+                    onClick = { onEdit(rows + "") },
+                    modifier = Modifier.sizeIn(minHeight = 48.dp),
+                ) { Text("+ Añadir", color = PrimaryPinkContainer) }
+            }
+            if (edited != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Se propondrá en todas las pistas",
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                        modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onEdit(emptyList()) },
+                        modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+                        Text("Quitar propuesta", color = TextSecondary)
+                    }
+                }
             }
         }
     }
@@ -998,4 +1316,42 @@ private fun selectionIssueLabel(issue: MetadataSelectionIssue): String = when (i
     MetadataSelectionIssue.MIXED_OWNERS -> "No es posible mezclar bibliotecas en una operación."
     MetadataSelectionIssue.DUPLICATE_TRACK -> "La selección contiene una identidad de pista repetida."
     MetadataSelectionIssue.DUPLICATE_URI -> "La selección contiene un archivo repetido."
+}
+
+@Composable
+private fun BatchHeroArtwork(track: Track?) {
+    val coverId = track?.coverId?.trim().orEmpty()
+    val model: Any? = when {
+        coverId.isEmpty() -> null
+        coverId.startsWith("content://") || coverId.startsWith("file:") ||
+            coverId.startsWith("http://") || coverId.startsWith("https://") -> coverId
+        else -> "content://media/external/audio/albumart/$coverId"
+    }
+    if (model == null) {
+        BatchHeroFallback()
+    } else {
+        SubcomposeAsyncImage(
+            model = model,
+            contentDescription = "Carátula del álbum",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(62.dp).clip(MichiShapes.sm),
+            loading = { BatchHeroFallback() },
+            error = { BatchHeroFallback() },
+        )
+    }
+}
+
+@Composable
+private fun BatchHeroFallback() {
+    Box(
+        Modifier.size(62.dp).background(AeroGraphiteRaised, MichiShapes.sm),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.Album,
+            contentDescription = null,
+            tint = TextSecondary,
+            modifier = Modifier.size(28.dp),
+        )
+    }
 }

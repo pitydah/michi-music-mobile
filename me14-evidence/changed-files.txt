@@ -1,0 +1,18 @@
+# git diff --stat a13c716f..HEAD (source only)
+ .../MetadataEditorLibraryReopenInstrumentedTest.kt |  27 ++-
+ .../ui/components/MichiMetadataEditorWorkbench.kt  |  97 +++++++--
+ .../ui/components/MichiMetadataRecoveryPanel.kt    |  44 +++-
+ .../MetadataRecoveryCoordinatorInstrumentedTest.kt | 150 ++++++++++++++
+ .../metadata/MetadataSaveKillInstrumentedTest.kt   | 208 +++++++++++++++++++
+ .../data/metadata/MetadataIndexPreimage.kt         | 168 +++++++++++++++
+ .../metadata/MetadataPreparedSaveContinuation.kt   |  51 +++++
+ .../data/metadata/MetadataRecoveryConsole.kt       |  47 ++++-
+ .../data/metadata/MetadataRecoveryCoordinator.kt   |  47 +++--
+ .../data/metadata/MetadataRecoveryJournalV1.kt     |   5 +-
+ .../michimusic/data/metadata/MetadataSaveLocks.kt  |  22 +-
+ .../data/metadata/MetadataSaveService.kt           | 229 +++++++++++++++++++--
+ .../MetadataVerifiedCommittedSnapshotReader.kt     |   8 +-
+ .../metadata/MetadataIndexPreimageStoreTest.kt     |  70 +++++++
+ .../data/metadata/MetadataRecoveryConsoleTest.kt   |   2 +-
+ .../metadata/MetadataRecoveryJournalCleanupTest.kt |  23 +++
+ 16 files changed, 1119 insertions(+), 79 deletions(-)

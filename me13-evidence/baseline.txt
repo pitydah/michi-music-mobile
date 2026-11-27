@@ -1,0 +1,39 @@
+ME-13 baseline and isolation record
+===================================
+
+baseline_commit=08a0b750
+baseline_subject=fix(metadata): preserve ID3v1 footers and clean failed preparation
+baseline_ci=PASS (GitHub Actions run 45086521282, observed before this sprint)
+worktree=../michi-mobile-me13-megasprint
+worktree_branch=fix/me13-megasprint-08a0b750
+baseline_is_ancestor_of_head=yes
+original_checkout=../michi-music-mobile
+original_branch=me11v-ux-corrective
+original_head=d223eb74
+original_work_preserved=yes (not reset, cleaned, stashed or edited by this sprint)
+
+Evidence commands (executed in the isolated worktree):
+  git merge-base --is-ancestor 08a0b750 HEAD   -> exit 0
+  git -C ../michi-music-mobile rev-parse --short HEAD -> d223eb74
+  git -C ../michi-music-mobile status --short      -> no non-build changes
+
+The ME-13 branch was fast-forwarded from the reviewed recovery-first branch
+origin/fix/me13-recovery-first-20261122, then extended with local commits only.
+No push, pull request, merge or remote CI was used by this sprint.
+
+Local commits from baseline to final product commit:
+  c5664eda test(metadata): prove the real MediaStore save and index E2E
+  16de911e feat(metadata): expose conservative recovery and activate index reconciliation
+  a4c22a54 feat(metadata): reconcile durable receipts and restore the exact MP3 original
+  f164fd65 fix(metadata): allow scoped restore and ignore unsupported-on-both-sides fields
+  c9ede191 test(metadata): verify exact Room CAS and stale-row rejection
+  e61d4168 feat(metadata): publish verified MP3 writes through the exact index CAS
+  3e072b32 feat(metadata): bind finalized index publication to the MP3 write permit
+  7a523ee1 test(metadata): reject forged profile evidence in physical receipt gate
+  d89ca291 fix(metadata): remove public certification boolean and bind receipts to exact MP3 profile
+  6f453819 fix(metadata): tolerate cached size changes during read-only recovery
+  1b0a6f68 refactor(metadata): use tested recovery routing guards in save service
+  d3acefba test(metadata): guard post-mutation routing and cross-track cleanup
+  028daf4d testable metadata: isolate exact-owner recovery routing
+  66f397d3 fix(metadata): enforce live owner and playback guards in save finalization
+  f639d3b6 fix(metadata): resume pending physical writes before fresh-save checks

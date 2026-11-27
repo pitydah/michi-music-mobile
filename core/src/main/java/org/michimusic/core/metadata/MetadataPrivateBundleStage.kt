@@ -82,12 +82,103 @@ object MetadataPrivateBundleStage {
             Region(bytes,at)
         } else throw Rejected(Reason.FORMAT_UNSUPPORTED)
     }
+    private fun metadataRegion(channel: FileChannel): Region {
+        val size = channel.size()
+        if (size !in 20..MAX_BUNDLE_BYTES) throw Rejected(Reason.TOO_LARGE)
+        fun readExact(at: Long, bytes: ByteArray) {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            var position = at
+            while (buffer.hasRemaining()) {
+                val read = channel.read(buffer, position)
+                if (read <= 0) throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                position += read
+            }
+        }
+        val header = ByteArray(10)
+        readExact(0, header)
+        if (header.copyOfRange(0, 3).contentEquals("ID3".toByteArray())) {
+            val length = MetadataArtworkLyricsProbe.id3DeclaredLength(header)
+                ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+            if (length >= size || length > MAX_METADATA_BYTES)
+                throw Rejected(Reason.FORMAT_UNSUPPORTED)
+            return Region(ByteArray(length).also { readExact(0, it) }, length.toLong())
+        }
+        if (header.copyOfRange(0, 4).contentEquals("fLaC".toByteArray())) {
+            var at = 4L
+            var count = 0
+            var last = false
+            while (!last) {
+                if (++count > 128 || at + 4 > MAX_METADATA_BYTES || at + 4 > size)
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                val block = ByteArray(4)
+                readExact(at, block)
+                val kind = u(block[0]) and 127
+                val length = (u(block[1]) shl 16) or (u(block[2]) shl 8) or u(block[3])
+                if (count == 1 && (kind != 0 || length != 34))
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                at += 4 + length
+                if (at > MAX_METADATA_BYTES || at >= size)
+                    throw Rejected(Reason.FORMAT_UNSUPPORTED)
+                last = (u(block[0]) and 128) != 0
+            }
+            return Region(ByteArray(at.toInt()).also { readExact(0, it) }, at)
+        }
+        throw Rejected(Reason.FORMAT_UNSUPPORTED)
+    }
     private fun observe(file: File): Pair<MetadataArtworkLyricsProbe.Snapshot,Long> {
         val region=metadataRegion(file)
         val result=MetadataArtworkLyricsProbe.inspect(region.metadata)
             as? MetadataArtworkLyricsProbe.Result.Ready
             ?:throw Rejected(Reason.FORMAT_UNSUPPORTED)
         return result.snapshot to region.audioOffset
+    }
+    /**
+     * Structurally observes the bounded metadata region of a local private file.
+     *
+     * This exposes neither the audio offset nor staging internals. Callers use
+     * the returned snapshot to select a format capability before constructing a
+     * candidate; this method never writes the source.
+     */
+    fun observeFile(file: File): MetadataArtworkLyricsProbe.Snapshot =
+        FileChannel.open(
+            file.toPath(),
+            StandardOpenOption.READ,
+            LinkOption.NOFOLLOW_LINKS,
+        ).use { channel -> observeChannel(channel) }
+    /** Bounded positional observation from an already-open read-only descriptor. */
+    fun observeChannel(channel: FileChannel): MetadataArtworkLyricsProbe.Snapshot {
+        if (isMp4(channel)) return observeMp4(channel)
+        val result = MetadataArtworkLyricsProbe.inspect(metadataRegion(channel).metadata)
+            as? MetadataArtworkLyricsProbe.Result.Ready
+            ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        return result.snapshot
+    }
+    /**
+     * M4A artwork lives in `moov/udta/meta/ilst/covr`, which a header prefix
+     * cannot bound. The positional probe walks the atom tree and skips `mdat`
+     * arithmetically, so no audio byte is read as metadata.
+     */
+    private fun observeMp4(channel: FileChannel): MetadataArtworkLyricsProbe.Snapshot {
+        val observation = MetadataArtworkLyricsProbe.inspectChannel(channel)
+            as? MetadataArtworkLyricsProbe.ChannelResult.Ready
+            ?: throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        val snapshot = observation.observation.snapshot
+        if (snapshot.format != MetadataArtworkLyricsProbe.Format.MP4)
+            throw Rejected(Reason.FORMAT_UNSUPPORTED)
+        return snapshot
+    }
+    /** ISO base media detection: `ftyp` is the first top-level box type. */
+    private fun isMp4(channel: FileChannel): Boolean {
+        if (channel.size() < 12) return false
+        val header = ByteArray(12)
+        val buffer = java.nio.ByteBuffer.wrap(header)
+        var at = 0L
+        while (buffer.hasRemaining()) {
+            val read = channel.read(buffer, at)
+            if (read <= 0) return false
+            at += read
+        }
+        return header.copyOfRange(4, 8).contentEquals("ftyp".toByteArray())
     }
     private fun same(a: MetadataArtworkLyricsProbe.Snapshot,b: MetadataArtworkLyricsProbe.Snapshot):Boolean =
         a.format==b.format && a.texts==b.texts && a.artworks.size==b.artworks.size &&
@@ -162,8 +253,14 @@ object MetadataPrivateBundleStage {
         if(req.fields!=null && req.assets.any { it is MetadataSelectiveAssetStage.Edit.DescribedText } &&
             req.fields.diffs.any { it.field in setOf(MetadataField.COMMENT,MetadataField.LYRICS) })
             throw Rejected(Reason.CONFLICTING_TEXT_FIELDS)
-        val pictureKeys=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.Picture>()
-            .map { it.proposal.index }
+        val pictureKeys=req.assets.mapNotNull {
+            when(it) {
+                is MetadataSelectiveAssetStage.Edit.Picture -> it.proposal.index
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> it.proposal.ordinal
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> it.ordinal
+                is MetadataSelectiveAssetStage.Edit.DescribedText -> null
+            }
+        }
         val textKeys=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.DescribedText>()
             .map { it.change.identity }
         if(pictureKeys.distinct().size!=pictureKeys.size || textKeys.distinct().size!=textKeys.size)
@@ -178,6 +275,24 @@ object MetadataPrivateBundleStage {
                     checked.proposal.proposedSha256!=p.proposedSha256)
                     throw Rejected(Reason.INVALID_ASSET)
                 names+="PICTURE:${p.index}"
+            }
+            is MetadataSelectiveAssetStage.Edit.PictureAdd -> {
+                val p=op.proposal
+                val checked=MetadataArtworkAdditionPreview.review(
+                    observed,p.proposedBytes,p.proposedMime,p.type,p.description,
+                ) as? MetadataArtworkAdditionPreview.Result.Ready
+                    ?:throw Rejected(Reason.INVALID_ASSET)
+                if(checked.proposal.ordinal!=p.ordinal ||
+                    checked.proposal.proposedSha256!=p.proposedSha256)
+                    throw Rejected(Reason.INVALID_ASSET)
+                names+="PICTURE_ADD:${p.ordinal}"
+            }
+            is MetadataSelectiveAssetStage.Edit.PictureRemove -> {
+                val selected=observed.artworks.singleOrNull {it.ordinal==op.ordinal}
+                    ?:throw Rejected(Reason.INVALID_ASSET)
+                if(selected.info.sha256!=op.sourceSha256)
+                    throw Rejected(Reason.INVALID_ASSET)
+                names+="PICTURE_REMOVE:${op.ordinal}"
             }
             is MetadataSelectiveAssetStage.Edit.DescribedText -> {
                 names+="${op.change.identity.kind.frameId}:${op.change.identity.language}:${op.change.identity.description}"
@@ -225,6 +340,8 @@ object MetadataPrivateBundleStage {
                             MetadataFlacStageRewriter.stage(current,next,req.fields,current.length(),checkCancelled)
                         MetadataArtworkLyricsProbe.Format.ID3_V23,MetadataArtworkLyricsProbe.Format.ID3_V24 ->
                             MetadataId3StageRewriter.stage(current,next,req.fields,current.length(),checkCancelled)
+                        MetadataArtworkLyricsProbe.Format.MP4 ->
+                            throw Rejected(Reason.FORMAT_UNSUPPORTED)
                     }
                 } else {
                     val assetIndex=index-(if(req.fields!=null)1 else 0)
@@ -241,17 +358,60 @@ object MetadataPrivateBundleStage {
             checkCancelled()
             if(shaFile(source,checkCancelled)!=req.originalDigest)throw Rejected(Reason.SOURCE_CHANGED)
             val end=observe(output).first
-            if(end.format!=initial.first.format || end.artworks.size!=initial.first.artworks.size)
+            if(end.format!=initial.first.format)
                 throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
             // Check the full expected net result; no operation may alter an unselected asset.
-            val imageEdits=req.assets.filterIsInstance<MetadataSelectiveAssetStage.Edit.Picture>()
-                .associateBy { it.proposal.index }
-            initial.first.artworks.zip(end.artworks).forEach { (before,after) ->
-                val proposed=imageEdits[before.ordinal]?.proposal
-                if(before.ordinal!=after.ordinal || before.info.type!=after.info.type ||
-                    (proposed==null && (before.info!=after.info || !before.image.contentEquals(after.image))) ||
-                    (proposed!=null && (after.info.sha256!=proposed.proposedSha256 ||
-                        after.info.mime!=proposed.proposedMime || !after.image.contentEquals(proposed.proposedBytes))))
+            val pictureFormat=if(initial.first.format==MetadataArtworkLyricsProbe.Format.FLAC)
+                MetadataArtworkEvidence.Format.FLAC_PICTURE
+                else MetadataArtworkEvidence.Format.ID3_APIC
+            val expectedPictures=initial.first.artworks.toMutableList()
+            for(asset in req.assets) when(asset) {
+                is MetadataSelectiveAssetStage.Edit.Picture -> {
+                    val p=asset.proposal
+                    val index=expectedPictures.indexOfFirst {it.ordinal==p.index}
+                    if(index<0)throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    val before=expectedPictures[index].info
+                    expectedPictures[index]=MetadataArtworkLyricsProbe.Artwork(
+                        p.index,
+                        MetadataArtworkEvidence.Picture(
+                            pictureFormat, before.type, p.proposedMime, p.proposedSize,
+                            p.proposedSha256, description=before.description,
+                        ),
+                        p.proposedBytes,
+                    )
+                }
+                is MetadataSelectiveAssetStage.Edit.PictureAdd -> {
+                    val p=asset.proposal
+                    if(p.ordinal!=expectedPictures.size)
+                        throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    expectedPictures+=MetadataArtworkLyricsProbe.Artwork(
+                        p.ordinal,
+                        MetadataArtworkEvidence.Picture(
+                            pictureFormat, p.type, p.proposedMime, p.proposedSize,
+                            p.proposedSha256, description=p.description,
+                        ),
+                        p.proposedBytes,
+                    )
+                }
+                is MetadataSelectiveAssetStage.Edit.PictureRemove -> {
+                    val index=expectedPictures.indexOfFirst {it.ordinal==asset.ordinal}
+                    if(index<0)throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+                    expectedPictures.removeAt(index)
+                }
+                is MetadataSelectiveAssetStage.Edit.DescribedText -> Unit
+            }
+            val normalized=expectedPictures.mapIndexed { index,artwork ->
+                if(artwork.ordinal==index)artwork else artwork.copy(ordinal=index)
+            }
+            if(end.artworks.size!=normalized.size)
+                throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
+            normalized.forEachIndexed { index,expected ->
+                val actual=end.artworks[index]
+                if(actual.ordinal!=index || actual.info.type!=expected.info.type ||
+                    actual.info.mime!=expected.info.mime ||
+                    actual.info.description!=expected.info.description ||
+                    actual.info.sha256!=expected.info.sha256 ||
+                    !actual.image.contentEquals(expected.image))
                     throw Rejected(Reason.FINAL_OBSERVATION_MISMATCH)
             }
             if(req.fields?.diffs?.any {it.field in setOf(MetadataField.COMMENT,MetadataField.LYRICS)} != true) {

@@ -104,7 +104,7 @@ internal fun GenreTrackActionsSheet(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Icon(Icons.Default.EditNote, contentDescription = null, tint = PureWhite)
-                    Text("Editar metadatos · previsualización", color = PureWhite)
+                    Text("Editar metadatos", color = PureWhite)
                 }
             }
             Text(

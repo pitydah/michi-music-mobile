@@ -1,6 +1,7 @@
 package org.michimusic.data.cache
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
 // K16-01: the cache is shared by every paired library, so a track ID alone is
@@ -36,6 +37,32 @@ data class CachedTrack(
     val verifiedAlgorithm: String = "",
     /** Original genre metadata. Never inferred when the source omits it. */
     val genre: String = "",
+    /** Monotonic per-owner identity revision, retained across delete/reinsert. */
+    @ColumnInfo(defaultValue = "0")
+    val metadataRevision: Long = 0,
+)
+
+@Entity(
+    tableName = "metadata_revision_clock",
+    primaryKeys = ["sourceId", "trackId"],
+)
+data class MetadataRevisionClock(
+    val sourceId: String,
+    val trackId: String,
+    val revision: Long,
+)
+
+@Entity(tableName = "metadata_applied_transaction")
+data class MetadataAppliedTransaction(
+    @PrimaryKey val transactionId: String,
+    val sourceId: String,
+    val trackId: String,
+    val uri: String,
+    val originalRevision: Long,
+    val committedRevision: Long,
+    val candidateSha256: String,
+    val candidateBytes: Long,
+    val appliedAt: Long,
 )
 
 @Entity(tableName = "cached_albums")

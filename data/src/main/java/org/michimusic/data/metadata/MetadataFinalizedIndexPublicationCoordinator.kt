@@ -32,15 +32,35 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
     private val journal=MetadataRecoveryJournalV1(
         File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
     private val intentStore=MetadataCommitIntentStore(journal)
+    private val preimages=MetadataIndexPreimageStore(
+        File(context.noBackupFilesDir,"michi-metadata-editor-v1"))
     private val finalizer=MetadataPostMutationFinalizationCoordinator(context)
     private val bytes=MetadataCurrentBytesReader(context)
-    private val index=MetadataIndexCasCoordinator(MetadataTrackDaoCasPort(dao))
+    private val stamps=MetadataExactSourceStampReader(context)
+    private fun index(permit: MetadataWritePermit): MetadataIndexCasCoordinator {
+        val needsEvidence = permit.fields.any {
+            it in MetadataEmbeddedEvidence.nonProjectedFields
+        }
+        val port = if (!needsEvidence) {
+            MetadataTrackDaoCasPort(dao, permit, preimages)
+        } else {
+            MetadataTrackDaoCasPort(dao, permit, preimages,
+                evidenceFor = { delta ->
+                    val stamp = stamps.read(delta.target.sourceId,
+                        delta.target.uri, delta.candidateBytes)
+                    if (stamp == null) null
+                    else MetadataEmbeddedEvidence.fromDelta(
+                        delta, stamp.modifiedAtProviderUnits)
+                })
+        }
+        return MetadataIndexCasCoordinator(port)
+    }
     private val genreIndex=MetadataIndexCasCoordinator(
-        MetadataSelectiveGenreCasPort(context,dao))
+        MetadataSelectiveGenreCasPort(context,dao,preimages))
     private val peopleIndex=MetadataIndexCasCoordinator(
-        MetadataSelectivePeopleCasPort(context,database))
+        MetadataSelectivePeopleCasPort(context,database,preimages))
     private val combinedIndex=MetadataIndexCasCoordinator(
-        MetadataSelectiveCombinedCasPort(context,database))
+        MetadataSelectiveCombinedCasPort(context,database,preimages))
     private val resolver=context.contentResolver
 
     enum class Reason {
@@ -69,8 +89,9 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         expectedIndex:MetadataIndexPublicationPolicy.IndexIdentity,
         explicitUserAction:Boolean,ownerStillCurrent:()->Boolean,
         playbackDescriptorClosed:()->Boolean,
+        permit: MetadataWritePermit,
     ):Result = withContext(Dispatchers.IO) {
-        if (!MetadataCommitCertification.mayMutateOriginal())
+        if (permit.transactionId != transactionId)
             return@withContext Result.Blocked(Reason.NOT_CERTIFIED)
         if (!explicitUserAction)
             return@withContext Result.Blocked(Reason.ACTION_REQUIRED)
@@ -80,7 +101,15 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
             !playbackDescriptorClosed())
             return@withContext Result.Blocked(Reason.WRONG_OWNER)
         val finalized=finalizer.confirm(transactionId,original.target,true,
-            ownerStillCurrent,playbackDescriptorClosed)
+            ownerStillCurrent,playbackDescriptorClosed,permit)
+        // Diagnostics only: the finalization step and refusal code. Never the URI,
+        // the transaction id or any tag value (contract P0-B.7).
+        if (finalized !is MetadataPostMutationFinalizationCoordinator.Result
+                .PreparedForExternalCas) {
+            val blocked=finalized as? MetadataPostMutationFinalizationCoordinator.Result.Blocked
+            android.util.Log.d("MetadataFinalize",
+                "blocked=${blocked?.step?.name ?: "UNKNOWN"}:${blocked?.code ?: "NO_CODE"}")
+        }
         val certified=(finalized as?
             MetadataPostMutationFinalizationCoordinator.Result.PreparedForExternalCas)?.receipt
             ?: return@withContext Result.Blocked(Reason.POSTCHECK_NOT_READY)
@@ -90,6 +119,7 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         val snapshot=try { journal.withExclusiveSnapshot { inspection ->
             val entry=(inspection as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
                 ?: return@withExclusiveSnapshot null
+            if (!permit.matches(entry)) return@withExclusiveSnapshot null
             if (entry.phase!=MetadataRecoveryPhase.POSTCHECK_VERIFIED ||
                 entry.id!=transactionId || entry.trackId!=expectedIndex.trackId ||
                 entry.sourceId!=expectedIndex.sourceId || entry.uri!=expectedIndex.uri ||
@@ -123,11 +153,15 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
             if (unverified != org.michimusic.core.metadata.MetadataUnverifiedIndexRowPolicy.Verdict.MayAttemptExternalCas)
                 return@withContext Result.Blocked(Reason.CAS_REJECTED)
         }
-        val first=bytes.read(entry.sourceId,entry.uri,entry.stageBytes)
-            as? MetadataCurrentBytesReader.Result.Read
+        // Content is the authority here (contract P0-B.6 / T26): the exact committed
+        // candidate SHA and physical length, read twice with a settled announced
+        // stamp. MediaStore's announced SIZE may still lag; that bookkeeping lag is
+        // reported by the reader and never substitutes for the candidate hash.
+        val first=bytes.readCommittedCandidate(entry.sourceId,entry.uri,entry.stageBytes,
+            entry.stageSha256)
+            as? MetadataCurrentBytesReader.PostCommitRead.Exact
             ?: return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
-        if (first.fingerprint.sha256!=entry.stageSha256 ||
-            first.fingerprint.bytes!=entry.stageBytes)
+        if (first.actualSha256!=entry.stageSha256 || first.actualSize!=entry.stageBytes)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
         val parsed=try {
             val descriptor=resolver.openFileDescriptor(Uri.parse(entry.uri),"r")
@@ -139,10 +173,12 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
           catch (_:Exception) { return@withContext Result.Blocked(Reason.FIELDS_UNVERIFIED) }
         if (!ownerStillCurrent() || !playbackDescriptorClosed())
             return@withContext Result.Blocked(Reason.WRONG_OWNER)
-        val second=bytes.read(entry.sourceId,entry.uri,entry.stageBytes)
-            as? MetadataCurrentBytesReader.Result.Read
+        val second=bytes.readCommittedCandidate(entry.sourceId,entry.uri,entry.stageBytes,
+            entry.stageSha256)
+            as? MetadataCurrentBytesReader.PostCommitRead.Exact
             ?: return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
-        if (second.fingerprint!=first.fingerprint)
+        if (second.actualSize!=first.actualSize ||
+            second.actualSha256!=first.actualSha256)
             return@withContext Result.Blocked(Reason.SOURCE_CHANGED)
         // The journal, the private evidence and the intent binding are re-proved
         // unchanged after both cold reads. Room's conditional UPDATE remains the
@@ -160,7 +196,7 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
         if (fenced !is MetadataRecoveryJournalV1.Publication.Published || fenced.value!=true)
             return@withContext Result.Blocked(Reason.JOURNAL_MISSING)
         val delta=MetadataSourceIndexDelta.propose(original,intent,
-            second.fingerprint.sha256,parsed,candidateBytes=second.fingerprint.bytes)
+            second.actualSha256,parsed,candidateBytes=second.actualSize)
         if (delta !is MetadataSourceIndexDelta.Result.PreparedForExternalCas)
             return@withContext Result.Blocked(Reason.FIELDS_UNVERIFIED)
         when (val refresh=MetadataScalarIndexRefreshPolicy.evaluate(delta.delta)) {
@@ -187,9 +223,10 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
                     peopleOnly -> peopleIndex
                     else -> combinedIndex
                 }
-                return@withContext when (chosen.attempt(expectedIndex,delta,
+                val cas = chosen.attempt(expectedIndex,delta,
                     MetadataRecoveryPhase.POSTCHECK_VERIFIED,certified,playbackDescriptorClosed(),
-                    ownerStillCurrent)) {
+                    ownerStillCurrent, permit)
+                return@withContext when (cas) {
                     is MetadataIndexCasCoordinator.Result.AppliedToIndexOnly ->
                         when {
                             genreOnly -> Result.StructuredGenreIndexed(entry.id)
@@ -202,9 +239,9 @@ internal class MetadataFinalizedIndexPublicationCoordinator(
             }
             MetadataScalarIndexRefreshPolicy.Verdict.MayTryRoomCas -> Unit
         }
-        return@withContext when(index.attempt(expectedIndex,delta,
+        return@withContext when(index(permit).attempt(expectedIndex,delta,
             MetadataRecoveryPhase.POSTCHECK_VERIFIED,certified,playbackDescriptorClosed(),
-            ownerStillCurrent)) {
+            ownerStillCurrent, permit)) {
             is MetadataIndexCasCoordinator.Result.AppliedToIndexOnly -> Result.IndexedOnly(entry.id)
             is MetadataIndexCasCoordinator.Result.Blocked -> Result.Blocked(Reason.CAS_REJECTED)
         }

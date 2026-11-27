@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,11 @@ import org.michimusic.mobile.ui.screens.DevicesScreen
 import org.michimusic.mobile.ui.screens.DiagnosticsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
+import org.michimusic.mobile.ui.screens.MetadataEditorScreen
+import org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher
+import org.michimusic.mobile.ui.metadata.METADATA_EDITOR_ROUTE
+import org.michimusic.mobile.ui.metadata.MetadataEditorLaunchHolder
+import org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest
 import org.michimusic.mobile.ui.screens.PlaylistDetailScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
 import org.michimusic.mobile.ui.screens.QueueScreen
@@ -60,6 +66,7 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
+import org.michimusic.mobile.library.MusicRootAuthority
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -102,6 +109,20 @@ fun MichiNavHost(
     val presentation = resolvePlaybackPresentation(sessionState, localState)
     val hasMiniPlayer = presentation.hasActiveTrack
     val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
+    val rootAuthority: MusicRootAuthority = koinInject()
+    val editorLauncher: (MetadataEditorLaunchRequest) -> Unit = remember(navController, rootAuthority) {
+        { request ->
+            // Scope is stamped at the navigation boundary; origins never need Koin
+            // just to read the revision, and the destination still re-validates it.
+            val generation = if (request.scopeGeneration > 0L) {
+                request.scopeGeneration
+            } else {
+                rootAuthority.revision.value
+            }
+            MetadataEditorLaunchHolder.offer(request.copy(scopeGeneration = generation))
+            navController.navigate(METADATA_EDITOR_ROUTE) { launchSingleTop = true }
+        }
+    }
 
     Scaffold(
         containerColor = SurfaceObsidian,
@@ -131,7 +152,7 @@ fun MichiNavHost(
             }
         }
     ) { innerPadding ->
-        val isFullBleed = currentRoute == "nowplaying"
+        val isFullBleed = currentRoute == "nowplaying" || currentRoute == METADATA_EDITOR_ROUTE
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -141,6 +162,7 @@ fun MichiNavHost(
             // persistent MiniPlayer chrome. Album transitions keep their existing scope.
             SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalMetadataEditorLauncher provides editorLauncher) {
             NavHost(
                 navController = navController,
                 startDestination = "home",
@@ -305,6 +327,12 @@ fun MichiNavHost(
                 composable("nowplaying") {
                     NowPlayingScreen(onBack = { navController.popBackStack() })
                 }
+                composable(METADATA_EDITOR_ROUTE) {
+                    MetadataEditorScreen(onClose = {
+                        MetadataEditorLaunchHolder.clear()
+                        navController.popBackStack()
+                    })
+                }
                 composable("settings") {
                     SettingsScreen(
                         onNavigateToDiagnostics = { navController.navigate("diagnostics") },
@@ -382,6 +410,7 @@ fun MichiNavHost(
                         visible = miniPlayerVisible && hasMiniPlayer,
                     )
                 }
+            }
             }
 
             pendingConfirmation?.let { conf ->

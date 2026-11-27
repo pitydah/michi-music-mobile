@@ -43,8 +43,16 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
         NOT_A_POST_MUTATION, INTENT_MISSING, INVALID_PRIVATE_EVIDENCE,
         SOURCE_NOT_CANDIDATE, SOURCE_SEMANTICS_UNVERIFIED, JOURNAL_CHANGED,
         WRITER_NOT_CERTIFIED }
+    internal enum class FinalizationStep {
+        SNAPSHOT, INTENT_BINDING, PRIVATE_ARTIFACTS, SOURCE_READ,
+        SOURCE_HASH, SOURCE_SEMANTICS, JOURNAL_GENERATION, PERMIT, RECEIPT_GATE,
+    }
     sealed interface Result {
-        data class Blocked(val reason: Refusal) : Result
+        data class Blocked(
+            val reason: Refusal,
+            val step: FinalizationStep = FinalizationStep.SNAPSHOT,
+            val code: String = reason.name,
+        ) : Result
         /** Diagnostic only; preserving the backup is mandatory. */
         data class ComparedButNotCertified(val transactionId: String) : Result
         /** Only minted by MetadataVerifiedReceiptGate, never from caller booleans. */
@@ -55,6 +63,7 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
     suspend fun confirm(
         transactionId:String,target:MetadataTarget,explicitUserAction:Boolean,
         ownerCurrent:()->Boolean,playbackClosed:()->Boolean,
+        permit: MetadataWritePermit? = null,
     ):Result = withContext(Dispatchers.IO) {
         if (!explicitUserAction) return@withContext Result.Blocked(Refusal.ACTION_REQUIRED)
         val job=currentCoroutineContext()[Job]
@@ -64,39 +73,53 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
             // Phase 1: local evidence under a brief exclusion.
             val snapshot=journal.withExclusiveSnapshot { inspection ->
                 val entry=(inspection as? MetadataRecoveryJournalV1.Inspection.Pending)?.entry
-                    ?: return@withExclusiveSnapshot Result.Blocked(Refusal.JOURNAL_NOT_PENDING)
+                    ?: return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.JOURNAL_NOT_PENDING, FinalizationStep.SNAPSHOT)
                 if (entry.id != transactionId || entry.sourceId != target.sourceId ||
                     entry.trackId != target.trackId || entry.uri != target.uri ||
                     !ownerCurrent() || !playbackClosed())
-                    return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
-                if (entry.phase != MetadataRecoveryPhase.MUTATION_UNKNOWN &&
+                    return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.TARGET_CHANGED, FinalizationStep.INTENT_BINDING)
+                if (entry.phase != MetadataRecoveryPhase.MUTATING &&
+                    entry.phase != MetadataRecoveryPhase.MUTATION_UNKNOWN &&
                     entry.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED)
-                    return@withExclusiveSnapshot Result.Blocked(Refusal.NOT_A_POST_MUTATION)
+                    return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.NOT_A_POST_MUTATION, FinalizationStep.SNAPSHOT)
                 if (!journal.privateArtifactsIntact(entry))
-                    return@withExclusiveSnapshot Result.Blocked(Refusal.INVALID_PRIVATE_EVIDENCE)
+                    return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.INVALID_PRIVATE_EVIDENCE, FinalizationStep.PRIVATE_ARTIFACTS)
                 val receipt=(intents.inspect(entry) as?
                     MetadataCommitIntentStore.Inspection.Present)?.receipt
-                    ?: return@withExclusiveSnapshot Result.Blocked(Refusal.INTENT_MISSING)
+                    ?: return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.INTENT_MISSING, FinalizationStep.INTENT_BINDING)
                 val uri=try { Uri.parse(entry.uri) } catch (_: Exception) {
                     return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
                 }
-                val provider=when (MetadataReadAccessPolicy.classify(entry.sourceId,
-                    uri.scheme,uri.authority)) {
-                    MetadataReadAccessPolicy.Kind.MEDIASTORE -> MetadataDocumentProvider.MEDIASTORE
-                    MetadataReadAccessPolicy.Kind.SAF_LOCAL -> MetadataDocumentProvider.SAF
-                    MetadataReadAccessPolicy.Kind.REJECT ->
-                        return@withExclusiveSnapshot Result.Blocked(Refusal.TARGET_CHANGED)
+                val provider=when {
+                    uri.scheme == "content" && uri.authority == "media" ->
+                        MetadataDocumentProvider.MEDIASTORE
+                    else -> when (MetadataReadAccessPolicy.classify(entry.sourceId,
+                        uri.scheme,uri.authority)) {
+                        MetadataReadAccessPolicy.Kind.MEDIASTORE ->
+                            MetadataDocumentProvider.MEDIASTORE
+                        MetadataReadAccessPolicy.Kind.SAF_LOCAL -> MetadataDocumentProvider.SAF
+                        MetadataReadAccessPolicy.Kind.REJECT ->
+                            return@withExclusiveSnapshot Result.Blocked(
+                            Refusal.TARGET_CHANGED, FinalizationStep.INTENT_BINDING)
+                    }
                 }
                 val container=try { MetadataAudioContainer.valueOf(entry.format) }
                     catch (_: Exception) {
                         return@withExclusiveSnapshot Result.Blocked(
-                            Refusal.INVALID_PRIVATE_EVIDENCE)
+                            Refusal.INVALID_PRIVATE_EVIDENCE,
+                            FinalizationStep.INTENT_BINDING)
                     }
                 if (MetadataCommitIntentManifest.verify(receipt,entry.id,target,provider,
                         container,entry.expectedBytes,entry.originalSha256,
                         entry.stageBytes,entry.stageSha256) !=
                     MetadataCommitIntentManifest.Verdict.BoundForExternalReview)
-                    return@withExclusiveSnapshot Result.Blocked(Refusal.INVALID_PRIVATE_EVIDENCE)
+                    return@withExclusiveSnapshot Result.Blocked(
+                        Refusal.INVALID_PRIVATE_EVIDENCE, FinalizationStep.PRIVATE_ARTIFACTS)
                 pending=entry
                 intent=receipt
                 null
@@ -104,40 +127,65 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
             snapshot.value?.let { return@withContext it }
             job?.ensureActive()
             // Phase 2: cold provider readback + semantic inspection, NO journal lock.
-            val actual=read.read(pending.sourceId,pending.uri,pending.stageBytes) {
-                job?.ensureActive()
-            }
-            if (actual !is MetadataCurrentBytesReader.Result.Read ||
-                MetadataPhysicalOutcomePolicy.classify(expected(pending), actual.fingerprint) !=
-                MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED)
-                return@withContext Result.Blocked(Refusal.SOURCE_NOT_CANDIDATE)
+            val actual=read.readCommittedCandidate(
+                pending.sourceId,pending.uri,pending.stageBytes,pending.stageSha256,
+            ) { job?.ensureActive() }
+            if (actual !is MetadataCurrentBytesReader.PostCommitRead.Exact)
+                return@withContext Result.Blocked(
+                    Refusal.SOURCE_NOT_CANDIDATE, FinalizationStep.SOURCE_READ,
+                    "READ_${(actual as MetadataCurrentBytesReader.PostCommitRead.Rejected).reason}",
+                )
+            // Bounded diagnostic: a retried read means MediaStore published its
+            // bookkeeping size only after the commit. No URI, id or tag value.
+            if (actual.announcedStampMovedDuringRead)
+                android.util.Log.d("MetadataFinalize",
+                    "postcheck=announcement_moved_retried lag=${actual.metadataLagObserved}")
+            if (actual.actualSize != pending.stageBytes ||
+                actual.actualSha256 != pending.stageSha256)
+                return@withContext Result.Blocked(
+                    Refusal.SOURCE_NOT_CANDIDATE, FinalizationStep.SOURCE_HASH,
+                    "SHA_OR_SIZE_MISMATCH",
+                )
             val checked=semantic.inspect(pending.sourceId,pending.uri,target,intent,
                 userRequested=true,
                 ownerCurrent={ ownerCurrent() && playbackClosed() },
                 checkCancellation={ job?.ensureActive() })
-            if (checked !is MetadataPostMutationSourceInspector.Result.Inspected ||
-                !ownerCurrent() || !playbackClosed())
-                return@withContext Result.Blocked(Refusal.SOURCE_SEMANTICS_UNVERIFIED)
+            if (!ownerCurrent() || !playbackClosed())
+                return@withContext Result.Blocked(
+                    Refusal.TARGET_CHANGED, FinalizationStep.SOURCE_SEMANTICS,
+                    "OWNER_OR_PLAYBACK_CHANGED",
+                )
+            if (checked !is MetadataPostMutationSourceInspector.Result.Inspected)
+                return@withContext Result.Blocked(
+                    Refusal.SOURCE_SEMANTICS_UNVERIFIED, FinalizationStep.SOURCE_SEMANTICS,
+                    "INSPECTOR_${(checked as? MetadataPostMutationSourceInspector.Result.Blocked)?.reason?.name ?: "UNKNOWN"}",
+                )
             job?.ensureActive()
             // Phase 3: promote only if the record and the private evidence are unchanged.
             val publication=journal.publishIfUnchanged(snapshot.generation,pending) {
                 if (!ownerCurrent() || !playbackClosed())
-                    return@publishIfUnchanged Result.Blocked(Refusal.TARGET_CHANGED)
+                    return@publishIfUnchanged Result.Blocked(
+                        Refusal.TARGET_CHANGED, FinalizationStep.JOURNAL_GENERATION)
                 // The private backup and candidate are rehashed before any promotion.
                 if (!journal.privateArtifactsIntact(pending))
-                    return@publishIfUnchanged Result.Blocked(Refusal.INVALID_PRIVATE_EVIDENCE)
-                // Do not promote an uncertified observation into a postcheck
-                // phase. Keep MUTATION_UNKNOWN and the private recovery files.
-                if (!MetadataCommitCertification.mayMutateOriginal())
-                    return@publishIfUnchanged Result.ComparedButNotCertified(pending.id)
-                val next=if (pending.phase == MetadataRecoveryPhase.MUTATION_UNKNOWN) {
+                    return@publishIfUnchanged Result.Blocked(
+                        Refusal.INVALID_PRIVATE_EVIDENCE, FinalizationStep.PRIVATE_ARTIFACTS)
+                // Only the exact typed permit for this journal transaction may
+                // replace the legacy global boolean.
+                if (permit == null || !permit.matches(pending))
+                    return@publishIfUnchanged Result.Blocked(
+                        Refusal.WRITER_NOT_CERTIFIED, FinalizationStep.PERMIT,
+                        "PERMIT_MISMATCH",
+                    )
+                val next=if (pending.phase != MetadataRecoveryPhase.POSTCHECK_VERIFIED) {
                     pending.copy(phase=MetadataRecoveryPhase.POSTCHECK_VERIFIED).also {
                         journal.advance(pending,it)
                     }
                 } else pending
                 // Physical bytes/fields are observed. Writer certification is
                 // independently required and remains FALSE in the patch.
-                when (val receipt=MetadataVerifiedReceiptGate.assess(
+                when (val receipt=MetadataVerifiedReceiptGate.assessCertified(
+                    permit.evidence(),
                     next.id,next.phase,next.stageSha256,
                     MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED,
                     fieldsVerified=true,ownerStillCurrent=ownerCurrent() && playbackClosed(),
@@ -145,15 +193,18 @@ internal class MetadataPostMutationFinalizationCoordinator(context: Context) {
                     is MetadataVerifiedReceiptGate.Decision.ReadyForIndexCompare ->
                         Result.PreparedForExternalCas(receipt)
                     is MetadataVerifiedReceiptGate.Decision.Refused ->
-                        Result.ComparedButNotCertified(next.id)
+                        Result.Blocked(Refusal.WRITER_NOT_CERTIFIED,
+                            FinalizationStep.RECEIPT_GATE, receipt.reason.name)
                 }
             }
             when (publication) {
-                is Publication.Stale -> Result.Blocked(Refusal.JOURNAL_CHANGED)
+                is Publication.Stale -> Result.Blocked(
+                    Refusal.JOURNAL_CHANGED, FinalizationStep.JOURNAL_GENERATION)
                 is Publication.Published -> publication.value
             }
         } catch (cancel: CancellationException) { throw cancel }
-          catch (_: Exception) { Result.Blocked(Refusal.JOURNAL_CHANGED) }
+          catch (_: Exception) { Result.Blocked(
+              Refusal.JOURNAL_CHANGED, FinalizationStep.JOURNAL_GENERATION) }
     }
 
     private fun expected(entry:MetadataRecoveryJournalV1.Entry) =

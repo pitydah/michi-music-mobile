@@ -4,6 +4,25 @@
      blocked by the system-level permission and cannot enumerate the private fixtures. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity
+            android:name="org.michimusic.data.metadata.MetadataSafGrantTestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <!-- A15/A16: test APK ONLY bridge that launches the real system MediaStore
+             write-consent dialog (PendingIntent from MediaStore.createWriteRequest)
+             and reports the user's decision back to the instrumentation. -->
+        <activity
+            android:name="org.michimusic.data.metadata.MetadataConsentTestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <!-- A15/A16: receives a real framework read grant from the other-UID
+             fixture through a PendingIntent. Exported only in this test APK so
+             the fixture can target it explicitly; it exposes no data. -->
+        <activity
+            android:name="org.michimusic.data.metadata.MetadataReadGrantTestActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <provider
             android:name="org.michimusic.data.metadata.MetadataSyntheticDocumentsProvider"
             android:authorities="org.michimusic.data.metadata.me08.testing"

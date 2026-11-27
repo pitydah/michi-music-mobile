@@ -102,7 +102,16 @@ class GenreArtworkComposeRenderTest {
             assets.open("$mosaicFolder/optical.tsv")
                 .bufferedReader().use { parseUi7OpticalMasks(it.readText()) }
         }.getOrDefault(emptyMap())
-        return mosaicApprovedArtwork(manifest, installed, opticalMasks = optical)
+        var rejection: String? = null
+        val artwork = mosaicApprovedArtwork(
+            manifest, installed,
+            onRejected = { rejection = it },
+            opticalMasks = optical,
+        )
+        check(artwork.isNotEmpty()) {
+            "mosaic catalog rejected: ${rejection ?: "unknown"}; installed=${installed.size}"
+        }
+        return artwork
     }
 
     private fun approvedPosters(): Map<String, EditorialPosterAsset> {
@@ -224,7 +233,6 @@ class GenreArtworkComposeRenderTest {
         val widthDp = grid.width / rule.density.density
         val columns = genreGridColumns(widthDp.roundToInt(), GENRE_COMPACT_TILE_MIN_WIDTH_DP)
         val size = mosaicCardSize(widthDp, columns)
-        val assets = approvedMosaics()
 
         titles.forEach { title ->
             val id = genreGroupingKey(title)
@@ -254,8 +262,10 @@ class GenreArtworkComposeRenderTest {
             rule.onNodeWithTag("genre_tile_$id")
                 .assertContentDescriptionEquals("Abrir género $title, 3 pistas")
 
+            val asset = approvedMosaics()[id]
+                ?: error("approved mosaic missing for $title after asset decode")
             val decision = ui7ArtworkDecision(
-                mosaicVisualSpec(assets.getValue(id)), size.widthDp, size.heightDp, 26f, 26f,
+                mosaicVisualSpec(asset), size.widthDp, size.heightDp, 26f, 26f,
             )
             assertTrue("$title decision must paint", decision.paintsArtwork)
             assertEquals(Ui7AssetAvailability.ASSET_PACKAGED, decision.availability)

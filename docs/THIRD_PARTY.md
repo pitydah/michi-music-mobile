@@ -65,10 +65,16 @@
 - **License**: Apache 2.0
 - **Used for**: Futures / ListenableFuture for Media3 session callbacks
 
----
+## JAudiotagger
 
-All components are open source under Apache 2.0 license.
-Full license texts available at https://www.apache.org/licenses/LICENSE-2.0
+- **Coordinates**: `net.jthink:jaudiotagger:3.0.1`
+- **Source artifact**: https://repo1.maven.org/maven2/net/jthink/jaudiotagger/3.0.1/jaudiotagger-3.0.1-sources.jar
+- **License**: GNU Lesser General Public License 2.1 or later
+- **Used for**: Private-file metadata staging for certified audio-only M4A title updates
+- **License text**: [`app/src/main/assets/third_party/jaudiotagger_LGPL-2.1.txt`](../app/src/main/assets/third_party/jaudiotagger_LGPL-2.1.txt)
+
+The components above use the license listed for each entry. Apache 2.0 license
+text is available at https://www.apache.org/licenses/LICENSE-2.0.
 
 ## Phosphor Icons (Michi UI5, playlists dock icon)
 

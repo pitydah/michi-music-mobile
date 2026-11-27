@@ -84,6 +84,10 @@ object MetadataMp4ColdReader {
         "©too" to MetadataField.MEDIA_FORMAT,
         "©grp" to MetadataField.GROUPING,
     )
+    private val canonicalFields = names.values.toSet() + setOf(
+        MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+        MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+    )
     fun observe(channel: FileChannel): MetadataFieldReadReport {
         val container = MetadataPhysicalContainer.MP4_M4A
         return try {
@@ -115,12 +119,49 @@ object MetadataMp4ColdReader {
                                 if (++counts[0] > MAX_ATOMS) throw Bad(MetadataObservationIssue.RESOURCE_LIMIT)
                                 val item = atom(channel,itemAt,box.end)
                                 val field = names[item.name]
-                                if (field != null) {
+                                if (field != null || item.name == "trkn" || item.name == "disk") {
                                     var v = item.payload
                                     while (v < item.end) {
                                         if (++counts[0] > MAX_ATOMS) throw Bad(MetadataObservationIssue.RESOURCE_LIMIT)
                                         val dataBox = atom(channel,v,item.end)
-                                        if (dataBox.name == "data") {
+                                        if (dataBox.name == "data" &&
+                                            (item.name == "trkn" || item.name == "disk")) {
+                                            val numberField = if (item.name == "trkn")
+                                                MetadataField.TRACK_NUMBER
+                                            else MetadataField.DISC_NUMBER
+                                            val totalField = if (item.name == "trkn")
+                                                MetadataField.TRACK_TOTAL
+                                            else MetadataField.DISC_TOTAL
+                                            val bytes = dataBox.end - dataBox.payload
+                                            val minimum = if (item.name == "disk") 14 else 16
+                                            if (bytes < minimum || bytes > 32) {
+                                                badFields += numberField
+                                                badFields += totalField
+                                            } else {
+                                                val body = data(
+                                                    channel,
+                                                    dataBox.payload + 8,
+                                                    (bytes - 8).toInt(),
+                                                )
+                                                val number = be16(body, 2)
+                                                val total = be16(body, 4)
+                                                if (number !in 1..9999) {
+                                                    badFields += numberField
+                                                    badFields += totalField
+                                                } else {
+                                                    output.getOrPut(numberField) {
+                                                        mutableListOf()
+                                                    } += number.toString()
+                                                    if (total in 1..9999) {
+                                                        output.getOrPut(totalField) {
+                                                            mutableListOf()
+                                                        } += total.toString()
+                                                    } else if (total != 0) {
+                                                        badFields += totalField
+                                                    }
+                                                }
+                                            }
+                                        } else if (dataBox.name == "data" && field != null) {
                                             val bytes = dataBox.end - dataBox.payload
                                             if (bytes < 8 || bytes > MAX_TEXT + 8) {
                                                 badFields += field
@@ -155,6 +196,7 @@ object MetadataMp4ColdReader {
                     field in badFields || (!field.multiple && values.size > 1) ->
                         MetadataFieldObservation.Conflicted(MetadataObservationIssue.AMBIGUOUS_ALIAS)
                     values.isNotEmpty() -> MetadataFieldObservation.Present(values.toList())
+                    field in canonicalFields -> MetadataFieldObservation.VerifiedAbsent
                     else -> MetadataFieldObservation.Unverifiable(
                         MetadataObservationIssue.FIELD_NOT_SUPPORTED)
                 }

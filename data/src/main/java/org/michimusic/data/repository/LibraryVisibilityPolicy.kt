@@ -4,6 +4,7 @@ import android.net.Uri
 import android.provider.MediaStore
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.LibraryExclusionEntity
+import org.michimusic.data.cache.MichiDatabase
 import java.security.MessageDigest
 
 /** Source-scoped; SAF tree identity comes from provider authority and tree document ID. */
@@ -13,6 +14,17 @@ fun libraryVisibilitySource(root: MusicRoot): String = if (root.isDefault) {
     root.sourceId?.takeIf { it.isNotBlank() }
         ?: root.treeUri?.let { customRootSourceId(Uri.parse(it)) }
         ?: "invalid-root"
+}
+
+/**
+ * The durable cache owner for the active library. MediaStore saves index their
+ * [org.michimusic.data.cache.CachedTrack] rows under the device library id, so
+ * reopening must not query the visibility-only MediaStore source string.
+ */
+fun durableLibrarySource(root: MusicRoot): String = if (root.isDefault) {
+    MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID
+} else {
+    libraryVisibilitySource(root)
 }
 
 /** An ID recycled by MediaStore/SAF must not hide an unrelated replacement file.

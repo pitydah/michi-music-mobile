@@ -51,6 +51,44 @@ object MetadataOpaquePreservationAudit {
     private class Stop(val why: Refusal) : Exception()
     private data class DigestRecord(val name: String, val sha: String)
     private data class Observation(val opaque: List<DigestRecord>, val audio: String, val audioBytes: Long)
+    private data class ResourceExclusions(
+        val beforePictures: Set<Int> = emptySet(),
+        val afterPictures: Set<Int> = emptySet(),
+        val described: Set<MetadataDescribedTextWorkbench.Identity> = emptySet(),
+        val describedFields: Set<MetadataField> = emptySet(),
+    )
+
+    /**
+     * A resource edit is addressed by an exact identity: ordinal for artwork,
+     * kind/language/descriptor for COMM/USLT. Only those identities are
+     * excluded from the opaque comparison; every unselected frame or block
+     * remains digest-checked exactly as before.
+     */
+    private fun resourceExclusions(
+        resources: List<MetadataCommitIntentManifest.ResourceChange>,
+    ): ResourceExclusions {
+        val before = linkedSetOf<Int>()
+        val after = linkedSetOf<Int>()
+        val described = linkedSetOf<MetadataDescribedTextWorkbench.Identity>()
+        val describedFields = linkedSetOf<MetadataField>()
+        for (resource in resources) when (resource) {
+            is MetadataCommitIntentManifest.ResourceChange.PictureReplacement -> {
+                before += resource.ordinal
+                after += resource.ordinal
+            }
+            is MetadataCommitIntentManifest.ResourceChange.PictureAdd ->
+                after += resource.ordinal
+            is MetadataCommitIntentManifest.ResourceChange.PictureRemove ->
+                before += resource.ordinal
+            is MetadataCommitIntentManifest.ResourceChange.DescribedText -> {
+                described += MetadataDescribedTextWorkbench.Identity(
+                    resource.kind, resource.language, resource.description,
+                )
+                describedFields += resource.kind.field
+            }
+        }
+        return ResourceExclusions(before, after, described, describedFields)
+    }
 
     private fun sha(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
@@ -87,7 +125,9 @@ object MetadataOpaquePreservationAudit {
     }
 
     private fun id3(reader: Reader, format: MetadataAudioContainer,
-                    changes: Set<MetadataField>): Observation {
+                    changes: Set<MetadataField>,
+                    pictures: Set<Int>,
+                    describedResources: Set<MetadataDescribedTextWorkbench.Identity>): Observation {
         if (reader.length < 10) throw Stop(Refusal.BROKEN_CONTAINER)
         val header = reader.take(0, 10)
         if (String(header, 0, 3, StandardCharsets.US_ASCII) != "ID3" ||
@@ -101,14 +141,14 @@ object MetadataOpaquePreservationAudit {
         // Field identity, not the coarse four-character frame ID, determines
         // which entry is intentionally edited. TXXX descriptors and COMM/USLT
         // language/description identities are independently validated below.
+        val version = if (format == MetadataAudioContainer.ID3_V23) 3 else 4
         val edited = changes.filterNot { it in MetadataMusicBrainzTagMap.id3Fields ||
             it in MetadataId3DescribedTagCodec.fields }.map {
-            MetadataId3StageRewriter.preservationFrameId(it)
+            MetadataId3StageRewriter.preservationFrameId(it, version)
                 ?: throw Stop(Refusal.UNSUPPORTED_EDIT)
         }.toSet()
         val editedTxxx = changes.intersect(MetadataMusicBrainzTagMap.id3Fields)
         val editedDescribed = changes.intersect(MetadataId3DescribedTagCodec.fields)
-        val version = if (format == MetadataAudioContainer.ID3_V23) 3 else 4
         // The stage writer rejects ID3v1; this audit also rejects a drift into it.
         if (reader.length >= 128 &&
             String(reader.take(reader.length - 128, 3), StandardCharsets.US_ASCII) == "TAG")
@@ -116,6 +156,7 @@ object MetadataOpaquePreservationAudit {
         val tag = reader.take(10L, tagLength.toInt())
         val records = mutableListOf<DigestRecord>()
         var p = 0
+        var apicOrdinal = 0
         while (p < tag.size) {
             if (tag.size - p < 10 || (0..3).all { tag[p + it] == 0.toByte() }) {
                 if ((p until tag.size).any { tag[it] != 0.toByte() })
@@ -131,7 +172,9 @@ object MetadataOpaquePreservationAudit {
                 tag[p + 8] != 0.toByte() || tag[p + 9] != 0.toByte())
                 throw Stop(Refusal.UNSUPPORTED_FLAGS)
             val n = payloadSize.toInt()
+            val pictureIndex = if (name == "APIC") apicOrdinal++ else -1
             val isEdited = when {
+                pictureIndex >= 0 && pictureIndex in pictures -> true
                 name in edited -> true
                 name == "TXXX" && editedTxxx.isNotEmpty() -> {
                     val descriptor = MetadataMusicBrainzTagMap.decodeId3(
@@ -139,15 +182,21 @@ object MetadataOpaquePreservationAudit {
                         ?: throw Stop(Refusal.UNSUPPORTED_EDIT)
                     MetadataMusicBrainzTagMap.fromId3Description(descriptor.description) in editedTxxx
                 }
-                (name == "COMM" || name == "USLT") && editedDescribed.isNotEmpty() -> {
-                    val kind = MetadataId3DescribedTagCodec.Kind.entries.firstOrNull { it.frameId == name }
+                name == "COMM" || name == "USLT" -> {
+                    val kind = MetadataId3DescribedTagCodec.Kind.entries
+                        .firstOrNull { it.frameId == name }
                         ?: throw Stop(Refusal.UNSUPPORTED_EDIT)
-                    if (kind.field !in editedDescribed) false else {
-                        val entry = MetadataId3DescribedTagCodec.decode(kind, version,
-                            tag.copyOfRange(p + 10, p + 10 + n))
-                            ?: throw Stop(Refusal.UNSUPPORTED_EDIT)
-                        if (!entry.canonical) throw Stop(Refusal.UNSUPPORTED_EDIT)
-                        true
+                    val entry = MetadataId3DescribedTagCodec.decode(
+                        kind, version, tag.copyOfRange(p + 10, p + 10 + n),
+                    )
+                    when {
+                        entry != null && MetadataDescribedTextWorkbench.Identity(
+                            kind, entry.language, entry.description,
+                        ) in describedResources -> true
+                        kind.field !in editedDescribed -> false
+                        entry == null -> throw Stop(Refusal.UNSUPPORTED_EDIT)
+                        !entry.canonical -> throw Stop(Refusal.UNSUPPORTED_EDIT)
+                        else -> true
                     }
                 }
                 else -> false
@@ -188,11 +237,13 @@ object MetadataOpaquePreservationAudit {
         return result
     }
 
-    private fun flac(reader: Reader, changes: Set<MetadataField>): Observation {
+    private fun flac(reader: Reader, changes: Set<MetadataField>,
+                     describedFields: Set<MetadataField>,
+                     pictures: Set<Int>): Observation {
         if (reader.length < 8 ||
             String(reader.take(0, 4), StandardCharsets.US_ASCII) != "fLaC")
             throw Stop(Refusal.WRONG_FORMAT)
-        val aliases = changes.flatMapTo(linkedSetOf()) { field ->
+        val aliases = (changes + describedFields).flatMapTo(linkedSetOf()) { field ->
             val keys = MetadataFlacStageRewriter.preservationAliases(field)
             if (keys.isEmpty()) throw Stop(Refusal.UNSUPPORTED_EDIT)
             keys
@@ -200,6 +251,7 @@ object MetadataOpaquePreservationAudit {
         var at = 4L
         var last = false
         var count = 0
+        var pictureOrdinal = 0
         var commentSeen = false
         val records = mutableListOf<DigestRecord>()
         while (!last) {
@@ -229,6 +281,11 @@ object MetadataOpaquePreservationAudit {
                         pos += n
                     }
                 }
+                6 -> {
+                    val index = pictureOrdinal++
+                    if (index !in pictures)
+                        records += DigestRecord("FLAC_BLOCK:6", sha(reader.take(at, size)))
+                }
                 else -> records += DigestRecord("FLAC_BLOCK:$type", sha(reader.take(at, size)))
             }
             at += size
@@ -238,8 +295,12 @@ object MetadataOpaquePreservationAudit {
     }
 
     fun compare(backup: File, stage: File, container: MetadataAudioContainer,
-                editedFields: Set<MetadataField>): Verdict {
-        if (editedFields.isEmpty()) return Verdict.Blocked(Refusal.UNSUPPORTED_EDIT)
+                editedFields: Set<MetadataField>,
+                resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList()): Verdict {
+        val exclusions = resourceExclusions(resources)
+        if (editedFields.isEmpty() && exclusions.beforePictures.isEmpty() &&
+            exclusions.afterPictures.isEmpty() && exclusions.described.isEmpty())
+            return Verdict.Blocked(Refusal.UNSUPPORTED_EDIT)
         if (container !in setOf(MetadataAudioContainer.FLAC,
                 MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24))
             return Verdict.Blocked(Refusal.WRONG_FORMAT)
@@ -254,10 +315,16 @@ object MetadataOpaquePreservationAudit {
                     if (a.size() !in 12..MAX_FILE || b.size() !in 12..MAX_FILE)
                         throw Stop(Refusal.RESOURCE_LIMIT)
                     val x = Reader(a); val y = Reader(b)
-                    val original = if (container == MetadataAudioContainer.FLAC) flac(x, editedFields)
-                        else id3(x, container, editedFields)
-                    val candidate = if (container == MetadataAudioContainer.FLAC) flac(y, editedFields)
-                        else id3(y, container, editedFields)
+                    val original = if (container == MetadataAudioContainer.FLAC)
+                        flac(x, editedFields, exclusions.describedFields,
+                            exclusions.beforePictures)
+                    else id3(x, container, editedFields, exclusions.beforePictures,
+                        exclusions.described)
+                    val candidate = if (container == MetadataAudioContainer.FLAC)
+                        flac(y, editedFields, exclusions.describedFields,
+                            exclusions.afterPictures)
+                    else id3(y, container, editedFields, exclusions.afterPictures,
+                        exclusions.described)
                     if (original.audioBytes != candidate.audioBytes || original.audio != candidate.audio)
                         return Verdict.Blocked(Refusal.AUDIO_CHANGED)
                     if (original.opaque != candidate.opaque)

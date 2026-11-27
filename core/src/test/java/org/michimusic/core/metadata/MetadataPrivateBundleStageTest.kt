@@ -12,7 +12,7 @@ class MetadataPrivateBundleStageTest {
     private val audio=ByteArray(700){(it*17).toByte()}
     private fun be(n:Int)=byteArrayOf((n ushr 24).toByte(),(n ushr 16).toByte(),(n ushr 8).toByte(),n.toByte())
     private fun sync(n:Int)=byteArrayOf((n ushr 21 and 127).toByte(),(n ushr 14 and 127).toByte(),(n ushr 7 and 127).toByte(),(n and 127).toByte())
-    private fun png(mark:Int=0)=byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+be(16)+be(20)+byteArrayOf(8,2,0,0,0)+ByteArray(22){mark.toByte()}
+    private fun png(mark:Int=0)=byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+be(16)+be(20)+byteArrayOf(8,2,0,0,0)+ByteArray(4){mark.toByte()}+be(0)+"IEND".toByteArray()+ByteArray(4){mark.toByte()}
     private fun frame(id:String,body:ByteArray) = id.toByteArray()+sync(body.size)+byteArrayOf(0,0)+body
     private fun tag(vararg frames:ByteArray):ByteArray {
         val body=ByteArrayOutputStream().apply { frames.forEach{write(it)};write(ByteArray(3)) }.toByteArray()
@@ -23,6 +23,23 @@ class MetadataPrivateBundleStageTest {
     private fun fixture()=tag(frame("TIT2",byteArrayOf(3)+"Original".toByteArray()),
         frame("APIC",apic(png())),frame("COMM",comment("eng","","Keep")),
         frame("COMM",comment("spa","Notas","Antes")),frame("PRIV",byteArrayOf(5,2,1)))
+    private fun flacFixture():ByteArray {
+        val streamInfo=byteArrayOf(0,0,0,34)+ByteArray(34)
+        val vendor="michi-test".toByteArray()
+        val title="TITLE=Original".toByteArray()
+        val comments=ByteArrayOutputStream().apply {
+            write(byteArrayOf(vendor.size.toByte(),0,0,0));write(vendor)
+            write(byteArrayOf(1,0,0,0))
+            write(byteArrayOf(title.size.toByte(),0,0,0));write(title)
+        }.toByteArray()
+        val block=byteArrayOf(
+            (0x84).toByte(),
+            (comments.size ushr 16).toByte(),
+            (comments.size ushr 8).toByte(),
+            comments.size.toByte(),
+        )+comments
+        return "fLaC".toByteArray()+streamInfo+block+audio
+    }
     private fun sha(b:ByteArray)=MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { (it.toInt() and 255).toString(16).padStart(2,'0') }
     private fun observed(bytes:ByteArray):MetadataArtworkLyricsProbe.Snapshot {
         val n=((bytes[6].toInt() and 127) shl 21) or ((bytes[7].toInt() and 127) shl 14) or
@@ -51,6 +68,17 @@ class MetadataPrivateBundleStageTest {
     private fun run(src:File,dst:File,s:MetadataArtworkLyricsProbe.Snapshot,fields:MetadataReview.Ready?=null,
         edits:List<MetadataSelectiveAssetStage.Edit>):MetadataPrivateBundleStage.Receipt =
         MetadataPrivateBundleStage.stage(src,dst,MetadataPrivateBundleStage.Request(sha(src.readBytes()),s,fields,edits))
+    @Test fun publicFileObservationRecognizesFlacByStructure(){
+        val dir=Files.createTempDirectory("me-final-flac-observe-")
+        try {
+            val source=dir.resolve("opaque.bin").toFile().apply { writeBytes(flacFixture()) }
+            val observed=MetadataPrivateBundleStage.observeFile(source)
+            assertEquals(MetadataArtworkLyricsProbe.Format.FLAC,observed.format)
+        } finally {
+            Files.list(dir).use { it.forEach(Files::deleteIfExists) }
+            Files.delete(dir)
+        }
+    }
     @Test fun bundledTitleCoverAndSpanishCommentMakeOneCandidate(){
         withSource { src,dst,s ->
             val original=src.readBytes()

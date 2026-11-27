@@ -162,7 +162,7 @@ internal class MetadataCommitMutationCoordinator(context: Context) {
             // refused until a per-entry proof supports those identity types.
             val opaqueAudit = MetadataOpaquePreservationAudit.compare(
                 journal.backup(entry), journal.stage(entry), intent.container,
-                intent.changes.mapTo(linkedSetOf()) { it.field })
+                intent.changes.mapTo(linkedSetOf()) { it.field }, intent.resources)
             if (opaqueAudit !is MetadataOpaquePreservationAudit.Verdict.Compared)
                 return@withContext Outcome.Blocked(Refusal.OPAQUE_PRESERVATION_UNVERIFIED)
             // No permission prompt for an old/unbound or semantically invalid transaction.

@@ -5,6 +5,7 @@ enum class MetadataEditorSection(val fields: List<MetadataField>) {
     BASICS(listOf(
         MetadataField.TITLE, MetadataField.SUBTITLE, MetadataField.ARTIST,
         MetadataField.ALBUM, MetadataField.ALBUM_SUBTITLE, MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+        MetadataField.RELEASE_DATE,
         MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
         MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
     )),
@@ -19,7 +20,7 @@ enum class MetadataEditorSection(val fields: List<MetadataField>) {
         MetadataField.MOVEMENT, MetadataField.MOVEMENT_NUMBER, MetadataField.MOVEMENT_TOTAL,
     )),
     DISCOGRAPHY(listOf(
-        MetadataField.RELEASE_DATE, MetadataField.RECORDING_DATE,
+        MetadataField.RECORDING_DATE,
         MetadataField.ORIGINAL_RELEASE_DATE, MetadataField.EDITION,
         MetadataField.RELEASE_TYPE, MetadataField.RELEASE_STATUS,
         MetadataField.MEDIA_FORMAT, MetadataField.COMPILATION,

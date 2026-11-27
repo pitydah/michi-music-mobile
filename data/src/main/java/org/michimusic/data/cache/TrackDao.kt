@@ -137,6 +137,15 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND id = :id")
     suspend fun getTrackBySource(sourceId: String, id: String): CachedTrack?
 
+    @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND filepath = :filepath LIMIT 1")
+    suspend fun getTrackBySourcePath(sourceId: String, filepath: String): CachedTrack?
+
+    @Query("SELECT * FROM cached_tracks WHERE filepath LIKE '%' || :suffix")
+    suspend fun getTracksByPathSuffix(suffix: String): List<CachedTrack>
+
+    @Query("SELECT * FROM cached_tracks WHERE title = :title AND artist = :artist")
+    suspend fun getTracksByTitleArtist(title: String, artist: String): List<CachedTrack>
+
     /**
      * MI-24: exact owner/path/previous-size AND genre compare-and-swap after physical
      * post-write verification. An altered file invalidates any old sync digest;
@@ -327,6 +336,187 @@ interface TrackDao {
 
     @Query("DELETE FROM metadata_people_evidence WHERE sourceId=:sourceId AND trackId=:trackId")
     suspend fun invalidateMetadataPeopleEvidenceForTrack(sourceId: String,trackId: String): Int
+
+    @Query(
+        "SELECT * FROM metadata_applied_transaction " +
+            "WHERE transactionId=:transactionId LIMIT 1",
+    )
+    suspend fun getAppliedMetadataTransaction(
+        transactionId: String,
+    ): MetadataAppliedTransaction?
+
+    /**
+     * One owner-scoped marker snapshot for reopen projection. The caller chooses
+     * the exact track/revision; this is never a scan of another library owner.
+     */
+    @Query("SELECT * FROM metadata_applied_transaction WHERE sourceId=:sourceId")
+    suspend fun getAppliedMetadataTransactionsForSource(
+        sourceId: String,
+    ): List<MetadataAppliedTransaction>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertAppliedMetadataTransaction(marker: MetadataAppliedTransaction)
+
+    @Query("DELETE FROM metadata_applied_transaction WHERE appliedAt < :cutoff")
+    suspend fun pruneAppliedTransactionsBefore(cutoff: Long): Int
+
+    @Query(
+        "DELETE FROM metadata_applied_transaction WHERE appliedAt < :cutoff " +
+            "AND transactionId NOT IN (:protectedIds)",
+    )
+    suspend fun pruneAppliedTransactionsBeforeExcept(
+        cutoff: Long,
+        protectedIds: List<String>,
+    ): Int
+
+    @Query(
+        "UPDATE cached_tracks SET title=:newTitle,artist=:newArtist,album=:newAlbum," +
+            "albumArtist=:newAlbumArtist,genre=:newGenre,trackNumber=:newTrackNumber," +
+            "year=:newYear,size=:newSize,verifiedSize=0,verifiedSha256=''," +
+            "verifiedAt=0,verifiedAlgorithm='',metadataRevision=:committedRevision " +
+            "WHERE sourceId=:sourceId AND id=:trackId AND filepath=:filepath " +
+            "AND metadataRevision=:previousRevision " +
+            "AND size=:previousSize AND verifiedSize=:previousSize " +
+            "AND verifiedAt=:previousVerifiedAt AND verifiedSha256=:previousSha256 " +
+            "AND title=:previousTitle AND artist=:previousArtist AND album=:previousAlbum " +
+            "AND albumArtist=:previousAlbumArtist AND genre=:previousGenre " +
+            "AND trackNumber=:previousTrackNumber AND year=:previousYear",
+    )
+    suspend fun casVerifiedMetadataScalarsAtRevision(
+        sourceId: String, trackId: String, filepath: String,
+        previousRevision: Long, committedRevision: Long,
+        previousSize: Long, previousVerifiedAt: Long,
+        previousSha256: String, previousTitle: String, previousArtist: String,
+        previousAlbum: String, previousAlbumArtist: String, previousGenre: String,
+        previousTrackNumber: Int, previousYear: Int, newSize: Long,
+        newTitle: String, newArtist: String, newAlbum: String,
+        newAlbumArtist: String, newGenre: String, newTrackNumber: Int, newYear: Int,
+    ): Int
+
+    @Query(
+        "UPDATE cached_tracks SET title=:newTitle,artist=:newArtist,album=:newAlbum," +
+            "albumArtist=:newAlbumArtist,genre=:newGenre,trackNumber=:newTrackNumber," +
+            "year=:newYear,size=:newSize,verifiedSize=0,verifiedSha256=''," +
+            "verifiedAt=0,verifiedAlgorithm='',metadataRevision=:committedRevision " +
+            "WHERE sourceId=:sourceId AND id=:trackId AND filepath=:filepath " +
+            "AND metadataRevision=:previousRevision " +
+            "AND size=:previousSize AND verifiedSize=0 AND verifiedAt=0 " +
+            "AND verifiedSha256='' AND verifiedAlgorithm='' " +
+            "AND title=:previousTitle AND artist=:previousArtist AND album=:previousAlbum " +
+            "AND albumArtist=:previousAlbumArtist AND genre=:previousGenre " +
+            "AND trackNumber=:previousTrackNumber AND year=:previousYear",
+    )
+    suspend fun casUnverifiedMetadataScalarsAtRevision(
+        sourceId: String, trackId: String, filepath: String,
+        previousRevision: Long, committedRevision: Long, previousSize: Long,
+        previousTitle: String, previousArtist: String, previousAlbum: String,
+        previousAlbumArtist: String, previousGenre: String,
+        previousTrackNumber: Int, previousYear: Int, newSize: Long,
+        newTitle: String, newArtist: String, newAlbum: String,
+        newAlbumArtist: String, newGenre: String, newTrackNumber: Int, newYear: Int,
+    ): Int
+
+    @Query(
+        "INSERT INTO metadata_revision_clock(sourceId,trackId,revision) " +
+            "VALUES(:sourceId,:trackId,:revision) " +
+            "ON CONFLICT(sourceId,trackId) DO UPDATE SET revision=" +
+            "CASE WHEN revision < :revision THEN :revision ELSE revision END",
+    )
+    suspend fun retainMetadataRevision(sourceId: String, trackId: String, revision: Long)
+
+    @Transaction
+    suspend fun applyMetadataTransaction(
+        request: MetadataTrackTransactionRequest,
+    ): MetadataTrackTransactionResult {
+        val existing = getAppliedMetadataTransaction(request.transactionId)
+        if (existing != null) {
+            val exact = existing.sourceId == request.sourceId &&
+                existing.trackId == request.trackId &&
+                existing.uri == request.filepath &&
+                existing.originalRevision == request.previousRevision &&
+                existing.candidateSha256 == request.candidateSha256 &&
+                existing.candidateBytes == request.candidateBytes
+            return if (exact) MetadataTrackTransactionResult.AlreadyApplied(existing)
+            else MetadataTrackTransactionResult.Conflict
+        }
+        if (!request.transactionId.matches(
+                Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+            ) ||
+            request.sourceId.isBlank() || request.trackId.isBlank() ||
+            !request.filepath.startsWith("content://") ||
+            request.previousRevision < 0L || request.previousSize <= 0L ||
+            request.newSize <= 0L || request.candidateBytes != request.newSize ||
+            !request.candidateSha256.matches(Regex("[0-9a-f]{64}")) ||
+            request.appliedAt <= 0L
+        ) return MetadataTrackTransactionResult.Conflict
+
+        val committedRevision = request.previousRevision + 1L
+        val changed = if (request.previousVerifiedAt > 0L &&
+            request.previousSha256.matches(Regex("[0-9a-f]{64}"))
+        ) {
+            casVerifiedMetadataScalarsAtRevision(
+                request.sourceId, request.trackId, request.filepath,
+                request.previousRevision, committedRevision, request.previousSize,
+                request.previousVerifiedAt, request.previousSha256,
+                request.previousTitle, request.previousArtist, request.previousAlbum,
+                request.previousAlbumArtist, request.previousGenre,
+                request.previousTrackNumber, request.previousYear,
+                request.newSize, request.newTitle, request.newArtist, request.newAlbum,
+                request.newAlbumArtist, request.newGenre,
+                request.newTrackNumber, request.newYear,
+            )
+        } else if (request.previousVerifiedAt == 0L &&
+            request.previousSha256.isEmpty()
+        ) {
+            casUnverifiedMetadataScalarsAtRevision(
+                request.sourceId, request.trackId, request.filepath,
+                request.previousRevision, committedRevision, request.previousSize,
+                request.previousTitle, request.previousArtist, request.previousAlbum,
+                request.previousAlbumArtist, request.previousGenre,
+                request.previousTrackNumber, request.previousYear,
+                request.newSize, request.newTitle, request.newArtist, request.newAlbum,
+                request.newAlbumArtist, request.newGenre,
+                request.newTrackNumber, request.newYear,
+            )
+        } else 0
+        if (changed != 1) return MetadataTrackTransactionResult.Conflict
+
+        retainMetadataRevision(request.sourceId, request.trackId, committedRevision)
+        invalidateMetadataEvidenceForTrack(request.sourceId, request.trackId)
+        invalidateMetadataPeopleEvidenceForTrack(request.sourceId, request.trackId)
+        val committed = getTrackBySource(request.sourceId, request.trackId)
+            ?: throw IllegalStateException("METADATA_ROW_DISAPPEARED")
+        if (committed.metadataRevision != committedRevision) {
+            throw IllegalStateException("METADATA_REVISION_NOT_ADVANCED")
+        }
+        val marker = MetadataAppliedTransaction(
+            transactionId = request.transactionId,
+            sourceId = request.sourceId,
+            trackId = request.trackId,
+            uri = request.filepath,
+            originalRevision = request.previousRevision,
+            committedRevision = committed.metadataRevision,
+            candidateSha256 = request.candidateSha256,
+            candidateBytes = request.candidateBytes,
+            appliedAt = request.appliedAt,
+        )
+        insertAppliedMetadataTransaction(marker)
+        return MetadataTrackTransactionResult.Applied(marker)
+    }
+
+    @Transaction
+    suspend fun applyMetadataTransactionWithGenreEvidence(
+        request: MetadataTrackTransactionRequest,
+        evidence: EmbeddedTagEvidence,
+    ): MetadataTrackTransactionResult {
+        val result = applyMetadataTransaction(request)
+        // Replaying an already-committed transaction must not republish the
+        // evidence captured by that older revision. Marker and evidence were
+        // written atomically when the transaction first applied.
+        if (result is MetadataTrackTransactionResult.Applied)
+            putTagEvidence(listOf(evidence))
+        return result
+    }
 
     /**
      * The row CAS and invalidation of stale tag evidence are atomic. We do NOT

@@ -1,0 +1,28 @@
+# git diff --stat ed83dc6e..HEAD (source only; build outputs excluded)
+ app/src/androidTest/assets/me13-silence.mp3        | Bin 0 -> 1776 bytes
+ .../MetadataEditorLibraryReopenInstrumentedTest.kt | 265 ++++++++++++++++
+ .../ui/components/MichiMetadataEditorWorkbench.kt  |   2 +
+ .../ui/metadata/MetadataLibraryRefreshSignal.kt    |  16 +
+ .../michimusic/mobile/ui/screens/AlbumsScreen.kt   |   6 +
+ .../MetadataIndexReconcilerInstrumentedTest.kt     | 335 +++++++++++++++++++++
+ .../MetadataRecoveryCoordinatorInstrumentedTest.kt |  14 +
+ .../MetadataSaveMediaStoreE2EInstrumentedTest.kt   |   7 +
+ ...MetadataSaveMediaStoreFieldsInstrumentedTest.kt | 294 ++++++++++++++++++
+ .../metadata/MetadataSaveRacesInstrumentedTest.kt  | 208 +++++++++++++
+ .../org/michimusic/data/metadata/Mp3FixtureTags.kt |  62 ++++
+ .../data/metadata/MetadataIndexAppliedReceipt.kt   | 130 ++++++++
+ .../data/metadata/MetadataIndexObligation.kt       |  45 +++
+ .../data/metadata/MetadataIndexReconciler.kt       |  70 ++++-
+ .../metadata/MetadataIndexReconciliationReceipt.kt |  46 ++-
+ .../data/metadata/MetadataRecoveryCoordinator.kt   |  42 ++-
+ .../data/metadata/MetadataSaveCheckpoint.kt        |  24 ++
+ .../michimusic/data/metadata/MetadataSaveLocks.kt  |  23 ++
+ .../data/metadata/MetadataSaveService.kt           |  95 +++---
+ .../MetadataVerifiedCommittedSnapshotReader.kt     | 118 ++++++++
+ .../repository/ExtendedTrackMetadataRepository.kt  |  18 +-
+ .../metadata/MetadataIndexAppliedReceiptTest.kt    |  61 ++++
+ .../data/metadata/MetadataIndexObligationTest.kt   |  75 +++++
+ .../data/metadata/MetadataIndexReconcilerTest.kt   |  97 ++++++
+ .../MetadataIndexReconciliationReceiptTest.kt      |  33 ++
+ .../MetadataVerifiedCommittedSnapshotReaderTest.kt | 204 +++++++++++++
+ 26 files changed, 2217 insertions(+), 73 deletions(-)

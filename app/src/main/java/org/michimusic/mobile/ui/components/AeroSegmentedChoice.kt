@@ -169,6 +169,7 @@ fun AeroSegmentedChoice(
     modifier: Modifier = Modifier,
     treatment: AeroSegmentTreatment = AeroSegmentTreatment.Rail,
     compact: Boolean = false,
+    librarySection: Boolean = false,
     testTag: String? = null,
     enabled: Boolean = true,
 ) {
@@ -220,9 +221,18 @@ fun AeroSegmentedChoice(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (librarySection) Modifier.heightIn(
+                        min = (aeroSegmentMinHeightDp(LocalConfiguration.current.fontScale) - 4).dp,
+                    ) else Modifier,
+                )
                 .clip(shape)
                 .background(Brush.verticalGradient(colors))
                 .border(if (contrast) 1.2.dp else 0.8.dp, border, shape)
+                .then(
+                    if (selected && testTag != null) Modifier.testTag("${testTag}_selected")
+                    else Modifier,
+                )
                 .padding(
                     horizontal = when (treatment) {
                         // Measured on device: 7 dp gave a 125.33 dp rail, 1.3 dp over the

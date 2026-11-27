@@ -52,10 +52,95 @@ class MetadataDescribedTextWorkbenchTest {
         assertEquals(MetadataDescribedTextWorkbench.Result.Blocked(MetadataDescribedTextWorkbench.Reason.INVALID_IDENTITY),
             review(listOf(MetadataDescribedTextWorkbench.Change.Clear(identity))))
     }
-    @Test fun cannotCreateUnobservedFrame() {
+    @Test fun addCreatesVerifiedAbsentIdentity() {
         val identity = spanish.copy(description = "Nuevo")
-        assertEquals(MetadataDescribedTextWorkbench.Result.Blocked(MetadataDescribedTextWorkbench.Reason.AMBIGUOUS_CREATE),
-            MetadataDescribedTextWorkbench.proposeNew(identity, "texto"))
+        val result = review(listOf(MetadataDescribedTextWorkbench.Change.Add(identity, "texto"))) as
+            MetadataDescribedTextWorkbench.Result.Ready
+        assertEquals(3, result.values.size)
+        assertEquals("texto", result.values.single { it.identity == identity }.text)
+        assertEquals(
+            listOf(MetadataDescribedTextWorkbench.Difference(identity, null, "texto")),
+            result.differences,
+        )
+        assertEquals(listOf(english, spanish, identity), result.values.map { it.identity })
+    }
+    @Test fun addRejectsIdentityAlreadyPresent() {
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.ENTRY_ALREADY_PRESENT),
+            review(listOf(MetadataDescribedTextWorkbench.Change.Add(spanish, "Otro texto"))),
+        )
+    }
+    @Test fun addRejectsDuplicatedOperationForSameIdentity() {
+        val identity = spanish.copy(description = "Nuevo")
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.DUPLICATE_OPERATION),
+            review(listOf(
+                MetadataDescribedTextWorkbench.Change.Add(identity, "uno"),
+                MetadataDescribedTextWorkbench.Change.Add(identity, "dos"),
+            )),
+        )
+    }
+    @Test fun addRequiresValidIdentityAndText() {
+        val identity = spanish.copy(description = "Nuevo")
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.INVALID_IDENTITY),
+            review(listOf(
+                MetadataDescribedTextWorkbench.Change.Add(identity.copy(language = "ES"), "x"),
+            )),
+        )
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.INVALID_TEXT),
+            review(listOf(MetadataDescribedTextWorkbench.Change.Add(identity, "  "))),
+        )
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.INVALID_TEXT),
+            review(listOf(MetadataDescribedTextWorkbench.Change.Add(
+                spanish.copy(kind = MetadataId3DescribedTagCodec.Kind.LYRICS, description = "L"),
+                "x".repeat(MetadataId3DescribedTagCodec.Kind.LYRICS.maxChars + 1),
+            ))),
+        )
+    }
+    @Test fun addRequiresVerifiedSourceForTheObservation() {
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.UNVERIFIED_SOURCE),
+            MetadataDescribedTextWorkbench.review(false, emptyList(), listOf(
+                MetadataDescribedTextWorkbench.Change.Add(spanish.copy(description = "Nuevo"), "x"),
+            )),
+        )
+    }
+    @Test fun addCannotExceedTheVerifiedEntryLimit() {
+        val full = (0 until 64).map {
+            MetadataDescribedTextWorkbench.Item(spanish.copy(description = "desc$it"), "t$it")
+        }
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.TOO_MANY_ENTRIES),
+            MetadataDescribedTextWorkbench.review(true, full, listOf(
+                MetadataDescribedTextWorkbench.Change.Add(
+                    spanish.copy(description = "nuevo"), "x"),
+            )),
+        )
+    }
+    @Test fun proposeNewCreatesEntryOnlyWhenValid() {
+        val identity = spanish.copy(description = "Nuevo")
+        val ready = MetadataDescribedTextWorkbench.proposeNew(identity, "texto") as
+            MetadataDescribedTextWorkbench.Result.Ready
+        assertEquals(listOf(MetadataDescribedTextWorkbench.Item(identity, "texto")), ready.values)
+        assertEquals(
+            listOf(MetadataDescribedTextWorkbench.Difference(identity, null, "texto")),
+            ready.differences,
+        )
+        assertEquals(
+            MetadataDescribedTextWorkbench.Result.Blocked(
+                MetadataDescribedTextWorkbench.Reason.INVALID_IDENTITY),
+            MetadataDescribedTextWorkbench.proposeNew(identity.copy(language = "ES"), "texto"),
+        )
     }
     @Test fun noopDoesNotMakeDiff() {
         val result = review(listOf(MetadataDescribedTextWorkbench.Change.Replace(english, "English comment")))

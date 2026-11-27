@@ -29,21 +29,38 @@ object MetadataRecoveryRestorePolicy {
         val exactWriteGrant: Boolean,
         val providerRecoveryCertified: Boolean,
         val sourceWriteCertified: Boolean,
+        /**
+         * ME-13 S5: a typed, exact MediaStore MP3 permit may replace only the two
+         * global review booleans. Every other precondition, including the exact
+         * grant and closed playback, is still mandatory.
+         */
+        val scopedRestorePermit: Boolean = false,
     )
-    fun evaluate(input: Input): Decision = when {
-        !input.explicitUserConfirmation -> Decision.Blocked(Refusal.USER_CONFIRMATION_REQUIRED)
-        input.journalPhase != MetadataRecoveryPhase.MUTATION_UNKNOWN ->
-            Decision.Blocked(Refusal.WRONG_PHASE)
-        !input.exactTargetStillCurrent -> Decision.Blocked(Refusal.TARGET_CHANGED)
-        !input.playbackClosed -> Decision.Blocked(Refusal.PLAYBACK_ACTIVE)
-        !input.backupIntact -> Decision.Blocked(Refusal.PRIVATE_BACKUP_INVALID)
-        input.observedSource != MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED ->
-            Decision.Blocked(Refusal.SOURCE_NOT_VERIFIED_CANDIDATE)
-        input.provider !in setOf(MetadataDocumentProvider.MEDIASTORE,MetadataDocumentProvider.SAF) ->
-            Decision.Blocked(Refusal.PROVIDER_UNKNOWN)
-        !input.exactWriteGrant -> Decision.Blocked(Refusal.NO_EXACT_GRANT)
-        !input.providerRecoveryCertified -> Decision.Blocked(Refusal.PROVIDER_RECOVERY_UNCERTIFIED)
-        !input.sourceWriteCertified -> Decision.Blocked(Refusal.SOURCE_WRITE_UNCERTIFIED)
-        else -> Decision.ReadyForTransportBehindCertification
+    fun evaluate(input: Input): Decision {
+        val sourceReady = input.scopedRestorePermit &&
+            input.observedSource == MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES
+        val providerReady = input.providerRecoveryCertified || input.scopedRestorePermit
+        val writerReady = input.sourceWriteCertified || input.scopedRestorePermit
+        return when {
+            !input.explicitUserConfirmation -> Decision.Blocked(Refusal.USER_CONFIRMATION_REQUIRED)
+            // MUTATING is the phase left behind when the process dies after the
+            // durable reservation but before MUTATION_UNKNOWN is written. Its
+            // bytes are still UNKNOWN and must be classified by a cold read.
+            input.journalPhase !in setOf(MetadataRecoveryPhase.MUTATING,
+                MetadataRecoveryPhase.MUTATION_UNKNOWN) ->
+                Decision.Blocked(Refusal.WRONG_PHASE)
+            !input.exactTargetStillCurrent -> Decision.Blocked(Refusal.TARGET_CHANGED)
+            !input.playbackClosed -> Decision.Blocked(Refusal.PLAYBACK_ACTIVE)
+            !input.backupIntact -> Decision.Blocked(Refusal.PRIVATE_BACKUP_INVALID)
+            input.observedSource != MetadataPhysicalOutcomePolicy.State.CANDIDATE_BYTES_VERIFIED &&
+                !sourceReady ->
+                Decision.Blocked(Refusal.SOURCE_NOT_VERIFIED_CANDIDATE)
+            input.provider !in setOf(MetadataDocumentProvider.MEDIASTORE,MetadataDocumentProvider.SAF) ->
+                Decision.Blocked(Refusal.PROVIDER_UNKNOWN)
+            !input.exactWriteGrant -> Decision.Blocked(Refusal.NO_EXACT_GRANT)
+            !providerReady -> Decision.Blocked(Refusal.PROVIDER_RECOVERY_UNCERTIFIED)
+            !writerReady -> Decision.Blocked(Refusal.SOURCE_WRITE_UNCERTIFIED)
+            else -> Decision.ReadyForTransportBehindCertification
+        }
     }
 }

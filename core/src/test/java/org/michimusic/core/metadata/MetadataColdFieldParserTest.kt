@@ -106,7 +106,7 @@ class MetadataColdFieldParserTest {
     }
     @Test fun flacPairedTrackNumbersAreIndependent() {
         val r=observe(flac("TRACKNUMBER=03", "TRACKTOTAL=12", "DISCNUMBER=1"))
-        assertEquals(listOf("3"), present(r, MetadataField.TRACK_NUMBER))
+        assertEquals(listOf("03"), present(r, MetadataField.TRACK_NUMBER))
         assertEquals(listOf("12"), present(r, MetadataField.TRACK_TOTAL))
         assertEquals(MetadataFieldObservation.VerifiedAbsent, r.observation(MetadataField.DISC_TOTAL))
     }
@@ -148,7 +148,7 @@ class MetadataColdFieldParserTest {
     }
     @Test fun id3v23ParsesTrackAndTotalWithoutCoercingGenre() {
         val r=observe(id3(3,id3Frame("TRCK","03/12"),id3Frame("TCON","Jazz; Fusion")))
-        assertEquals(listOf("3"),present(r,MetadataField.TRACK_NUMBER))
+        assertEquals(listOf("03"),present(r,MetadataField.TRACK_NUMBER))
         assertEquals(listOf("12"),present(r,MetadataField.TRACK_TOTAL))
         assertEquals(listOf("Jazz; Fusion"),present(r,MetadataField.GENRE))
     }

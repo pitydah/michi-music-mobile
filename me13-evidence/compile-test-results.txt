@@ -1,0 +1,81 @@
+ME-13 compile and test results (final closure)
+=============================================
+
+Baseline 08a0b750. Worktree /home/cristian/michi-mobile-me13-megasprint,
+branch fix/me13-megasprint-08a0b750. All Gradle commands were executed through
+the gradle-run lifecycle, workflow af95f6c8ec4122e4ea2adfde5f4b236a.
+No push, PR, merge or remote CI was performed for this closure.
+
+1) Final full JVM suites plus data instrumented
+Command:
+  ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest \
+    :player:testDebugUnitTest :michi-link-client:testDebugUnitTest \
+    :aircat-transfer:testDebugUnitTest :app:testNormalDebugUnitTest \
+    :app:testFdroidDebugUnitTest :data:connectedDebugAndroidTest
+Result: BUILD SUCCESSFUL, exit 0
+gradle-run log: 0029
+Device: Medium_Phone(AVD) - Android 16 (emulator-5554)
+
+Parsed JUnit XML totals (JVM):
+  core                 1023 tests, 0 failures/errors
+  data                  729 tests, 0 failures/errors
+  player                234 tests, 0 failures/errors
+  michi-link-client     205 tests, 0 failures/errors
+  aircat-transfer       414 tests, 0 failures/errors
+  app Normal           2443 tests, 0 failures/errors
+  app F-Droid          2443 tests, 0 failures/errors
+  TOTAL                7491 tests, 0 failures/errors
+
+Data instrumented:
+  24 tests total, 21 executed, 3 opt-in SKIPPED, 0 failures/errors.
+  Includes MetadataSaveMediaStoreE2EInstrumentedTest,
+  MetadataTrackDaoCasInstrumentedTest (2 cases),
+  MetadataRecoveryCoordinatorInstrumentedTest (3 cases) and the
+  synthetic-provider recovery suites.
+  Gradle-run log: 0027 for the dedicated full run.
+
+2) Targeted recovery and restore
+  :data:connectedDebugAndroidTest --tests
+    MetadataRecoveryCoordinatorInstrumentedTest
+  Result: 3 / 3 PASS, gradle-run log 0026.
+  :data:testDebugUnitTest --tests MetadataSourceRestoreCoordinatorTest
+  Result: PASS, gradle-run log 0028.
+
+3) App instrumented
+Command: :app:connectedNormalDebugAndroidTest
+Result: 206 tests, 25 skipped, 0 failures/errors (full rerun; one isolated
+Compose measure/layout flake passed on class rerun first).
+gradle-run log: 0023 (isolated rerun 0022).
+
+4) Lint
+Command: :app:lint
+Result: PASS, gradle-run log 0024.
+The root `lint` task does not exist locally; `:app:lint` is the repository gate.
+
+5) Variants and AndroidTest sources
+Command:
+  :app:assembleNormalDebug :app:assembleFdroidDebug \
+  :app:assembleNormalRelease :app:assembleFdroidRelease \
+  plus androidTest source compilation
+Result: PASS.
+gradle-run logs: 0019 (debug/androidTest), 0020 (release).
+The first broad run hit a lint-tool ConcurrentModificationException in
+GradleDetector/TomlUtilities; the isolated rerun passed.
+
+6) Xiaomi physical device
+Device: 25010PN30G, Android 16, serial 26dfb91d.
+Historical final-product-code run: production engine PASS (real MediaStore MP3,
+independent postcheck, exact cached_tracks CAS, indexPublished=true, journal
+Clear). Evidence: physical-xiaomi-e2e.txt,
+physical-xiaomi-logcat-excerpt.txt.
+Manual app-UI save: NOT RUN / BLOCKED_HARDWARE. HyperOS denies adb input with
+INJECT_EVENTS; no human tap run was performed.
+
+Not run:
+  - T02-T06, T10, T12, T13, T15, T18-T20, T22, T36, T43, T48.
+  - Production Save process kill at each exact phase; only the opt-in
+    synthetic-provider kill harness exists.
+  - Full Library -> Editor -> Save and Genres -> Editor -> Save scripted UI
+    traversal.
+
+See t01-t48.csv and t01-t48-report.md for the per-scenario status.

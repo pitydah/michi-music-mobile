@@ -1,0 +1,51 @@
+ME-13 indexed fixture proof (fixture D)
+=======================================
+
+Fixture: disposable, app-owned MediaStore MP3 created by the instrumented test.
+No personal audio, tag, artwork or URI is used.
+
+Asset: data/src/androidTest/assets/me13-silence.mp3
+  description: 0.4 s silent 44.1 kHz mono MP3, 32 kbps, generated with ffmpeg/lame
+  audio_bytes: 1776
+  audio_sha256: eac0569ff61203b94d8469851c7284af7d3e925ba27528cf20addda13c9e055e
+
+Initial tag: ID3v2.3 TIT2/TPE1/TALB/TCON + the exact audio payload.
+  title: ME13 Original
+  artist: Synthetic Artist
+  album: Synthetic Album
+  genre: Rock
+
+Room row: inserted through production SyncedTrackRepository.saveLibrary with
+sourceId=lib_device_local, then marked verified.
+  trackId: local_<MediaStore audio id>
+  filepath: the exact created content://media/... URI
+  pre-save title: ME13 Original
+  pre-save verified evidence: present
+
+Save: MetadataSaveService.save with review Ready replacing TITLE with
+"ME13 Renombrada", ownerCurrent={true}, playbackClosed={true}.
+
+Observed final state (logcat tag ME13_EVIDENCE, 2026-11-22 22:44:36):
+  originalSha=7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+  candidateSha=5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3
+  audioSha=eac0569ff61203b94d8469851c7284af7d3e925ba27528cf20addda13c9e055e
+  audioBytes=1776
+  originalBytes=1878
+  candidateBytes=1897
+  rowTitle=ME13 Renombrada
+  rowSize=1897
+  verifiedAt=0
+  verifiedSha=<empty>
+  journal=Clear
+  outcome=Saved
+  indexPublished=true
+
+The test independently re-read the MediaStore bytes and asserted:
+  - the audio suffix is byte-identical to the asset payload;
+  - the production cold reader returns TITLE=["ME13 Renombrada"];
+  - the exact Room row has the new title and candidate size;
+  - verifiedAt/verifiedSha256 were invalidated by the CAS;
+  - MetadataRecoveryJournalV1.inspect() is Clear.
+
+Test: data/src/androidTest/java/org/michimusic/data/metadata/MetadataSaveMediaStoreE2EInstrumentedTest.kt
+gradle-run log: 0425

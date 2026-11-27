@@ -1,0 +1,543 @@
+package org.michimusic.core.metadata
+
+/**
+ * ME-13: an exact, test-backed write capability. A profile is never inferred
+ * from a file extension, MIME string or filename prefix; callers must match the
+ * observed provider, container/revision and field set.
+ */
+data class CertifiedMetadataWriteProfile(
+    val id: String,
+    val provider: MetadataProviderRecoveryProfile.Kind,
+    val containers: Set<MetadataAudioContainer>,
+    val tagRevisions: Set<Int>,
+    val supportedFields: Set<MetadataField>,
+    val permitsArtwork: Boolean,
+    val permitsMultiValue: Set<MetadataField>,
+    val capabilityEvidenceId: String,
+    val supportedResourceOperations: Set<MetadataResourceOperation> = emptySet(),
+) {
+    fun supports(container: MetadataAudioContainer, revision: Int, fields: Set<MetadataField>,
+        multiValueFields: Set<MetadataField>, artworkChanged: Boolean): Boolean {
+        val revisionMatches = when (container) {
+            MetadataAudioContainer.ID3_V23 -> revision == 3
+            MetadataAudioContainer.ID3_V24 -> revision == 4
+            else -> revision in tagRevisions
+        }
+        return container in containers && revisionMatches &&
+            fields.all { it in supportedFields } &&
+            multiValueFields.all { it in permitsMultiValue } &&
+            (multiValueFields.isEmpty() || representsMultiValue(container, revision)) &&
+            (!artworkChanged || permitsArtwork)
+    }
+
+    /**
+     * MP3 multivalue: a repeated text value is only representable when the
+     * physical writer and the cold reader agree on a per-value surface.
+     * ID3v2.4 repeats values inside one frame (NUL-separated) and FLAC repeats
+     * the comment field. ID3v2.3 has no such surface: the stager refuses it, so
+     * this profile refuses it EARLIER, before any journal or preimage exists.
+     * A profile never authorizes inventing an interoperable-looking string by
+     * concatenating values with a separator.
+     */
+    private fun representsMultiValue(
+        container: MetadataAudioContainer, revision: Int,
+    ): Boolean = when (container) {
+        MetadataAudioContainer.ID3_V24 -> revision == 4
+        MetadataAudioContainer.FLAC -> true
+        else -> false
+    }
+
+    fun supports(resources: List<MetadataCommitIntentManifest.ResourceChange>): Boolean =
+        resources.all { MetadataResourceOperation.of(it) in supportedResourceOperations }
+}
+
+enum class MetadataResourceOperation {
+    ID3_APIC_REPLACE,
+    FLAC_PICTURE_REPLACE,
+    ID3_DESCRIBED_TEXT_REPLACE,
+    ID3_DESCRIBED_TEXT_CLEAR,
+    ID3_DESCRIBED_TEXT_ADD,
+    ID3_APIC_ADD,
+    ID3_APIC_REMOVE,
+    FLAC_PICTURE_ADD,
+    FLAC_PICTURE_REMOVE,
+    MP4_COVR_REPLACE,
+    MP4_COVR_ADD,
+    MP4_COVR_REMOVE;
+
+    companion object {
+        fun of(change: MetadataCommitIntentManifest.ResourceChange): MetadataResourceOperation =
+            when (change) {
+                is MetadataCommitIntentManifest.ResourceChange.PictureReplacement ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REPLACE
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REPLACE
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_REPLACE
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.PictureAdd ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_ADD
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_ADD
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_ADD
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.PictureRemove ->
+                    when (change.format) {
+                        MetadataArtworkEvidence.Format.ID3_APIC -> ID3_APIC_REMOVE
+                        MetadataArtworkEvidence.Format.FLAC_PICTURE -> FLAC_PICTURE_REMOVE
+                        MetadataArtworkEvidence.Format.MP4_COVR -> MP4_COVR_REMOVE
+                    }
+                is MetadataCommitIntentManifest.ResourceChange.DescribedText -> when {
+                    change.beforeCount == 0 && change.afterCount == 1 ->
+                        ID3_DESCRIBED_TEXT_ADD
+                    change.afterCount == 0 -> ID3_DESCRIBED_TEXT_CLEAR
+                    else -> ID3_DESCRIBED_TEXT_REPLACE
+                }
+            }
+    }
+}
+
+sealed interface SaveEligibility {
+    data class Available(val profile: CertifiedMetadataWriteProfile) : SaveEligibility
+    data class Blocked(val reason: SaveBlock) : SaveEligibility
+}
+
+enum class SaveBlock {
+    UNVERIFIED_TAGS, UNSUPPORTED_PROVIDER, UNSUPPORTED_CONTAINER,
+    UNSUPPORTED_TAG_REVISION, UNSUPPORTED_FIELDS, UNSUPPORTED_MULTIVALUE,
+    ARTWORK_NOT_CERTIFIED, NO_EXACT_GRANT, SOURCE_CHANGED, PLAYBACK_ACTIVE,
+    RECOVERY_PENDING, NO_CERTIFIED_PROFILE, INTEGRITY_NOT_VERIFIED
+}
+
+/**
+ * MP3 / ID3v2.3-v2.4 text and representable multivalue on the local MediaStore
+ * provider. Scope expansion is backed by cold-reader support for every field:
+ * track/disc pairs, version-specific dates, credits and described canonical text.
+ * Multivalue is limited to fields the cold parser accepts as ordered lists.
+ */
+private val id3ProfileFields: Set<MetadataField> = linkedSetOf(
+    MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+    MetadataField.ALBUM_ARTIST, MetadataField.GENRE, MetadataField.COMPOSER,
+    MetadataField.SUBTITLE, MetadataField.LABEL, MetadataField.ISRC,
+    MetadataField.BPM, MetadataField.MUSICAL_KEY, MetadataField.GROUPING,
+    MetadataField.COPYRIGHT, MetadataField.LANGUAGE, MetadataField.ORIGINAL_ARTIST,
+    MetadataField.LYRICIST, MetadataField.CONDUCTOR, MetadataField.REMIXER,
+    MetadataField.RELEASE_DATE, MetadataField.TRACK_NUMBER,
+    MetadataField.TRACK_TOTAL, MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+    MetadataField.COMMENT, MetadataField.LYRICS,
+) + MetadataMusicBrainzTagMap.id3Fields
+
+private val id3ProfileMultiValue: Set<MetadataField> = setOf(
+    MetadataField.ARTIST, MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+    MetadataField.COMPOSER, MetadataField.ORIGINAL_ARTIST,
+    MetadataField.LYRICIST, MetadataField.CONDUCTOR,
+)
+
+object MediaStoreMp3TextProfile {
+    const val ID = "MS_LOCAL_MP3_ID3_V23V24_TEXT_RESOURCES_V3"
+    const val EVIDENCE_ID = "ME16_MEDIASTORE_MP3_ID3_RESOURCES_V3"
+
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24),
+        tagRevisions = setOf(3, 4),
+        supportedFields = id3ProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = id3ProfileMultiValue,
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.ID3_APIC_REPLACE,
+            MetadataResourceOperation.ID3_APIC_ADD,
+            MetadataResourceOperation.ID3_APIC_REMOVE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
+        ),
+    )
+}
+
+private val flacProfileMultiValue: Set<MetadataField> = setOf(
+    MetadataField.ARTIST, MetadataField.ALBUM_ARTIST,
+    MetadataField.GENRE, MetadataField.COMPOSER,
+    MetadataField.ORCHESTRA, MetadataField.ENSEMBLE,
+    MetadataField.SOLOIST, MetadataField.INSTRUMENT,
+    MetadataField.ORIGINAL_ARTIST, MetadataField.LYRICIST,
+    MetadataField.ARRANGER, MetadataField.PERFORMER,
+    MetadataField.CONDUCTOR, MetadataField.PRODUCER,
+    MetadataField.MUSICBRAINZ_ARTIST_ID, MetadataField.MUSICBRAINZ_LABEL_ID,
+).intersect(MetadataCapabilityRegistry.flacStageFields)
+
+/**
+ * FLAC / Vorbis Comment title on an app-owned local MediaStore item.
+ *
+ * Keep this deliberately narrow: broader scalar staging exists, but production
+ * authorization expands only after the complete provider/readback/Room/recovery
+ * path has independent evidence for each operation.
+ */
+object MediaStoreFlacTextProfile {
+    const val ID = "MS_LOCAL_FLAC_VORBIS_TEXT_PICTURE_V2"
+    const val EVIDENCE_ID = "ME16_MEDIASTORE_FLAC_TEXT_PICTURE_V2"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.FLAC),
+        tagRevisions = setOf(1),
+        supportedFields = MetadataCapabilityRegistry.flacStageFields,
+        permitsArtwork = false,
+        permitsMultiValue = flacProfileMultiValue,
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+            MetadataResourceOperation.FLAC_PICTURE_ADD,
+            MetadataResourceOperation.FLAC_PICTURE_REMOVE,
+        ),
+    )
+}
+
+private val m4aProfileFields: Set<MetadataField> = setOf(
+    MetadataField.TITLE, MetadataField.ARTIST, MetadataField.ALBUM,
+    MetadataField.ALBUM_ARTIST, MetadataField.GENRE,
+    MetadataField.COMPOSER, MetadataField.RELEASE_DATE,
+    MetadataField.COMMENT, MetadataField.LYRICS,
+    MetadataField.GROUPING,
+    MetadataField.TRACK_NUMBER, MetadataField.TRACK_TOTAL,
+    MetadataField.DISC_NUMBER, MetadataField.DISC_TOTAL,
+)
+
+/**
+ * Active audio-only M4A text and cover-resource profile through the pinned
+ * JAudiotagger engine.
+ *
+ * Evidence covers API 36 MediaStore mutation, exact AAC `mdat` preservation,
+ * unrelated standard atom preservation, add/clear of representable text,
+ * track/disc pairs, cover add/replace/remove, cold readback and atomic Room
+ * publication. The old `..._TITLE_V1` identifier was already stale in the base
+ * build: its executable profile allowed advanced text and `covr`. That exact
+ * legacy scope remains registered as [MediaStoreM4aHistoricalProfileV1] for old
+ * unbound journals.
+ */
+object MediaStoreM4aTextProfile {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
+    )
+}
+
+/**
+ * Exact historical MediaStore M4A profile as shipped at `5ea40f95`/`a7059f79`.
+ *
+ * The legacy `..._TITLE_V1` identifier is misleading: that executable contract
+ * already authorized the full [m4aProfileFields] set and
+ * `MP4_COVR_ADD/REPLACE/REMOVE`. Old unbound journals written by that build need
+ * this exact broad scope to obtain a restore/finalize permit; narrowing it to a
+ * title-only profile deadlocks MUTATING/MUTATION_UNKNOWN recovery. It is never
+ * selected for a new transaction.
+ */
+object MediaStoreM4aHistoricalProfileV1 {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
+    )
+}
+
+/**
+ * Narrow recovery-only view of the same legacy evidence, retained solely so an
+ * old unbound title-only journal keeps an exact title-only attribution instead
+ * of being described by the broad profile. The old records never persisted a
+ * profile ID, so this internal view is not a new certification and is never
+ * selected for a new write.
+ */
+object MediaStoreM4aTitleOnlyRecoveryProfileV1 {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_ONLY_RECOVERY_V1"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = setOf(MetadataField.TITLE),
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
+/**
+ * MP3 text, representable multivalue and described/picture resources on a local
+ * SAF document with an exact persisted write grant handed out by DocumentsUI.
+ *
+ * Attribution is deliberately separate from MediaStore: the evidence ID names
+ * the system `ExternalStorageProvider` document provider, never a MediaStore
+ * descriptor. A remote or unclassified provider stays unmapped (no profile), so
+ * nothing here can authorize an unknown transport.
+ */
+object SafLocalMp3TitleProfile {
+    const val ID = "SAF_LOCAL_MP3_ID3_V23V24_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_MP3_ID3_RESOURCES_V2"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24),
+        tagRevisions = setOf(3, 4),
+        supportedFields = id3ProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = id3ProfileMultiValue,
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.ID3_APIC_REPLACE,
+            MetadataResourceOperation.ID3_APIC_ADD,
+            MetadataResourceOperation.ID3_APIC_REMOVE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_REPLACE,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_CLEAR,
+            MetadataResourceOperation.ID3_DESCRIBED_TEXT_ADD,
+        ),
+    )
+}
+
+/**
+ * FLAC text, representable multivalue and picture resources on a local SAF
+ * document with an exact persisted write grant. The picture scope is versioned
+ * separately from the text-only profile it supersedes, so the previous
+ * evidence ID can never authorize a resource write.
+ */
+object SafLocalFlacTextProfile {
+    const val ID = "SAF_LOCAL_FLAC_VORBIS_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_FLAC_PICTURE_RESOURCES_V2"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.FLAC),
+        tagRevisions = setOf(1),
+        supportedFields = MetadataCapabilityRegistry.flacStageFields,
+        permitsArtwork = false,
+        permitsMultiValue = flacProfileMultiValue,
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.FLAC_PICTURE_REPLACE,
+            MetadataResourceOperation.FLAC_PICTURE_ADD,
+            MetadataResourceOperation.FLAC_PICTURE_REMOVE,
+        ),
+    )
+}
+
+/**
+ * Active audio-only M4A text, pairs and cover resources on a local SAF
+ * document. Video remains closed: the container gate only admits an audio-only
+ * M4A. This profile is the successor of [SafLocalM4aTextProfileV1], which never
+ * covered a resource operation.
+ */
+object SafLocalM4aTextProfile {
+    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_RESOURCES_V2"
+    const val EVIDENCE_ID = "ME20_SAF_DOCUMENT_M4A_COVR_RESOURCES_V2"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
+    )
+}
+
+/**
+ * Historical SAF M4A text-only profile. Its evidence covered audio-only text and
+ * pairs but no `covr` operation. It remains recoverable only for an old journal
+ * whose durable intent contains text and no resource change.
+ */
+object SafLocalM4aTextProfileV1 {
+    const val ID = "SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1"
+    const val EVIDENCE_ID = "ME19_SAF_DOCUMENT_M4A_AUDIO_ONLY_TEXT_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+    )
+}
+
+object MetadataWriteProfileRegistry {
+    /**
+     * Recovery-only profiles for intents written before profile binding. They
+     * are never returned for a new transaction; the first (narrowest) one that
+     * represents the exact durable changes authorizes an old unbound intent.
+     */
+    private val historicalProfiles: List<CertifiedMetadataWriteProfile> = listOf(
+        MediaStoreM4aTitleOnlyRecoveryProfileV1.profile,
+        MediaStoreM4aHistoricalProfileV1.profile,
+        SafLocalM4aTextProfileV1.profile,
+    )
+
+    fun byId(id: String): CertifiedMetadataWriteProfile? = when (id) {
+        MediaStoreMp3TextProfile.ID -> MediaStoreMp3TextProfile.profile
+        MediaStoreFlacTextProfile.ID -> MediaStoreFlacTextProfile.profile
+        MediaStoreM4aTextProfile.ID -> MediaStoreM4aTextProfile.profile
+        SafLocalMp3TitleProfile.ID -> SafLocalMp3TitleProfile.profile
+        SafLocalFlacTextProfile.ID -> SafLocalFlacTextProfile.profile
+        SafLocalM4aTextProfile.ID -> SafLocalM4aTextProfile.profile
+        MediaStoreM4aHistoricalProfileV1.ID -> MediaStoreM4aHistoricalProfileV1.profile
+        MediaStoreM4aTitleOnlyRecoveryProfileV1.ID ->
+            MediaStoreM4aTitleOnlyRecoveryProfileV1.profile
+        SafLocalM4aTextProfileV1.ID -> SafLocalM4aTextProfileV1.profile
+        else -> null
+    }
+
+    fun forContainer(container: MetadataAudioContainer): CertifiedMetadataWriteProfile? =
+        activeForProviderAndContainer(
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+            container,
+        )
+
+    /** The only profile a new write may bind. Never a historical profile. */
+    fun activeForProviderAndContainer(
+        provider: MetadataProviderRecoveryProfile.Kind,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? =
+        when (provider) {
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO -> when (container) {
+                MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                    MediaStoreMp3TextProfile.profile
+                MetadataAudioContainer.FLAC -> MediaStoreFlacTextProfile.profile
+                MetadataAudioContainer.MP4_M4A -> MediaStoreM4aTextProfile.profile
+                else -> null
+            }
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT -> when (container) {
+                MetadataAudioContainer.ID3_V23, MetadataAudioContainer.ID3_V24 ->
+                    SafLocalMp3TitleProfile.profile
+                MetadataAudioContainer.FLAC -> SafLocalFlacTextProfile.profile
+                MetadataAudioContainer.MP4_M4A -> SafLocalM4aTextProfile.profile
+                else -> null
+            }
+            MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE -> null
+        }
+
+    /** Compatibility alias; always the active profile. */
+    fun forProviderAndContainer(
+        provider: MetadataProviderRecoveryProfile.Kind,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? = activeForProviderAndContainer(provider, container)
+
+    fun forDocumentProviderAndContainer(
+        provider: MetadataDocumentProvider,
+        container: MetadataAudioContainer,
+    ): CertifiedMetadataWriteProfile? = activeForProviderAndContainer(
+        providerKind(provider),
+        container,
+    )
+
+    /**
+     * Resolves the exact profile for one durable intent.
+     *
+     * A profile-bound intent is accepted only when the registered profile still
+     * matches its evidence ID and can represent every recorded scalar, multivalue
+     * and resource change. An old intent written before profile binding existed is
+     * accepted only through a historical profile that fits those exact changes.
+     * The MediaStore M4A title-only recovery view is tried before the broad
+     * text/`covr` contract that legacy ID actually shipped. The SAF M4A text-only
+     * view stays exact for text; its already-versioned active resource profile is
+     * the exact contract for an old unbound `covr` intent. An old intent that
+     * exceeds every historical contract returns null so the caller keeps the
+     * journal/backup instead of mutating speculatively.
+     *
+     * Containers without a retained historical definition preserve the previous
+     * recovery behavior, still constrained by the intent's exact change set.
+     */
+    fun resolveForIntent(intent: MetadataCommitIntentManifest.Receipt):
+        CertifiedMetadataWriteProfile? {
+        val provider = providerKind(intent.provider)
+        val revision = revisionFor(intent.container) ?: return null
+        val fields = intent.changes.mapTo(linkedSetOf()) { it.field }
+        val multiValueFields = intent.changes
+            .filter { it.afterCount > 1 }
+            .mapTo(linkedSetOf()) { it.field }
+        fun fits(profile: CertifiedMetadataWriteProfile): Boolean =
+            profile.provider == provider &&
+                profile.supports(
+                    intent.container, revision, fields, multiValueFields,
+                    artworkChanged = false,
+                ) &&
+                profile.supports(intent.resources)
+
+        if (intent.profileId != null) {
+            val profile = byId(intent.profileId) ?: return null
+            return profile.takeIf {
+                intent.evidenceId == profile.capabilityEvidenceId && fits(profile)
+            }
+        }
+        val historical = historicalProfiles.filter {
+            it.provider == provider && intent.container in it.containers
+        }
+        // First registered fit wins. The title-only recovery view precedes the
+        // broad legacy contract, so a title-only journal keeps its exact narrow
+        // attribution while advanced/covr journals fall through to the broad one.
+        if (historical.isNotEmpty()) {
+            historical.firstOrNull(::fits)?.let { return it }
+            // The SAF M4A V2 ID/evidence was already the shipped resource scope
+            // before profile binding existed, so an old unbound covr intent is an
+            // exact fit of that same active profile, not a widened one.
+            if (provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT &&
+                intent.container == MetadataAudioContainer.MP4_M4A
+            ) {
+                return activeForProviderAndContainer(provider, intent.container)
+                    ?.takeIf(::fits)
+            }
+            return null
+        }
+        return activeForProviderAndContainer(provider, intent.container)?.takeIf(::fits)
+    }
+
+    fun revisionFor(container: MetadataAudioContainer): Int? = when (container) {
+        MetadataAudioContainer.ID3_V23 -> 3
+        MetadataAudioContainer.ID3_V24 -> 4
+        MetadataAudioContainer.FLAC -> 1
+        MetadataAudioContainer.MP4_M4A -> 1
+        else -> null
+    }
+
+    private fun providerKind(
+        provider: MetadataDocumentProvider,
+    ): MetadataProviderRecoveryProfile.Kind = when (provider) {
+        MetadataDocumentProvider.MEDIASTORE ->
+            MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO
+        MetadataDocumentProvider.SAF ->
+            MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT
+        MetadataDocumentProvider.REMOTE, MetadataDocumentProvider.UNKNOWN ->
+            MetadataProviderRecoveryProfile.Kind.UNKNOWN_OR_REMOTE
+    }
+}

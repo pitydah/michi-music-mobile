@@ -11,7 +11,8 @@ object MetadataReadAccessPolicy {
     )
     fun classify(sourceId: String, scheme: String?, authority: String?): Kind = when {
         scheme != "content" -> Kind.REJECT
-        sourceId.isEmpty() && authority == MEDIA -> Kind.MEDIASTORE
+        authority == MEDIA && (sourceId.isEmpty() || sourceId == "lib_device_local") ->
+            Kind.MEDIASTORE
         sourceId.isNotEmpty() && authority in localSaf -> Kind.SAF_LOCAL
         else -> Kind.REJECT
     }

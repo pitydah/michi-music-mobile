@@ -9,11 +9,19 @@ data class MetadataEditorDraftSession private constructor(
     val original: MetadataSnapshot,
     private val timeline: List<Frame>,
     private val cursor: Int,
+    /**
+     * ME-11U: one logical field edit can span several IME updates. Consecutive
+     * [type] calls sharing this key replace the current frame instead of adding
+     * one undo step per keystroke. A null key keeps the historical behaviour and
+     * is still used by callers that need frame-by-frame history.
+     */
+    private val coalesce: Coalesce? = null,
 ) {
     private data class Frame(
         val typed: Map<MetadataField, List<String>> = emptyMap(),
         val cleared: Set<MetadataField> = emptySet(),
     )
+    private data class Coalesce(val field: MetadataField, val key: String)
     private val frame: Frame get() = timeline[cursor]
     val canUndo: Boolean get() = cursor > 0
     val canRedo: Boolean get() = cursor < timeline.lastIndex
@@ -34,28 +42,38 @@ data class MetadataEditorDraftSession private constructor(
         else -> original.known[field].orEmpty()
     }
 
-    fun type(field: MetadataField, values: List<String>): MetadataEditorDraftSession {
+    fun type(
+        field: MetadataField,
+        values: List<String>,
+        coalesceKey: String? = null,
+    ): MetadataEditorDraftSession {
         if (!canEdit(field)) return this
         // An empty/blank text input is NOT the explicit destructive Clear operation.
         val frozen = if (values.isEmpty()) listOf("") else values.toList()
         val originalValues = original.known[field].orEmpty()
         val next = if (frozen == originalValues) Frame(frame.typed - field, frame.cleared - field)
             else Frame(frame.typed + (field to frozen), frame.cleared - field)
-        return record(next)
+        if (next == frame) return this
+        val marker = coalesceKey?.let { Coalesce(field, it) }
+        if (marker != null && marker == coalesce && cursor == timeline.lastIndex) {
+            val replaced = timeline.toMutableList().also { it[cursor] = next }
+            return copy(timeline = replaced, coalesce = marker)
+        }
+        return record(next, marker)
     }
 
     fun clear(field: MetadataField): MetadataEditorDraftSession {
         if (!canEdit(field)) return this
-        return record(Frame(frame.typed - field, frame.cleared + field))
+        return record(Frame(frame.typed - field, frame.cleared + field), null)
     }
 
     fun keep(field: MetadataField): MetadataEditorDraftSession =
-        record(Frame(frame.typed - field, frame.cleared - field))
+        record(Frame(frame.typed - field, frame.cleared - field), null)
 
     fun undo(): MetadataEditorDraftSession =
-        if (canUndo) copy(cursor = cursor - 1) else this
+        if (canUndo) copy(cursor = cursor - 1, coalesce = null) else this
     fun redo(): MetadataEditorDraftSession =
-        if (canRedo) copy(cursor = cursor + 1) else this
+        if (canRedo) copy(cursor = cursor + 1, coalesce = null) else this
 
     /** Local field validation for a11y/error indicators; not a write grant. */
     fun fieldError(field: MetadataField): MetadataBlockReason? {
@@ -75,10 +93,10 @@ data class MetadataEditorDraftSession private constructor(
         else -> null
     }
 
-    private fun record(next: Frame): MetadataEditorDraftSession {
+    private fun record(next: Frame, marker: Coalesce?): MetadataEditorDraftSession {
         if (next == frame) return this
         val trimmed = (timeline.take(cursor + 1) + next).takeLast(MAX_HISTORY)
-        return copy(timeline = trimmed, cursor = trimmed.lastIndex)
+        return copy(timeline = trimmed, cursor = trimmed.lastIndex, coalesce = marker)
     }
 
     companion object {

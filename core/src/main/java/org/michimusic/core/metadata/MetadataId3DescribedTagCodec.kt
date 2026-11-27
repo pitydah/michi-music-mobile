@@ -9,9 +9,10 @@ import java.nio.charset.Charset
 /**
  * ME-10D: strictly bounded, typed ID3 COMM / USLT text. Does not represent
  * artwork, language variants, or SYLT as ordinary single-value text tags.
- * The current single-field staging path only edits (eng, empty description).
- * Every other language/descriptor is observed as a typed entry but is
- * NOT silently overwritten or flattened into a text value.
+ * The staging path addresses each entry by (kind, language, descriptor):
+ * existing entries may be replaced or cleared, and a verified-absent identity
+ * may be added as a new frame. Every other language/descriptor is observed as a
+ * typed entry and is NOT silently overwritten or flattened into a text value.
  */
 object MetadataId3DescribedTagCodec {
     enum class Kind(val frameId: String, val field: MetadataField, val maxChars: Int) {

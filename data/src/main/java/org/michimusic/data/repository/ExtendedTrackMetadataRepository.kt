@@ -43,6 +43,15 @@ enum class ExtendedTagUnavailableReason {
     TAG_MISMATCH,
     PERMISSION_DENIED,
     PROVIDER_UNAVAILABLE,
+
+    /** ME-11S: the document stamp changed between the two reads of one cold read. */
+    DOCUMENT_CHANGED_DURING_READ,
+
+    /** ME-11W: the launch request and the canonical track resolved to different documents. */
+    SOURCE_IDENTITY_MISMATCH,
+
+    /** ME-11W: the music root revision changed between launch and destination entry. */
+    LIBRARY_SCOPE_CHANGED,
 }
 
 sealed interface ExtendedTagEvidenceResult {
@@ -116,9 +125,14 @@ class ExtendedTrackMetadataRepository(
             ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
                 ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE)
         val uri = Uri.parse(filepath)
-        val sizeCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.SIZE
+        // The document family is a property of the URI, not of the Room owner.
+        // A cached local row carries lib_device_local while its filepath is a
+        // MediaStore content URI; asking it for DocumentsContract columns makes
+        // a live MediaStore item unreadable after the first save.
+        val mediaStoreDocument = uri.authority == MediaStore.AUTHORITY
+        val sizeCol = if (mediaStoreDocument) MediaStore.Audio.Media.SIZE
             else DocumentsContract.Document.COLUMN_SIZE
-        val modifiedCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.DATE_MODIFIED
+        val modifiedCol = if (mediaStoreDocument) MediaStore.Audio.Media.DATE_MODIFIED
             else DocumentsContract.Document.COLUMN_LAST_MODIFIED
         var denied = false
         var queryFailed = false
@@ -181,6 +195,95 @@ class ExtendedTrackMetadataRepository(
         )
     }
 
+    /**
+     * ME-11S P0: explicit cold read for the single metadata editor.
+     *
+     * Order is physical-first on purpose: a missing Room sidecar row is never
+     * allowed to block reading a readable document. The sidecar is only surfaced
+     * as a labelled [IndexedMetadataReference] and is never promoted to physical
+     * tag evidence.
+     */
+    suspend fun loadEditorColdRead(
+        sourceId: String, trackId: String, filepath: String, expectedSize: Long,
+    ): MetadataEditorColdRead = withContext(Dispatchers.IO) {
+        val indexed = try {
+            trackDao.getCurrentExtendedTagEvidenceForPath(
+                sourceId, trackId, filepath, expectedSize)?.toIndexedReference()
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        }
+        if (!filepath.startsWith("content://"))
+            return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.NOT_CONTENT_URI, indexed,
+                MetadataReadPhase.URI_CLASSIFICATION)
+        if (trackId.isBlank())
+            return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.INVALID_TRACK_ID, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
+        if (expectedSize <= 0)
+            return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.INVALID_SIZE, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
+        val ctx = context
+            ?: return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE, indexed,
+                MetadataReadPhase.RESOLVE_CANONICAL_TRACK)
+        val uri = Uri.parse(filepath)
+        // The document family is a property of the URI, not of the Room owner.
+        // A cached local row carries lib_device_local while its filepath is a
+        // MediaStore content URI; asking it for DocumentsContract columns makes
+        // a live MediaStore item unreadable after the first save.
+        val mediaStoreDocument = uri.authority == MediaStore.AUTHORITY
+        val sizeCol = if (mediaStoreDocument) MediaStore.Audio.Media.SIZE
+            else DocumentsContract.Document.COLUMN_SIZE
+        val modifiedCol = if (mediaStoreDocument) MediaStore.Audio.Media.DATE_MODIFIED
+            else DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        var denied = false
+        var queryFailed = false
+        fun stamp(): RecoveryDocumentStamp? = try {
+            ctx.contentResolver.query(uri, arrayOf(sizeCol, modifiedCol), null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst() || cursor.isNull(0) || cursor.isNull(1)) null
+                else RecoveryDocumentStamp(cursor.getLong(0), cursor.getLong(1))
+            }
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: SecurityException) { denied = true; null }
+        catch (_: Exception) { queryFailed = true; null }
+        fun stampFailure(): ExtendedTagUnavailableReason = when {
+            denied -> ExtendedTagUnavailableReason.PERMISSION_DENIED
+            queryFailed -> ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE
+            else -> ExtendedTagUnavailableReason.MISSING_STAMP
+        }
+        val before = stamp() ?: return@withContext MetadataEditorColdRead.Unavailable(
+            stampFailure(), indexed, MetadataReadPhase.QUERY_STAMP_BEFORE)
+        if (before.size != expectedSize)
+            return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.SIZE_MISMATCH, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
+        if (before.modifiedAt <= 0)
+            return@withContext MetadataEditorColdRead.Unavailable(
+                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO, indexed,
+                MetadataReadPhase.QUERY_STAMP_BEFORE)
+        // The physical read happens regardless of Room state. A revoked permission,
+        // a failed provider or an unsupported container degrades the result; it does
+        // not fabricate empty tags or promote cached display values.
+        val read = UriEmbeddedTags.readEditorDetailed(ctx, uri)
+        val after = stamp() ?: return@withContext MetadataEditorColdRead.Unavailable(
+            stampFailure(), indexed, MetadataReadPhase.QUERY_STAMP_AFTER)
+        MetadataEditorColdReadPolicy.classify(
+            expectedSize = expectedSize,
+            before = before,
+            after = after,
+            legacy = read.legacy,
+            report = read.report,
+            indexed = indexed,
+        ) { fields, stableStamp, proof ->
+            MetadataEditorEvidenceMapper.fromColdVerifiedRead(
+                sourceId, trackId, filepath, stableStamp, fields, proof)
+        }
+    }
+
     suspend fun load(sourceId: String, trackId: String): ExtendedTrackMetadata? =
         withContext(Dispatchers.IO) {
             if (trackId.isBlank()) null
@@ -210,3 +313,33 @@ internal fun EmbeddedTagEvidence.toExtendedMetadata(): ExtendedTrackMetadata =
         date = date,
         genres = TrustedGenreEncoding.decode(genre, genreValues),
     )
+
+/**
+ * ME-11S. Read-only projection of the Room sidecar for the editor's explicit
+ * "Referencia del índice" surface. Deliberately not a [MetadataSnapshot]: it
+ * carries no verified fields and cannot feed the draft session.
+ */
+internal fun EmbeddedTagEvidence.toIndexedReference(): IndexedMetadataReference {
+    val rows = buildList {
+        fun row(label: String, value: String) {
+            if (value.isNotBlank()) add(IndexedMetadataReference.Row(label, value))
+        }
+        row("Título", title)
+        row("Artista", artist)
+        row("Álbum", album)
+        row("Artista del álbum", albumArtist)
+        row("Género", TrustedGenreEncoding.decode(genre, genreValues).joinToString(" · "))
+        row("Compositor", composer)
+        if (trackNumber > 0) row("Pista", if (trackTotal > 0) "$trackNumber/$trackTotal" else "$trackNumber")
+        if (discNumber > 0) row("Disco", if (discTotal > 0) "$discNumber/$discTotal" else "$discNumber")
+        row("Fecha", date)
+    }
+    return IndexedMetadataReference(
+        sourceId = sourceId,
+        trackId = trackId,
+        sizeBytes = sizeBytes,
+        modifiedAt = modifiedAt,
+        parserVersion = parserVersion,
+        rows = rows,
+    )
+}

@@ -23,7 +23,7 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
         "devices" -> "devices"
         else -> null
     }
-    val immersive = route == "nowplaying" ||
+    val immersive = route == "nowplaying" || route == "metadata-editor" ||
         route == "sync_wizard/{deviceId}" || route?.startsWith("sync_wizard/") == true
     val section = when {
         primary != null -> primary

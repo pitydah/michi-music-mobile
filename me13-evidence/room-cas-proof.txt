@@ -1,0 +1,64 @@
+ME-13 Room CAS proof
+====================
+
+A) Real MediaStore save -> exact cached_tracks CAS (emulator)
+------------------------------------------------------------
+Instrumented test:
+  MetadataSaveMediaStoreE2EInstrumentedTest
+  saveRewritesMediaStoreVerifiesAndPublishesTheExactCachedRow
+
+Observed:
+  outcome=Saved, indexPublished=true
+  rowTitle=ME13 Renombrada
+  rowSize=1897 (the real candidate size)
+  verifiedAt=0
+  verifiedSha256=<empty>
+  journal=Clear
+
+The row was inserted through production SyncedTrackRepository.saveLibrary with
+sourceId=lib_device_local. The Save path performed the physical write, an
+independent postcheck, and the exact Room CAS. The stale pre-write identity was
+used as the CAS predicate; the row's prior verification evidence was invalidated.
+
+Gradle log: 0425
+
+B) Stale identity rejection (isolated Room, emulator)
+-----------------------------------------------------
+Instrumented test MetadataTrackDaoCasInstrumentedTest:
+  exactVerifiedCasUpdatesOneRowAndInvalidatesEvidence -> PASS
+  staleIdentityIsRejectedWithoutOverwrite             -> PASS
+
+The stale test passes a previousSize of 101 while the row stores 100 and asserts:
+  updated == false
+  title remains "Keep"
+No foreign row is overwritten.
+
+C) JVM CAS conflict and idempotency
+-----------------------------------
+MetadataTrackDaoCasPortTest (all passed):
+  exactVerifiedCasUpdatesTheRowAndInvalidatesEvidence
+  concurrentVerificationChangeIsRejectedWithoutOverwrite
+  aDifferentOwnerOrUriCannotMutate
+
+MetadataIndexReconcilerTest (all passed):
+  preWriteRowPublishesOnceAndRepeatedOpensDoNothing
+  concurrentRowChangeIsKeptWithoutOverwriteOrPublisherCall
+  casRefusalOnLivePrestateKeepsObligation
+  alreadyAppliedRowIsCleanedWithoutSecondCasAndSurvivesRestart
+  missingExactRowWaitsAndRetainsEveryObligation
+  corruptReceiptIsRetainedAndNeverPublished
+  v1ReceiptIsReadableButNeverActionable
+
+D) Durable receipt V2 on Android no-backup storage
+--------------------------------------------------
+The same E2E test wrote, decoded and action-verified a V2 receipt:
+  ME13_EVIDENCE: receipt v2 actionable=true write=true read=exact
+  sourceId=lib_device_local previousSize=1878 candidateBytes=1897
+  transactionId=b7527d1a-20fa-498f-a66c-b22c3bb58ad4
+The test-only receipt root was deleted afterwards.
+
+E) Direct publish removal
+-------------------------
+MetadataSaveService no longer contains the old private publish() method or its
+runBlocking TrackDao CAS fallback. The new-save and resume paths both call
+MetadataFinalizedIndexPublicationCoordinator with the exact MetadataWritePermit.

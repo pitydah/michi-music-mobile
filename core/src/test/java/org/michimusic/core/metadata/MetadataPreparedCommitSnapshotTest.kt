@@ -64,9 +64,18 @@ class MetadataPreparedCommitSnapshotTest {
     }
 
     @Test fun rejectsUnsupportedWriterFormatsWithoutGuessingFromExtension() {
-        for (format in listOf("OGG_OPUS","MP4_M4A","UNKNOWN","FLAC ",""))
+        for (format in listOf("OGG_OPUS","UNKNOWN","FLAC ",""))
             assertEquals(MetadataPreparedCommitSnapshot.Reason.UNSUPPORTED_FORMAT,
                 refusal(input().copy(format=format)))
+    }
+
+    @Test fun matureAudioOnlyM4aCandidateMayEnterTypedPreflight() {
+        val result = MetadataPreparedCommitSnapshot.evaluate(
+            input().copy(format = "MP4_M4A"),
+        ) as MetadataPreparedCommitSnapshot.Decision.Candidate
+
+        assertEquals(MetadataAudioContainer.MP4_M4A, result.evidence.format)
+        assertFalse(result.evidence.canCommitToProvider)
     }
 
     @Test fun id3VersionsHaveOnlyStructuralEvidenceNotCertification() {

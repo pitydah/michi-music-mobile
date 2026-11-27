@@ -38,4 +38,28 @@ class MetadataRecoveryRestorePolicyTest {
         MetadataRecoveryRestorePolicy.Refusal.PROVIDER_RECOVERY_UNCERTIFIED)
     @Test fun globalWriterClosed() = blocked(input().copy(sourceWriteCertified=false),
         MetadataRecoveryRestorePolicy.Refusal.SOURCE_WRITE_UNCERTIFIED)
+
+    @Test fun scopedMp3PermitReplacesOnlyTheGlobalBooleanFlags() = assertEquals(
+        MetadataRecoveryRestorePolicy.Decision.ReadyForTransportBehindCertification,
+        policy.evaluate(input().copy(
+            observedSource = MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES,
+            providerRecoveryCertified = false, sourceWriteCertified = false,
+            scopedRestorePermit = true,
+        )),
+    )
+
+    @Test fun scopedPermitStillNeedsConfirmationPlaybackAndExactGrant() {
+        blocked(input().copy(scopedRestorePermit = true, observedSource =
+            MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES, explicitUserConfirmation = false),
+            MetadataRecoveryRestorePolicy.Refusal.USER_CONFIRMATION_REQUIRED)
+        blocked(input().copy(scopedRestorePermit = true, observedSource =
+            MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES, playbackClosed = false),
+            MetadataRecoveryRestorePolicy.Refusal.PLAYBACK_ACTIVE)
+        blocked(input().copy(scopedRestorePermit = true, observedSource =
+            MetadataPhysicalOutcomePolicy.State.UNKNOWN_BYTES, exactWriteGrant = false),
+            MetadataRecoveryRestorePolicy.Refusal.NO_EXACT_GRANT)
+        blocked(input().copy(scopedRestorePermit = true, observedSource =
+            MetadataPhysicalOutcomePolicy.State.ORIGINAL_INTACT),
+            MetadataRecoveryRestorePolicy.Refusal.SOURCE_NOT_VERIFIED_CANDIDATE)
+    }
 }

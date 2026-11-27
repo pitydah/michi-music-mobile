@@ -19,7 +19,8 @@ class MetadataSelectiveAssetStageTest {
         (i ushr 7 and 127).toByte(),(i and 127).toByte())
     private fun png(width:Int=16,height:Int=24, marker:Int=0):ByteArray =
         byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10)+be(13)+"IHDR".toByteArray()+
-        be(width)+be(height)+byteArrayOf(8,2,0,0,0)+ByteArray(30){marker.toByte()}
+        be(width)+be(height)+byteArrayOf(8,2,0,0,0)+ByteArray(4){marker.toByte()}+
+        be(0)+"IEND".toByteArray()+ByteArray(4){marker.toByte()}
     private fun jpeg(width:Int=12,height:Int=9):ByteArray =
         byteArrayOf(0xff.toByte(),0xd8.toByte(),0xff.toByte(),0xc0.toByte(),0,17,8,
             (height ushr 8).toByte(),height.toByte(),(width ushr 8).toByte(),width.toByte(),3,
@@ -151,6 +152,53 @@ class MetadataSelectiveAssetStageTest {
                 MetadataDescribedTextWorkbench.Change.Replace(identity,"Canción en vivo 🎵")))
             assertEquals("Canción en vivo 🎵",snapshot(d).texts.single().text)
             assertEquals(identity,snapshot(d).texts.single().identity)
+        }
+    }
+    @Test fun addsAbsentV24CommentWithoutTouchingObservedEntries(){
+        val k=MetadataId3DescribedTagCodec.Kind.COMMENT
+        val source=id3(4,listOf(
+            frame(4,"TIT2",byteArrayOf(3)+"Jazz".toByteArray()),
+            frame(4,"APIC",apic(png())),
+            frame(4,"COMM",described(4,k,"eng","","Keep")),
+        ))
+        withFile(source){s,d,snap ->
+            val identity=MetadataDescribedTextWorkbench.Identity(k,"spa","principal")
+            val result=stage(s,d,snap,MetadataSelectiveAssetStage.Edit.DescribedText(
+                MetadataDescribedTextWorkbench.Change.Add(identity,"Comentario nuevo 🎵")))
+            assertEquals(sha(audio),result.audioSha256)
+            assertFalse(result.canCommitToProvider)
+            val after=snapshot(d)
+            assertEquals("Keep",after.texts.single {it.identity.language=="eng"}.text)
+            assertEquals("Comentario nuevo 🎵",after.texts.single {it.identity==identity}.text)
+            assertEquals(snap.artworks.single().info,after.artworks.single().info)
+            assertEquals(4,d.readBytes()[3].toInt())
+            assertArrayEquals(audio,d.readBytes().copyOfRange(
+                d.readBytes().size-audio.size,d.readBytes().size))
+        }
+    }
+    @Test fun addsAbsentV23LyricsWithDescriptor(){
+        val k=MetadataId3DescribedTagCodec.Kind.LYRICS
+        withFile(id3(3,listOf(frame(3,"TIT2",byteArrayOf(0)+"Jazz".toByteArray())))){s,d,snap->
+            val identity=MetadataDescribedTextWorkbench.Identity(k,"spa","Versión")
+            stage(s,d,snap,MetadataSelectiveAssetStage.Edit.DescribedText(
+                MetadataDescribedTextWorkbench.Change.Add(identity,"Letra en vivo")))
+            assertEquals(3,d.readBytes()[3].toInt())
+            val after=snapshot(d)
+            assertEquals(listOf(identity),after.texts.map {it.identity})
+            assertEquals("Letra en vivo",after.texts.single().text)
+            assertEquals(sha(audio),sha(d.readBytes().copyOfRange(
+                d.readBytes().size-audio.size,d.readBytes().size)))
+        }
+    }
+    @Test fun addRefusesEntryAlreadyObserved(){
+        val k=MetadataId3DescribedTagCodec.Kind.COMMENT
+        withFile(id3(4,listOf(frame(4,"COMM",described(4,k,"spa","Notas","Viejo"))))){s,d,snap->
+            rejects(MetadataSelectiveAssetStage.Code.INVALID_REPLACEMENT){
+                stage(s,d,snap,MetadataSelectiveAssetStage.Edit.DescribedText(
+                    MetadataDescribedTextWorkbench.Change.Add(
+                        MetadataDescribedTextWorkbench.Identity(k,"spa","Notas"),"Nuevo")))
+            }
+            assertFalse(d.exists())
         }
     }
     @Test fun flacPngReplacementUpdatesDimensionsPreservesOtherBlocks(){

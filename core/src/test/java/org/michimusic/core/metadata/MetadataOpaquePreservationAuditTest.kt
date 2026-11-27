@@ -35,18 +35,41 @@ class MetadataOpaquePreservationAuditTest {
         write(s(audio))
     }.toByteArray()
     private fun verify(left: ByteArray, right: ByteArray, format: MetadataAudioContainer,
-                       edited: Set<MetadataField> = setOf(MetadataField.TITLE)):
+                       edited: Set<MetadataField> = setOf(MetadataField.TITLE),
+                       resources: List<MetadataCommitIntentManifest.ResourceChange> = emptyList()):
                        MetadataOpaquePreservationAudit.Verdict {
         val original = File.createTempFile("opaque-original", ".bin")
         val staged = File.createTempFile("opaque-stage", ".bin")
         try {
             original.writeBytes(left); staged.writeBytes(right)
-            return audit.compare(original, staged, format, edited)
+            return audit.compare(original, staged, format, edited, resources)
         } finally { original.delete(); staged.delete() }
     }
     private fun frameTitle(text: String) = id3Frame("TIT2", byteArrayOf(0) + s(text))
     private fun sameId3(unknown: String = "u", audio: String = "AUDIO") = id3(
         frameTitle("OLD") + id3Frame("PRIV", s(unknown)), audio)
+    private fun described(
+        kind: MetadataId3DescribedTagCodec.Kind,
+        language: String,
+        description: String,
+        text: String,
+    ): ByteArray = id3Frame(
+        kind.frameId,
+        byteArrayOf(1) + s(language) +
+            byteArrayOf(0xff.toByte(), 0xfe.toByte()) +
+            description.toByteArray(StandardCharsets.UTF_16LE) +
+            byteArrayOf(0, 0) +
+            text.toByteArray(StandardCharsets.UTF_16),
+    )
+    private fun pictureAdd(ordinal: Int) = MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+        MetadataArtworkEvidence.Format.ID3_APIC, ordinal, 3, "",
+        "image/png", 8, "a".repeat(64),
+    )
+    private fun pictureReplace(ordinal: Int) =
+        MetadataCommitIntentManifest.ResourceChange.PictureReplacement(
+            ordinal, MetadataArtworkEvidence.Format.ID3_APIC, 3, "",
+            "image/png", 8, "b".repeat(64), "image/png", 9, "c".repeat(64),
+        )
     @Test fun id3AllowsExactChangeWithUnchangedPrivAndAudio() = assertTrue(
         verify(sameId3(), id3(frameTitle("NEW") + id3Frame("PRIV",s("u"))),
             MetadataAudioContainer.ID3_V23) is MetadataOpaquePreservationAudit.Verdict.Compared)
@@ -82,6 +105,51 @@ class MetadataOpaquePreservationAuditTest {
         assertTrue(verify(id3(id3Frame("COMM",old)+id3Frame("PRIV",s("same"))),
             id3(id3Frame("COMM",fresh)+id3Frame("PRIV",s("same"))),
             MetadataAudioContainer.ID3_V23,setOf(MetadataField.COMMENT))
+            is MetadataOpaquePreservationAudit.Verdict.Compared)
+    }
+    @Test fun id3ResourceOnlyAllowsSelectedApicAddAndPreservesPriv() {
+        val before = id3(id3Frame("PRIV", s("same")))
+        val after = id3(
+            id3Frame("PRIV", s("same")) +
+                id3Frame("APIC", byteArrayOf(0) + s("image/png") +
+                    byteArrayOf(0, 3) + s("NEW")),
+        )
+        assertTrue(verify(before, after, MetadataAudioContainer.ID3_V23,
+            emptySet(), listOf(pictureAdd(0)))
+            is MetadataOpaquePreservationAudit.Verdict.Compared)
+    }
+    @Test fun id3ResourceOnlyBlocksChangedUnselectedApic() {
+        val first = id3Frame("APIC", byteArrayOf(0) + s("image/png") +
+            byteArrayOf(0, 3) + s("A"))
+        val second = id3Frame("APIC", byteArrayOf(0) + s("image/png") +
+            byteArrayOf(0, 3) + s("B"))
+        val changed = id3Frame("APIC", byteArrayOf(0) + s("image/png") +
+            byteArrayOf(0, 3) + s("C"))
+        assertEquals(
+            MetadataOpaquePreservationAudit.Verdict.Blocked(
+                MetadataOpaquePreservationAudit.Refusal.UNEDITED_OPAQUE_CHANGED),
+            verify(id3(first + second), id3(first + changed),
+                MetadataAudioContainer.ID3_V23, emptySet(), listOf(pictureReplace(0))),
+        )
+    }
+    @Test fun id3ResourceOnlyAllowsSelectedDescribedTextAndPreservesOtherComm() {
+        val other = described(
+            MetadataId3DescribedTagCodec.Kind.COMMENT, "fra", "notes", "Conservé")
+        val added = described(
+            MetadataId3DescribedTagCodec.Kind.COMMENT, "spa", "principal", "Nuevo")
+        val before = id3(id3Frame("PRIV", s("same")) + other)
+        val after = id3(id3Frame("PRIV", s("same")) + other + added)
+        val resource = MetadataCommitIntentManifest.ResourceChange.DescribedText(
+            kind = MetadataId3DescribedTagCodec.Kind.COMMENT,
+            language = "spa",
+            description = "principal",
+            beforeCount = 0,
+            afterCount = 1,
+            beforeSha256 = MetadataCommitIntentManifest.valuesDigest(emptyList()),
+            afterSha256 = MetadataCommitIntentManifest.valuesDigest(listOf("Nuevo")),
+        )
+        assertTrue(verify(before, after, MetadataAudioContainer.ID3_V23,
+            emptySet(), listOf(resource))
             is MetadataOpaquePreservationAudit.Verdict.Compared)
     }
     @Test fun id3RejectsMalformedUserTextWhenEditingMbid() = assertEquals(

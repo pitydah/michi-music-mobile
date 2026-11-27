@@ -49,6 +49,7 @@ internal fun MichiMetadataPrivateBundlePanel(
     playbackDescriptorClosed: () -> Boolean,
     currentSessionAllowsPreparation: Boolean,
     modifier: Modifier = Modifier,
+    onInspect: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val inspected = artLyrics.inspected
@@ -95,8 +96,31 @@ internal fun MichiMetadataPrivateBundlePanel(
         Text("Preparación privada", style = MaterialTheme.typography.titleMedium)
         Text("Prepara una copia independiente para inspeccionarla. No guarda las etiquetas en la canción, no modifica Room ni concede permisos de escritura.",
             style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-        if (inspected == null) Text("Antes de preparar, abre «Arte y letras» e inspecciona los metadatos incrustados.",
-            style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        if (inspected == null) {
+            when (val load = artLyrics.load) {
+                MetadataArtLyricsUiState.Load.Loading -> Text(
+                    "Inspeccionando el archivo…",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                is MetadataArtLyricsUiState.Load.Blocked -> Text(
+                    "No se pudo inspeccionar: ${load.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+                else -> {
+                    Text(
+                        "Antes de preparar, inspecciona los metadatos incrustados. " +
+                            "No hace falta salir de esta revisión.",
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary,
+                    )
+                    if (onInspect != null) {
+                        Button(
+                            onClick = onInspect,
+                            modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp)
+                                .testTag("metadata_preflight_inspect"),
+                        ) { Text("Inspeccionar el archivo") }
+                    }
+                }
+            }
+        }
         if (assets.size > 4) Text("Máximo cuatro cambios de carátula o texto por copia privada.",
             color = MaterialTheme.colorScheme.error)
         if (fieldReview is MetadataReview.Blocked || invalidText)
@@ -114,6 +138,9 @@ internal fun MichiMetadataPrivateBundlePanel(
                     when (asset) {
                         is MetadataSelectiveAssetStage.Edit.Picture -> asset.copy(
                             proposal = asset.proposal.copy(proposedBytes = asset.proposal.proposedBytes.copyOf()))
+                        is MetadataSelectiveAssetStage.Edit.PictureAdd -> asset.copy(
+                            proposal = asset.proposal.copy(proposedBytes = asset.proposal.proposedBytes.copyOf()))
+                        is MetadataSelectiveAssetStage.Edit.PictureRemove -> asset
                         is MetadataSelectiveAssetStage.Edit.DescribedText -> asset
                     }
                 }

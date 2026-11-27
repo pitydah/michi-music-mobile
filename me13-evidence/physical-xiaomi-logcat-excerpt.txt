@@ -1,0 +1,29 @@
+$ adb -s 26dfb91d shell am instrument -w -r -e class org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest org.michimusic.data.test/androidx.test.runner.AndroidJUnitRunner
+INSTRUMENTATION_STATUS: class=org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest:
+INSTRUMENTATION_STATUS: test=saveRewritesMediaStoreVerifiesAndPublishesTheExactCachedRow
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=org.michimusic.data.metadata.MetadataSaveMediaStoreE2EInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=saveRewritesMediaStoreVerifiesAndPublishesTheExactCachedRow
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 0.3
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1
+
+$ adb -s 26dfb91d logcat -d -v threadtime | grep ME13_E2E
+11-22 22:56:01.885  5758  5798 I System.out: ME13_E2E fixture uri=content://media/external/audio/media/224614 trackId=local_224614 bytes=1878 sha=7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa
+11-22 22:56:02.073  5758  5798 I System.out: ME13_E2E outcome=Saved(snapshot=MetadataSnapshot(target=MetadataTarget(sourceId=lib_device_local, trackId=local_224614, uri=content://media/external/audio/media/224614, evidenceToken=me13:sha256:5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3), tagsVerified=true, known={TITLE=[ME13 Renombrada], ARTIST=[Synthetic Artist], ALBUM=[Synthetic Album], GENRE=[Rock]}, opaque={}, verifiedFields=[TITLE, ARTIST, ALBUM, ALBUM_ARTIST, GENRE, COMPOSER, TRACK_NUMBER, TRACK_TOTAL, DISC_NUMBER, DISC_TOTAL, RELEASE_DATE, SUBTITLE, ORIGINAL_RELEASE_DATE, LABEL, ISRC, BPM, MUSICAL_KEY, COMMENT, CONDUCTOR, COPYRIGHT, GROUPING, LANGUAGE, LYRICIST, ORIGINAL_ARTIST, REMIXER, LYRICS, MUSICBRAINZ_RECORDING_ID, MUSICBRAINZ_RELEASE_ID, MUSICBRAINZ_RELEASE_TRACK_ID, MUSICBRAINZ_RELEASE_GROUP_ID, MUSICBRAINZ_WORK_ID, MUSICBRAINZ_ARTIST_ID, MUSICBRAINZ_LABEL_ID], fieldObservations={TITLE=Present(values=[ME13 Original]), ARTIST=Present(values=[Synthetic Artist]), ALBUM=Present(values=[Synthetic Album]), ALBUM_ARTIST=VerifiedAbsent, GENRE=Present(values=[Rock]), COMPOSER=VerifiedAbsent, TRACK_NUMBER=VerifiedAbsent, TRACK_TOTAL=VerifiedAbsent, DISC_NUMBER=VerifiedAbsent, DISC_TOTAL=VerifiedAbsent, RELEASE_DATE=VerifiedAbsent, SUBTITLE=VerifiedAbsent, ORIGINAL_RELEASE_DATE=VerifiedAbsent, LABEL=VerifiedAbsent, CATALOG_NUMBER=Unverifiable(issue=FIELD_NOT_SUPPORTED), ISRC=VerifiedAbsent, BPM=VerifiedAbsent, MUSICAL_KEY=VerifiedAbsent, ALBUM_SUBTITLE=Unverifiable(issue=FIELD_NOT_SUPPORTED), ARRANGER=Unverifiable(issue=FIELD_NOT_SUPPORTED), COMMENT=VerifiedAbsent, COMPILATION=Unverifiable(issue=FIELD_NOT_SUPPORTED), CONDUCTOR=VerifiedAbsent, COPYRIGHT=VerifiedAbsent, EDITION=Unverifiable(issue=FIELD_NOT_SUPPORTED), ENSEMBLE=Unverifiable(issue=FIELD_NOT_SUPPORTED), EXECUTIVE_PRODUCER=Unverifiable(issue=FIELD_NOT_SUPPORTED), GROUPING=VerifiedAbsent, INSTRUMENT=Unverifiable(issue=FIELD_NOT_SUPPORTED), LANGUAGE=VerifiedAbsent, LYRICIST=VerifiedAbsent, MASTERING_ENGINEER=Unverifiable(issue=FIELD_NOT_SUPPORTED), MEDIA_FORMAT=Unverifiable(issue=FIELD_NOT_SUPPORTED), MOOD=Unverifiable(issue=FIELD_NOT_SUPPORTED), MOVEMENT=Unverifiable(issue=FIELD_NOT_SUPPORTED), MOVEMENT_NUMBER=Unverifiable(issue=FIELD_NOT_SUPPORTED), MOVEMENT_TOTAL=Unverifiable(issue=FIELD_NOT_SUPPORTED), OPUS_NUMBER=Unverifiable(issue=FIELD_NOT_SUPPORTED), ORCHESTRA=Unverifiable(issue=FIELD_NOT_SUPPORTED), ORIGINAL_ARTIST=VerifiedAbsent, PERFORMER=Unverifiable(issue=FIELD_NOT_SUPPORTED), PRODUCER=Unverifiable(issue=FIELD_NOT_SUPPORTED), PUBLISHER=Unverifiable(issue=FIELD_NOT_SUPPORTED), RECORDING_DATE=Unverifiable(issue=FIELD_NOT_SUPPORTED), RELEASE_STATUS=Unverifiable(issue=FIELD_NOT_SUPPORTED), RELEASE_TYPE=Unverifiable(issue=FIELD_NOT_SUPPORTED), REMIXER=VerifiedAbsent, SCRIPT=Unverifiable(issue=FIELD_NOT_SUPPORTED), SOLOIST=Unverifiable(issue=FIELD_NOT_SUPPORTED), WORK=Unverifiable(issue=FIELD_NOT_SUPPORTED), WORK_NUMBER=Unverifiable(issue=FIELD_NOT_SUPPORTED), LYRICS=VerifiedAbsent, MUSICBRAINZ_RECORDING_ID=VerifiedAbsent, MUSICBRAINZ_RELEASE_ID=VerifiedAbsent, MUSICBRAINZ_RELEASE_TRACK_ID=VerifiedAbsent, MUSICBRAINZ_RELEASE_GROUP_ID=VerifiedAbsent, MUSICBRAINZ_WORK_ID=VerifiedAbsent, MUSICBRAINZ_ARTIST_ID=VerifiedAbsent, MUSICBRAINZ_LABEL_ID=VerifiedAbsent}), indexPublished=true)
+11-22 22:56:02.105  5758  5798 I System.out: ME13_E2E PASS originalSha=7e584dc6b2b5684cc204aa4de4117454e6ad960ae69d0347c919c1692f7d28aa candidateSha=5ff8673936917cf39c3fb978e7c7863c3777508c0ed6f4f1d909703ab2e7d9c3 rowTitle=ME13 Renombrada rowSize=1897 journal=Clear

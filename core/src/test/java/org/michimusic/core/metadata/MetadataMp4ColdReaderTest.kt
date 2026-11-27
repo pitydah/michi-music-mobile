@@ -16,6 +16,19 @@ class MetadataMp4ColdReaderTest {
     private fun dataTag(type: Int, value: String) = atom("data",byteArrayOf(
         0,0,0,type.toByte(),0,0,0,0)+value.toByteArray(Charsets.UTF_8))
     private fun item(name: String, value: String) = atom(name,dataTag(1,value))
+    private fun track(number: Int, total: Int = 0) = atom(
+        "trkn",
+        atom(
+            "data",
+            byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0) +
+                byteArrayOf(
+                    0, 0,
+                    (number ushr 8).toByte(), number.toByte(),
+                    (total ushr 8).toByte(), total.toByte(),
+                    0, 0,
+                ),
+        ),
+    )
     private fun body(items: ByteArray, late: Boolean = false): ByteArray {
         val ftyp = atom("ftyp",ascii("M4A ") + ByteArray(4))
         val metadata = atom("moov",atom("udta",atom("meta",ByteArray(4) + atom("ilst",items))))
@@ -34,15 +47,22 @@ class MetadataMp4ColdReaderTest {
         assertEquals(MetadataFieldObservation.Present(listOf("Michi Song")),
             report.observation(MetadataField.TITLE))
     }
-    @Test fun missingTitleIsUnverifiableNotAbsent() = assertTrue(
-        observe(body(item("©ART","Artist"))).observation(MetadataField.TITLE)
-            is MetadataFieldObservation.Unverifiable)
+    @Test fun missingCanonicalTitleIsVerifiedAbsent() = assertEquals(
+        MetadataFieldObservation.VerifiedAbsent,
+        observe(body(item("©ART","Artist"))).observation(MetadataField.TITLE))
     @Test fun supportsArtistAndAlbum() {
         val r=observe(body(item("©ART","Artist")+item("©alb","Album")))
         assertEquals(MetadataFieldObservation.Present(listOf("Artist")),
             r.observation(MetadataField.ARTIST))
         assertEquals(MetadataFieldObservation.Present(listOf("Album")),
             r.observation(MetadataField.ALBUM))
+    }
+    @Test fun supportsCanonicalTrackNumber() {
+        val report = observe(body(track(7, 12)))
+        assertEquals(
+            MetadataFieldObservation.Present(listOf("7")),
+            report.observation(MetadataField.TRACK_NUMBER),
+        )
     }
     @Test fun preservesUnicode() = assertEquals(
         MetadataFieldObservation.Present(listOf("Canción ♪")),

@@ -7,7 +7,9 @@ import java.io.ByteArrayOutputStream
 class MetadataArtworkLyricsProbeTest {
     private fun sync(x:Int)=byteArrayOf(((x shr 21) and 127).toByte(), ((x shr 14) and 127).toByte(),((x shr 7) and 127).toByte(),(x and 127).toByte())
     private fun word(x:Int)=byteArrayOf((x ushr 24).toByte(),(x ushr 16).toByte(),(x ushr 8).toByte(),x.toByte())
-    private val png = byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10) + ByteArray(16)
+    private val png = byteArrayOf(0x89.toByte(),80,78,71,13,10,26,10) +
+        word(13) + "IHDR".toByteArray() + word(1) + word(1) +
+        byteArrayOf(8,2,0,0,0) + ByteArray(4) + word(0) + "IEND".toByteArray() + ByteArray(4)
     private fun frame(id:String, data:ByteArray, version:Int=4): ByteArray =
         id.toByteArray() + (if (version==4) sync(data.size) else word(data.size)) + byteArrayOf(0,0) + data
     private fun tag(vararg frames:ByteArray, version:Int=4): ByteArray {
@@ -21,6 +23,24 @@ class MetadataArtworkLyricsProbeTest {
         val mime="image/png".toByteArray()
         return word(3)+word(mime.size)+mime+word(0)+word(2)+word(2)+word(8)+word(0)+word(png.size)+png
     }
+    private fun utf16Apic():ByteArray = byteArrayOf(1)+"image/png".toByteArray()+
+        byteArrayOf(0,3)+byteArrayOf(0xff.toByte(),0xfe.toByte(),0x41,0,0,0)+png
+
+    @Test fun utf16ApicDescriptionAndImageAgree() {
+        val result=MetadataArtworkLyricsProbe.inspect(tag(frame("APIC",utf16Apic())))
+        assertTrue(result is MetadataArtworkLyricsProbe.Result.Ready)
+        val ready=result as MetadataArtworkLyricsProbe.Result.Ready
+        assertArrayEquals(png,ready.snapshot.artworks.single().image)
+    }
+
+    @Test fun v23RejectsUtf8ApicButAcceptsUtf16() {
+        val utf8=byteArrayOf(3)+"image/png".toByteArray()+byteArrayOf(0,3,0)+png
+        val rejected=MetadataArtworkLyricsProbe.inspect(tag(frame("APIC",utf8),version=3))
+        assertTrue(rejected is MetadataArtworkLyricsProbe.Result.Blocked)
+        val accepted=MetadataArtworkLyricsProbe.inspect(tag(frame("APIC",utf16Apic()),version=3))
+        assertTrue(accepted is MetadataArtworkLyricsProbe.Result.Ready)
+    }
+
     private fun flacWithPicture():ByteArray {
         val streamInfo=byteArrayOf(0,0,0,34)+ByteArray(34)
         val body=picBlock();val picture=byteArrayOf(0x86.toByte(),0,0,body.size.toByte())+body

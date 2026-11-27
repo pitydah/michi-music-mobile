@@ -68,7 +68,6 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GenreTrackActionsSheet
 import org.michimusic.mobile.ui.components.MichiGenreEditorOrigin
-import org.michimusic.mobile.ui.components.MichiGenreNormalizationHost
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
@@ -88,6 +87,12 @@ import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /** A library drill-down, not a second playback/navigation authority. */
+/**
+ * The editor validates MusicRootAuthority.revision, not the genre-index generation.
+ * Keep these identities separate; conflating them rejected a valid Genre launch.
+ */
+internal fun genreEditorScopeGeneration(rootRevision: Long): Long = rootRevision
+
 @Composable
 fun GenreLibraryPanel(
     genres: List<LibraryGenre>,
@@ -98,6 +103,12 @@ fun GenreLibraryPanel(
     globallyBlockedTrackIds: Set<String> = emptySet(),
     scopeKey: String = "",
     scopeGeneration: Long = 0L,
+    /**
+     * MusicRootAuthority revision, distinct from the genre-index generation above.
+     * The editor validates this value; reusing the genre generation falsely rejects
+     * the launch as a stale library scope.
+     */
+    editorScopeGeneration: Long = 0L,
     canPlayLocally: () -> Boolean = { true },
     captureIntelligenceTicket: () -> org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket? = { null },
     playIntelligenceQueue: (List<Track>, Int,
@@ -119,7 +130,7 @@ fun GenreLibraryPanel(
     // NORM-M1: per-track actions and the single editor host live at panel level so a
     // row recomposition cannot lose the selection or the exact owner receipt.
     var actionsTrack by remember { mutableStateOf<Track?>(null) }
-    var normalizationTrack by remember { mutableStateOf<Track?>(null) }
+    val editorLauncher = org.michimusic.mobile.ui.metadata.LocalMetadataEditorLauncher.current
     val context = LocalContext.current
     // Both approved catalogs are read once, when the panel enters composition. They
     // are independent one-shot reads of a bounded manifest (never a media scan and
@@ -397,20 +408,25 @@ fun GenreLibraryPanel(
     // The actions sheet is closed BEFORE the editor opens: never two modal
     // containers stacked over each other.
     actionsTrack?.let { track ->
+        fun openEditor() {
+            actionsTrack = null
+            editorLauncher(
+                org.michimusic.mobile.ui.metadata.MetadataEditorLaunchRequest(
+                    sourceId = track.sourceId,
+                    trackId = track.id,
+                    trackUri = track.filepath,
+                    expectedSize = track.size,
+                    scopeGeneration = genreEditorScopeGeneration(editorScopeGeneration),
+                    origin = org.michimusic.mobile.ui.metadata.MetadataEditorOrigin.GENRE_LIBRARY,
+                    focusGenre = true,
+                )
+            )
+        }
         GenreTrackActionsSheet(
             track = track,
             onDismiss = { actionsTrack = null },
-            onNormalize = {
-                actionsTrack = null
-                normalizationTrack = track
-            },
-        )
-    }
-    normalizationTrack?.let { track ->
-        MichiGenreNormalizationHost(
-            track = track,
-            origin = MichiGenreEditorOrigin.GENRES,
-            onDismiss = { normalizationTrack = null },
+            onNormalize = { openEditor() },
+            onEditMetadata = { openEditor() },
         )
     }
 }
