@@ -20,19 +20,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -48,15 +51,63 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.UI8VisualSpec
 
 /**
- * A one-pixel-offset shadow under the caption letters. It is what keeps the words
- * readable on a bright banner while the scrim stays soft, without any blur pass at
- * runtime: the blur radius is a text-layout value, not a RenderEffect.
+ * A soft drop shadow under the caption letters. The black glyph outline in
+ * [CaptionText] is what guarantees local 4.5:1 over bright artwork; the shadow
+ * keeps the typographic edge instead of turning it into a hard sticker.
  */
 private fun captionShadow(blurRadius: Float): Shadow = Shadow(
     color = Color.Black.copy(alpha = 0.85f),
     offset = Offset(0f, 1.5f),
     blurRadius = blurRadius,
 )
+
+/**
+ * Caption typography with a real outline, not a surface. The black stroke tracks
+ * every glyph at every font scale, so white text stays legible over a light or
+ * photographic banner while the banner itself is untouched. The outline layer is
+ * decoration only and never contributes semantics.
+ */
+@Composable
+private fun CaptionText(
+    text: String,
+    color: Color,
+    fontSize: TextUnit,
+    modifier: Modifier = Modifier,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    letterSpacing: TextUnit = TextUnit.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    shadow: Shadow? = null,
+    outlineWidth: Dp = 1.dp,
+) {
+    val outlinePx = with(LocalDensity.current) { outlineWidth.toPx() }
+    Box(modifier = modifier) {
+        Text(
+            text = text,
+            color = Color.Black,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight,
+            letterSpacing = letterSpacing,
+            maxLines = maxLines,
+            overflow = overflow,
+            style = TextStyle(drawStyle = Stroke(width = outlinePx)),
+            modifier = Modifier.clearAndSetSemantics {},
+        )
+        Text(
+            text = text,
+            color = color,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight,
+            letterSpacing = letterSpacing,
+            maxLines = maxLines,
+            overflow = overflow,
+            style = TextStyle(shadow = shadow),
+        )
+    }
+}
 
 /**
  * Editorial hero for the first visible playlist. It grows with its content
@@ -159,39 +210,25 @@ internal fun PlaylistCatalogSpotlight(
                 )
                 Column(
                     modifier = Modifier.weight(1f)
-                        // UI8-KILLCRITIC: the 72% plate is gone; the words sit on a soft
-                        // radial scrim plus a typographic shadow. Two edge-free variants
-                        // were measured and rejected: an elliptical scrim (1.48:1 at the
-                        // letters over a near-white banner) and a bottom-anchored gradient
-                        // (2.94:1 at 320 dp/2.0x, where the caption spans 33%-74% of the
-                        // card). WCAG AA for the words wins over the softer edge.
-                        .drawBehind {
-                            drawRect(
-                                brush = Brush.radialGradient(
-                                    colorStops = arrayOf(
-                                        0f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha),
-                                        0.6f to Color.Black.copy(alpha = UI8VisualSpec.captionScrimAlpha * 0.92f),
-                                        1f to Color.Transparent,
-                                    ),
-                                    center = Offset(size.width * 0.42f, size.height * 0.5f),
-                                    radius = size.maxDimension * 1.05f,
-                                ),
-                            )
-                        }
+                        // UI8-KILLCRITIC: the 72% plate and the text-bounded radial
+                        // scrim are gone. The words sit directly on the banner with a
+                        // glyph outline plus a typographic shadow: no rectangle, no
+                        // second surface, and the outline tracks every font scale.
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     if (visual.pinned) {
-                        Text(
+                        CaptionText(
                             text = "FIJADA",
                             color = PrimaryPinkContainer,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.2.sp,
-                            style = TextStyle(shadow = captionShadow(4f)),
+                            shadow = captionShadow(4f),
+                            outlineWidth = 0.8.dp,
                         )
                     }
-                    Text(
+                    CaptionText(
                         text = playlist.name,
                         color = PureWhite,
                         fontSize = 22.sp,
@@ -199,14 +236,16 @@ internal fun PlaylistCatalogSpotlight(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = titleLines,
                         overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(shadow = captionShadow(7f)),
+                        shadow = captionShadow(7f),
+                        outlineWidth = 1.2.dp,
                         modifier = Modifier.testTag("playlist_spotlight_title_${playlist.id}"),
                     )
-                    Text(
+                    CaptionText(
                         text = trackCountLabel(playlist.trackCount),
                         color = PureWhite,
                         fontSize = 12.sp,
-                        style = TextStyle(shadow = captionShadow(5f)),
+                        shadow = captionShadow(5f),
+                        outlineWidth = 1.2.dp,
                     )
                 }
             }

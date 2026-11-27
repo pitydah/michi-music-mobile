@@ -176,29 +176,62 @@ class UI8VisualMatrixCaptureTest {
         return if (count == 0) 0.0 else sum / count
     }
 
-    /** Mean luminance is fragile over a plate that carries white text; the claim is that
-     * most of the plate area is dark, not that every glyph-free pixel is. */
-    private fun darkFraction(
+    private fun pixelLuminance(bitmap: Bitmap, x: Int, y: Int): Double {
+        val color = bitmap.getPixel(x, y)
+        return (0.2126 * Color.red(color) + 0.7152 * Color.green(color) +
+            0.0722 * Color.blue(color)) / 255.0
+    }
+
+    /**
+     * The new caption contract is typographic: white fill plus a black outline that
+     * tracks the glyphs. This measures the darkest pixel in a 1-3 px ring around
+     * every bright glyph pixel. If the outline is present, the median ring is dark
+     * enough for 4.5:1 with white text; if it is missing, the ring follows the
+     * banner and the median stays bright.
+     */
+    private fun glyphEdgeMedian(
         bitmap: Bitmap,
-        fromY: Float,
-        toY: Float,
-        fromX: Float,
-        toX: Float,
-        threshold: Double = 0.35,
-    ): Double {
-        var dark = 0
-        var count = 0
-        val y0 = (bitmap.height * fromY).toInt()
-        val y1 = (bitmap.height * toY).toInt()
-        val x0 = (bitmap.width * fromX).toInt()
-        val x1 = (bitmap.width * toX).toInt()
-        for (y in y0 until y1 step 2) for (x in x0 until x1 step 2) {
-            val color = bitmap.getPixel(x, y)
-            val luma = (0.2126 * Color.red(color) + 0.7152 * Color.green(color) + 0.0722 * Color.blue(color)) / 255.0
-            if (luma < threshold) dark++
-            count++
+        box: FloatArray,
+    ): Pair<Double, Int> {
+        val x0 = (bitmap.width * box[0]).toInt().coerceIn(0, bitmap.width - 1)
+        val x1 = (bitmap.width * box[2]).toInt().coerceIn(x0, bitmap.width - 1)
+        val y0 = (bitmap.height * box[1]).toInt().coerceIn(0, bitmap.height - 1)
+        val y1 = (bitmap.height * box[3]).toInt().coerceIn(y0, bitmap.height - 1)
+        val offsets = arrayOf(
+            1 to 0, -1 to 0, 0 to 1, 0 to -1,
+            2 to 0, -2 to 0, 0 to 2, 0 to -2,
+            3 to 3, -3 to -3, 3 to -3, -3 to 3,
+        )
+        val samples = ArrayList<Double>()
+        var glyphPixels = 0
+        for (y in y0..y1) for (x in x0..x1) {
+            if (pixelLuminance(bitmap, x, y) < 0.82) continue
+            var darkest = 1.0
+            for ((dx, dy) in offsets) {
+                val xx = (x + dx).coerceIn(0, bitmap.width - 1)
+                val yy = (y + dy).coerceIn(0, bitmap.height - 1)
+                darkest = minOf(darkest, pixelLuminance(bitmap, xx, yy))
+            }
+            // A bright background pixel is not a glyph. Only a bright pixel with a
+            // dark outline neighbour counts, so the metric cannot be satisfied by
+            // the banner itself or by a light area inside the node bounds.
+            if (darkest >= 0.35) continue
+            glyphPixels++
+            samples += darkest
         }
-        return if (count == 0) 0.0 else dark.toDouble() / count
+        samples.sort()
+        return (if (samples.isEmpty()) 1.0 else samples[samples.size / 2]) to glyphPixels
+    }
+
+    private fun relativeBox(frame: androidx.compose.ui.semantics.SemanticsNode, node: androidx.compose.ui.semantics.SemanticsNode): FloatArray {
+        val left = (node.positionInRoot.x - frame.positionInRoot.x) / frame.size.width
+        val top = (node.positionInRoot.y - frame.positionInRoot.y) / frame.size.height
+        return floatArrayOf(
+            left,
+            top,
+            left + node.size.width / frame.size.width.toFloat(),
+            top + node.size.height / frame.size.height.toFloat(),
+        )
     }
 
     /** Median luma of a band. A plate makes almost every pixel equally dark; a scrim only
@@ -374,45 +407,63 @@ class UI8VisualMatrixCaptureTest {
             }
             val bitmap = captureNode("spotlight_light_banner", w, fontScale, d)
             val artwork = luminance(bitmap, 0.02f, 0.20f)
-            // Measure where the letters actually are. Sampling the whole caption box mixes
-            // the scrim with the part of the radial gradient that has already faded out,
-            // which understates the contrast the title really has.
+            // Measure the glyphs themselves, not a scrim rectangle: the new contract
+            // is white fill plus a black outline that follows every glyph.
             val frame = rule.onNodeWithTag(HARNESS).fetchSemanticsNode()
             // The card root is clickable, so its children only exist in the unmerged tree.
             val titleNode = rule.onNodeWithTag("playlist_spotlight_title_pl-light", useUnmergedTree = true)
                 .fetchSemanticsNode()
-            val left = (titleNode.positionInRoot.x - frame.positionInRoot.x) / frame.size.width
-            val right = left + titleNode.size.width / frame.size.width.toFloat()
-            val top = (titleNode.positionInRoot.y - frame.positionInRoot.y) / frame.size.height
-            val bottom = top + titleNode.size.height / frame.size.height.toFloat()
-            val caption = medianLuminance(bitmap, top, bottom, left, right)
-            // The banner just above the caption must stay bright: the darkening is local to
-            // the words, not a heavy scrim over the whole lower half.
+            val countNode = rule.onNodeWithText("12 canciones", useUnmergedTree = true)
+                .fetchSemanticsNode()
+            val titleBox = relativeBox(frame, titleNode)
+            val countBox = relativeBox(frame, countNode)
+            val titlePlate = medianLuminance(bitmap, titleBox[1], titleBox[3], titleBox[0], titleBox[2])
+            val countPlate = medianLuminance(bitmap, countBox[1], countBox[3], countBox[0], countBox[2])
+            val titleEdge = glyphEdgeMedian(bitmap, titleBox)
+            val countEdge = glyphEdgeMedian(bitmap, countBox)
+            // The banner just above the caption must stay bright: the darkening is
+            // typographic only, not a scrim over the lower half.
             val above = medianLuminance(
                 bitmap,
-                (top - 0.14f).coerceAtLeast(0.02f),
-                (top - 0.03f).coerceAtLeast(0.03f),
-                left,
-                right,
+                (titleBox[1] - 0.14f).coerceAtLeast(0.02f),
+                (titleBox[1] - 0.03f).coerceAtLeast(0.03f),
+                titleBox[0],
+                titleBox[2],
             )
-            val dark = darkFraction(bitmap, top, bottom, left, right)
             println(
-                "CAPTION-CONTRAST width=${w}dp fs=$fontScale artwork=$artwork caption=$caption " +
-                    "above=$above dark=$dark ratio=${1.05 / (caption + 0.05)}",
+                "CAPTION-CONTRAST width=${w}dp fs=$fontScale artwork=$artwork " +
+                    "titlePlate=$titlePlate countPlate=$countPlate above=$above " +
+                    "titleEdge=${titleEdge.first}(${titleEdge.second}px) " +
+                    "countEdge=${countEdge.first}(${countEdge.second}px) " +
+                    "titleRatio=${1.05 / (titleEdge.first + 0.05)} " +
+                    "countRatio=${1.05 / (countEdge.first + 0.05)}",
             )
             assertTrue("light artwork must remain visible at ${w}dp (luma=$artwork)", artwork > 0.55)
-            // White text needs 4.5:1 over its background, i.e. a background luma <= 0.183.
+            // The plate/black box is gone: the area behind the words follows the
+            // banner and stays bright, so the text cannot be relying on a surface.
             assertTrue(
-                "the white caption needs 4.5:1 at ${w}dp (median=$caption)",
-                caption <= 0.183,
+                "the title must not sit on a plate at ${w}dp (median=$titlePlate)",
+                titlePlate >= 0.45,
+            )
+            assertTrue(
+                "the count must not sit on a plate at ${w}dp (median=$countPlate)",
+                countPlate >= 0.45,
             )
             assertTrue(
                 "the banner above the caption must stay visible at ${w}dp (above=$above)",
                 above > 0.45,
             )
+            // The outline must provide a real 4.5:1 local background around the
+            // glyphs even though the banner itself stays bright.
             assertTrue(
-                "some dark area must still exist behind the caption at ${w}dp (dark=$dark)",
-                dark >= 0.30,
+                "the title needs 4.5:1 against its outline at ${w}dp " +
+                    "(median=${titleEdge.first}, glyphs=${titleEdge.second})",
+                titleEdge.second >= 100 && titleEdge.first <= 0.183,
+            )
+            assertTrue(
+                "the count needs 4.5:1 against its outline at ${w}dp " +
+                    "(median=${countEdge.first}, glyphs=${countEdge.second})",
+                countEdge.second >= 60 && countEdge.first <= 0.183,
             )
         }
     }

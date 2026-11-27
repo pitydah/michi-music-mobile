@@ -553,7 +553,7 @@ fun AlbumsScreen(
                     LibraryTab.SONGS -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             if (filteredTracks.isEmpty()) {
@@ -592,9 +592,9 @@ fun AlbumsScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .padding(start = 10.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
                                         AlbumArtView(
                                             coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
