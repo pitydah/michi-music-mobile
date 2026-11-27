@@ -4,8 +4,8 @@
 
 - **Commits publicados:** `d4082d6f` (implementación MIM), `c8036bc4` (evidencia), `af03ca41` (fix checker D57), `972795f4` (fix probes D57).
 - **Baseline anterior:** `a737eb9f`.
-- **SHA final de código:** `972795f4`.
-- **CI:** GitHub Actions run `46064991170`, intento 2 **SUCCESS** (Job A Lint, Job B/C unit, Job D migraciones, Job E/F builds, Job G instrumentado API 36, Job H release gate, Quality Gate). Job F del intento 1 falló por HTTP 429 de Maven Central y pasó al reintentar; no fue un fallo de código.
+- **SHA de código+CI verificado:** `f8a37cf3`.
+- **CI:** GitHub Actions run `46068074299` (head `f8a37cf3`), intento 3 **SUCCESS** (Job A Lint, Job B/C unit, Job D migraciones, Job E/F builds, Job G instrumentado API 36, Job H release gate, Quality Gate). Los intentos 1 y 2 de Job F fallaron por HTTP 429 de Maven Central y pasaron al tercer intento; no fue un fallo de código. Run previo `46064991170` (`972795f4`) también verde.
 
 ### Baseline
 
@@ -33,7 +33,7 @@
 | `python3 tools/check_settings_architecture.py` | PASS — gate D57 corregido (comentarios ignorados) |
 | `:app:connectedNormalDebugAndroidTest` filtrado `ArtistEmbeddedTagsUiTest` | PASS en emulador API 36 |
 | `:app:connectedNormalDebugAndroidTest` filtrado `K48R12SurfacePerformanceProbeTest` | PASS (2 tests) en emulador API 36 |
-| CI run `46064991170` intento 2 | PASS — todos los jobs verdes |
+| CI run `46068074299` intento 3 | PASS — todos los jobs verdes |
 | `:core:testDebugUnitTest --tests AirCatCapabilityPolicyTest` | PASS |
 | `--tests HomeAuthCryptoTest` | PASS — 10 tests |
 | `--tests HomeQueueContractTest` | PASS — 14 tests |
