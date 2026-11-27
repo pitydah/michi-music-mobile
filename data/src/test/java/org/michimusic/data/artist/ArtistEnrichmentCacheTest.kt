@@ -120,7 +120,29 @@ class ArtistEnrichmentCacheTest {
         )
         val oldMbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
         val newMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        fun identityGroup(mbid: String) = "identity-${mbid.take(8)}"
+        fun seedIdentity(mbid: String) = ArtistEnrichmentRecord(
+            libraryId = "lib-a", creditKey = "artist", albumGroupKey = identityGroup(mbid),
+            confirmedMbid = mbid, profileJson = "{}", savedAtMs = 10L, staleAfterMs = 1000L,
+            source = "manual-musicbrainz", biographySourceUrl = null,
+            portraitSourceUrl = null, portraitLicense = null, portraitLicenseUrl = null,
+            portraitAttribution = null,
+        )
+        suspend fun bindCurrentIdentity(mbid: String) {
+            dao.put(seedIdentity(mbid))
+            dao.putDurableAssociation(DurableArtistAssociationRecord(
+                libraryId = "lib-a", creditKey = "artist", associationId = "group",
+                identityAssociationId = identityGroup(mbid), createdAtMs = 10L, updatedAtMs = 10L,
+            ))
+            dao.putAlbumCreditBinding(ArtistAlbumCreditBindingRecord(
+                libraryId = "lib-a", albumKey = "album-a", creditKey = "artist",
+                associationId = "group", evidenceType = "EXPLICIT", confirmedAtMs = 10L,
+            ))
+        }
+        bindCurrentIdentity(oldMbid)
         dao.persistArtwork(asset("old", oldMbid), link("old", oldMbid), selection("old", oldMbid))
+        // A confirmed identity change updates the association; the old selection must not survive.
+        bindCurrentIdentity(newMbid)
         dao.persistArtwork(asset("new", newMbid), link("new", newMbid), selection("new", newMbid))
 
         assertEquals(0, dao.getArtworkSelections("lib-a", "artist", "group", oldMbid).size)

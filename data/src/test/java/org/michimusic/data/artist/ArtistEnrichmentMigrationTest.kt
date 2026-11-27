@@ -22,6 +22,51 @@ class ArtistEnrichmentMigrationTest {
         InstrumentationRegistry.getInstrumentation(),
         ArtistEnrichmentCacheDatabase::class.java,
     )
+    @Test fun v11ToV19MigrationValidatesTheExportedSchemaAndPreservesTheArtist() {
+        val name = "artist-migration-11-19-${System.nanoTime()}.db"
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        helper.createDatabase(name, 11).apply {
+            execSQL("""
+                INSERT INTO `artist_enrichment`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`confirmedMbid`,`profileJson`,
+                     `savedAtMs`,`staleAfterMs`,`source`,`albumIdsJson`)
+                VALUES('lib-local','artist','group','$mbid','{}',1,2,'manual','["album-a"]')
+            """.trimIndent())
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(
+            name, 19, true,
+            ArtistEnrichmentCacheDatabase.MIGRATION_11_12,
+            ArtistEnrichmentCacheDatabase.MIGRATION_12_13,
+            ArtistEnrichmentCacheDatabase.MIGRATION_13_14,
+            ArtistEnrichmentCacheDatabase.MIGRATION_14_15,
+            ArtistEnrichmentCacheDatabase.MIGRATION_15_16,
+            ArtistEnrichmentCacheDatabase.MIGRATION_16_17,
+            ArtistEnrichmentCacheDatabase.MIGRATION_17_18,
+            ArtistEnrichmentCacheDatabase.MIGRATION_18_19,
+        )
+        try {
+            migrated.query(
+                "SELECT confirmedMbid, albumIdsJson FROM artist_enrichment " +
+                    "WHERE libraryId='lib-local' AND creditKey='artist' AND albumGroupKey='group'",
+            ).use { row ->
+                assertTrue(row.moveToFirst())
+                assertEquals(mbid, row.getString(0))
+                assertEquals("[\"album-a\"]", row.getString(1))
+            }
+            migrated.query("PRAGMA table_info('artist_explicit_track_identity')").use { cursor ->
+                val columns = mutableSetOf<String>()
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) columns += cursor.getString(nameIndex)
+                assertTrue(columns.containsAll(
+                    setOf("sourceContentSha256", "sourceContentBytes"),
+                ))
+            }
+        } finally {
+            migrated.close()
+        }
+    }
+
     @Test fun oldSelectedArtistSurvivesAddingPerTrackEvidenceTable() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "artist-migration-${System.nanoTime()}.db"
@@ -57,7 +102,15 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                 ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
                 ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
-                ArtistEnrichmentCacheDatabase.MIGRATION_10_11)
+                ArtistEnrichmentCacheDatabase.MIGRATION_10_11,
+                ArtistEnrichmentCacheDatabase.MIGRATION_11_12,
+                ArtistEnrichmentCacheDatabase.MIGRATION_12_13,
+                ArtistEnrichmentCacheDatabase.MIGRATION_13_14,
+                ArtistEnrichmentCacheDatabase.MIGRATION_14_15,
+                ArtistEnrichmentCacheDatabase.MIGRATION_15_16,
+                ArtistEnrichmentCacheDatabase.MIGRATION_16_17,
+                ArtistEnrichmentCacheDatabase.MIGRATION_17_18,
+                ArtistEnrichmentCacheDatabase.MIGRATION_18_19)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -114,7 +167,15 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                 ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
                 ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
-                ArtistEnrichmentCacheDatabase.MIGRATION_10_11)
+                ArtistEnrichmentCacheDatabase.MIGRATION_10_11,
+                ArtistEnrichmentCacheDatabase.MIGRATION_11_12,
+                ArtistEnrichmentCacheDatabase.MIGRATION_12_13,
+                ArtistEnrichmentCacheDatabase.MIGRATION_13_14,
+                ArtistEnrichmentCacheDatabase.MIGRATION_14_15,
+                ArtistEnrichmentCacheDatabase.MIGRATION_15_16,
+                ArtistEnrichmentCacheDatabase.MIGRATION_16_17,
+                ArtistEnrichmentCacheDatabase.MIGRATION_17_18,
+                ArtistEnrichmentCacheDatabase.MIGRATION_18_19)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",

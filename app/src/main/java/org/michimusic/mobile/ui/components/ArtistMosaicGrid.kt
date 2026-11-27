@@ -97,6 +97,7 @@ fun ArtistMosaicGrid(
     selectedArtistCredit: String? = null,
     onSelectArtistCard: (String) -> Unit = {},
     libraryScopeKey: Any? = null,
+    onOpenArtistEntry: ((ArtistMosaicEntry) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) {
@@ -110,7 +111,7 @@ fun ArtistMosaicGrid(
     }
     // Reconcile artist card selection using scoped credit, never an unstable list position.
     val canonicalArtistCard = remember(orderedArtists, selectedArtistCredit) {
-        michiCardReconciledKey(orderedArtists, selectedArtistCredit) { it.credit }
+        michiCardReconciledKey(orderedArtists, selectedArtistCredit) { it.entryKey }
     }
     LaunchedEffect(cardsMode, canonicalArtistCard, selectedArtistCredit) {
         if (cardsMode && canonicalArtistCard != null && canonicalArtistCard != selectedArtistCredit) {
@@ -124,13 +125,13 @@ fun ArtistMosaicGrid(
             val artworkMemoryKey = artist
             // ALL-scoped identities must be revalidated against *current* membership
             // revisions before any photo is shown: never seed them from a previous hint.
-            val allowArtworkHint = michiArtworkHintAllowed(libraryId, artworkStore != null)
+            val allowArtworkHint = !artist.suppressArtwork && michiArtworkHintAllowed(libraryId, artworkStore != null)
             // Every lazy item owns only its own state and Room request. On library/group
             // change, clear the previous portrait before reading the new scoped key.
-            var portrait by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
+            var portrait by remember(artist.entryKey, libraryId, albumIds, artist.profileScopes) {
                 mutableStateOf<CommonsPortrait?>(null)
             }
-            var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes, artworkRevision) {
+            var artwork by remember(artist.entryKey, libraryId, albumIds, artist.profileScopes, artworkRevision) {
                 mutableStateOf<ArtistArtworkSelection?>(if (allowArtworkHint) recentArtwork[artworkMemoryKey] else null)
             }
             var aggregateRevisions by remember(
@@ -153,12 +154,18 @@ fun ArtistMosaicGrid(
                     }
                 }
             }
-            LaunchedEffect(store, artworkStore, artist.credit, libraryId, albumIds,
+            LaunchedEffect(store, artworkStore, artist.entryKey, artist.suppressArtwork, artist.credit, libraryId, albumIds,
                 artist.profileScopes, refreshToken, artworkRevision, aggregateRevisions) {
                 // A cached portrait is only a hint: clear it before reading the scoped key so
                 // a library or album-fingerprint change can never keep a stale face.
                 portrait = null
                 artwork = if (allowArtworkHint && aggregateRevisions.isEmpty()) recentArtwork[artworkMemoryKey] else null
+                if (artist.suppressArtwork) {
+                    // Same literal name + different MBID: credit-only lookup leaks the other face.
+                    // Never load or cache a photo until a separate exact-association API exists.
+                    recentArtwork.remove(artworkMemoryKey)
+                    return@LaunchedEffect
+                }
                 try {
                     var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
                     var savedAssociationGroupKey: String? = null
@@ -226,7 +233,7 @@ fun ArtistMosaicGrid(
                 artist = artist,
                 portrait = portrait,
                 artwork = artwork,
-                onClick = { onOpenArtist(artist.credit) },
+                onClick = { onOpenArtistEntry?.invoke(artist) ?: onOpenArtist(artist.credit) },
                 modifier = tileModifier,
                 maxPortraitDiameter = if (cardsMode) 210.dp else 144.dp,
                 enabled = isFront,
@@ -238,12 +245,12 @@ fun ArtistMosaicGrid(
     if (cardsMode) {
         key(libraryScopeKey) { MichiCardDeck(
             items = orderedArtists,
-            itemKey = { it.credit },
+            itemKey = { it.entryKey },
             itemLabel = { artist -> artist.credit.ifBlank { "Artista desconocido" } },
             selectedKey = canonicalArtistCard,
             onSelect = onSelectArtistCard,
             modifier = modifier.fillMaxSize().testTag("artist_cards_deck"),
-            onOpenSelected = { artist -> onOpenArtist(artist.credit) },
+            onOpenSelected = { artist -> onOpenArtistEntry?.invoke(artist) ?: onOpenArtist(artist.credit) },
             circularArtwork = true,
             navigationButtons = false,
         ) { artist, isFront ->
@@ -260,7 +267,7 @@ fun ArtistMosaicGrid(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            items(items = orderedArtists, key = { it.credit }) { artist ->
+            items(items = orderedArtists, key = { it.entryKey }) { artist ->
                 renderArtist(artist, if (LocalVisualPreferences.current.reducedMotion) Modifier else Modifier.animateItem(), true)
             }
         }
@@ -281,6 +288,7 @@ internal fun ArtistMosaicTile(
     highlightPortrait: Boolean = false,
 ) {
     val name = artist.credit.ifBlank { "Artista desconocido" }
+    val identityLabel = artist.identityMbid?.let { "MBID · ${it.take(8)}…${it.takeLast(8)}" }
     val localArtwork = artwork?.localImagePath
         ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
     // Profile URLs remain attribution/provenance only. A production mosaic portrait
@@ -313,9 +321,9 @@ internal fun ArtistMosaicTile(
                 onClick = onClick,
             )
             .semantics(mergeDescendants = true) {
-                contentDescription = "Abrir artista $name. $albumDescription y $trackDescription"
+                contentDescription = "Abrir artista $name${artist.identityMbid?.let { ", MBID completo $it" }.orEmpty()}. $albumDescription y $trackDescription"
             }
-            .testTag("artist_mosaic_tile_${artist.credit}"),
+            .testTag("artist_mosaic_tile_${artist.entryKey}"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -343,7 +351,7 @@ internal fun ArtistMosaicTile(
                         else PrimaryPink.copy(alpha = 0.37f),
                         shape = CircleShape,
                     )
-                    .testTag("artist_mosaic_portrait_${artist.credit}"),
+                    .testTag("artist_mosaic_portrait_${artist.entryKey}"),
                 contentAlignment = Alignment.Center,
             ) {
                 var photoVisible by remember(model) { mutableStateOf(false) }
@@ -396,6 +404,11 @@ internal fun ArtistMosaicTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            identityLabel?.let { label ->
+                Text(label, color = TextSecondary, fontFamily = InterFontFamily,
+                    fontSize = 11.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().testTag("artist_identity_${artist.entryKey}"))
+            }
             if (showSupportingMetadata) {
                 Text(
                     text = "$albumDescription · $trackDescription",

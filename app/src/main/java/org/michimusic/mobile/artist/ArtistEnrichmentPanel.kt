@@ -180,10 +180,14 @@ fun ArtistEnrichmentPanel(
                 ?: ArtworkLoadStatus.NOT_REQUESTED,
         ),
     )
+    val confirmedIdentityInRoom = artistS3IdentityIsConfirmed(
+        uiState.profile?.mbid, uiState.persistedMbid,
+        uiState.persisted, uiState.needsConfirmation,
+    )
     val panelCoverage = ArtistArtworkCoverageUiState.from(
         uiState = panelArtworkUi,
         report = uiState.artworkReport,
-        identityConfirmed = uiState.profile?.mbid?.isNotBlank() == true,
+        identityConfirmed = confirmedIdentityInRoom,
         verifiedQid = uiState.profile?.wikidataQid,
     )
 
@@ -209,37 +213,77 @@ fun ArtistEnrichmentPanel(
      * Opening the picker never searches. Downloading bytes is a separate, explicit
      * user request made inside the picker.
      */
-    fun openPicker() {
-        artworkPickerOpen = true
+    var requestedPhotoSlot by remember(artistCredit, libraryId, stableGroup) {
+        mutableStateOf<ArtworkSlot?>(null)
+    }
+    var pickerViewport by remember(artistCredit, libraryId, stableGroup) {
+        mutableStateOf<ArtistS3ViewportKey?>(null)
+    }
+    var returnFocusPending by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
+    val pickerAuthorized = presentation.identityConfirmed && presentation.canPersist
+    val pickerVisible = artworkPickerOpen && pickerAuthorized
+    LaunchedEffect(pickerAuthorized, artworkPickerOpen) {
+        if (artworkPickerOpen && !pickerAuthorized) {
+            artworkPickerOpen = false
+            requestedPhotoSlot = null
+            pickerViewport = null
+            returnFocusPending = true
+        }
+    }
+    val panelScroll = rememberScrollState()
+    val panelSceneKey = when {
+        identityExpanded -> "identity"
+        pickerVisible -> "picker:$pickerViewport"
+        else -> "overview"
+    }
+    LaunchedEffect(artistCredit, libraryId, stableGroup, panelSceneKey) {
+        if (!returnFocusPending || panelSceneKey != "overview") panelScroll.scrollTo(0)
+    }
+    fun openPicker(slot: ArtworkSlot? = null) {
+        if (presentation.identityConfirmed && presentation.canPersist && !presentation.isBusy) {
+            returnFocusPending = false
+            requestedPhotoSlot = slot
+            identityExpanded = false
+            artworkPickerOpen = true
+        }
     }
 
     Column(
-        modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+        modifier = modifier.fillMaxWidth().verticalScroll(panelScroll)
             .testTag("artist_enrichment_panel"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ArtistEnrichmentSummaryContent(
-            uiState = presentation,
-            onChoosePhoto = { openPicker() },
-            onPrimaryAction = { action ->
-                // K48-R12-01: no primary action reaches the provider on its own. The
-                // picker owns the consent gate, so an action can only open it.
-                when (action.panelEffect()) {
-                    ArtistEnrichmentPanelEffect.RevealIdentity -> identityExpanded = true
-                    ArtistEnrichmentPanelEffect.OpenPicker -> openPicker()
-                    ArtistEnrichmentPanelEffect.Nothing -> Unit
-                }
-            },
-        )
-        TextButton(
-            onClick = { identityExpanded = !identityExpanded },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("artist_identity_accordion"),
-        ) {
-            Text(
-                if (identityExpanded) "Ocultar identidad y álbumes" else "Identidad y álbumes",
-                color = TextSecondary, fontSize = 12.sp,
+        if (!identityExpanded && !pickerVisible) {
+            ArtistEnrichmentSummaryContent(
+                uiState = presentation,
+                onChoosePhoto = { openPicker() },
+                onChooseSlot = { slot -> openPicker(slot) },
+                restoreFocus = returnFocusPending,
+                restoreFocusSlot = requestedPhotoSlot,
+                onFocusRestored = { returnFocusPending = false },
+                onPrimaryAction = { action ->
+                    // An overview tap never starts HTTP. Identity opens its own task.
+                    if (!presentation.isBusy) when (action.panelEffect()) {
+                        ArtistEnrichmentPanelEffect.RevealIdentity -> { artworkPickerOpen = false; identityExpanded = true }
+                        ArtistEnrichmentPanelEffect.OpenPicker -> openPicker()
+                        ArtistEnrichmentPanelEffect.Nothing -> Unit
+                    }
+                },
             )
+            if (presentation.identityConfirmed) {
+                TextButton(
+                    onClick = { artworkPickerOpen = false; identityExpanded = true },
+                    enabled = !presentation.isBusy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("artist_identity_accordion"),
+                ) { Text("Revisar identidad y álbumes", color = TextSecondary, fontSize = 12.sp) }
+            }
+        } else if (identityExpanded) {
+            TextButton(
+                onClick = { identityExpanded = false },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("artist_identity_back"),
+            ) { Text("Volver al resumen", color = TertiaryCyan, fontSize = 13.sp) }
         }
         if (identityExpanded) {
         Text("IDENTIDAD Y DATOS EXTERNOS", color = TertiaryCyan,
@@ -556,12 +600,27 @@ fun ArtistEnrichmentPanel(
                 ) {
                     val boundVisible = albumIds.distinct().filter { albumId ->
                         albumId.isNotBlank() && albumId !in uiState.unboundAlbumIds
-                    }.take(8)
+                    }
+                    var boundOffset by remember(libraryId, artistCredit, uiState.associationGroupKey, boundVisible) {
+                        mutableStateOf(0)
+                    }
+                    val window = artistS3GalleryWindow(boundVisible.size, boundOffset)
                     if (boundVisible.isNotEmpty()) {
                         Text("Si un álbum antiguo no permite recuperar fotografías, " +
                             "puedes reconfirmar explícitamente su vínculo con este artista.",
                             color = TextSecondary, fontSize = 11.sp)
-                        boundVisible.forEachIndexed { index, albumId ->
+                        Text("Álbumes ${window.firstNumber}–${window.lastNumber} de ${boundVisible.size}",
+                            color = TextSecondary, fontSize = 12.sp)
+                        if (window.hasPrevious) TextButton(
+                            onClick = { boundOffset = window.previousOffset },
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("artist_reconfirm_previous"),
+                        ) { Text("Álbumes anteriores", color = TertiaryCyan) }
+                        if (window.hasNext) TextButton(
+                            onClick = { boundOffset = window.nextOffset },
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("artist_reconfirm_next"),
+                        ) { Text("Álbumes siguientes", color = TertiaryCyan) }
+                        boundVisible.drop(window.offset).take(window.size).forEachIndexed { pageIndex, albumId ->
+                            val index = window.offset + pageIndex
                             OutlinedButton(
                                 onClick = {
                                     activeController.reconfirmVisibleAlbum(
@@ -667,9 +726,9 @@ fun ArtistEnrichmentPanel(
                 Text("Consultando datos verificados…", color = TextSecondary, fontSize = 12.sp)
             }
         }
-        } // K48-S7: end of the collapsed identity section
-        uiState.profile?.let { artworkProfile ->
-            if (artworkPickerOpen) {
+        } // S3-A: end of the dedicated identity task
+        if (!identityExpanded && presentation.identityConfirmed) uiState.profile?.let { artworkProfile ->
+            if (pickerVisible) {
                 ArtistArtworkPickerHost(
                     profile = artworkProfile,
                     artistCredit = artistCredit,
@@ -691,14 +750,23 @@ fun ArtistEnrichmentPanel(
                             selections = selections,
                         )
                     },
+                    onClose = {
+                        artworkPickerOpen = false
+                        pickerViewport = null
+                        returnFocusPending = true
+                    },
+                    preferredSlot = requestedPhotoSlot,
+                    onViewportChanged = { pickerViewport = it },
                 )
             }
+            if (!pickerVisible) {
             ArtistArtworkCoverageSection(
                 uiState = panelArtworkUi,
                 report = uiState.artworkReport,
-                identityConfirmed = artworkProfile.mbid.isNotBlank(),
+                identityConfirmed = confirmedIdentityInRoom,
                 verifiedQid = artworkProfile.wikidataQid,
             )
+            }
         }
     }
 }

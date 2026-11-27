@@ -21,7 +21,10 @@ import org.junit.runner.RunWith
 import org.michimusic.data.artist.ArtistArtworkAssetRecord
 import org.michimusic.data.artist.ArtistArtworkLinkRecord
 import org.michimusic.data.artist.ArtistArtworkSelectionRecord
+import org.michimusic.data.artist.ArtistAlbumCreditBindingRecord
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
+import org.michimusic.data.artist.ArtistEnrichmentRecord
+import org.michimusic.data.artist.DurableArtistAssociationRecord
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -45,12 +48,37 @@ class ArtistArtworkStoreTest {
         File(context.filesDir, "artist-artwork").deleteRecursively()
     }
 
+    /** Manual artwork now commits only for an existing durable identity/album binding. */
+    private suspend fun ensureAssociation(anchor: ArtistIdentityAnchor) {
+        val dao = database.artistEnrichmentDao()
+        val identity = "identity-${anchor.albumGroupKey}"
+        dao.put(ArtistEnrichmentRecord(
+            libraryId = anchor.libraryId, creditKey = anchor.creditKey,
+            albumGroupKey = identity, confirmedMbid = anchor.confirmedMbid,
+            profileJson = "{}", savedAtMs = 1L, staleAfterMs = Long.MAX_VALUE,
+            source = "manual-musicbrainz", biographySourceUrl = null,
+            portraitSourceUrl = null, portraitLicense = null, portraitLicenseUrl = null,
+            portraitAttribution = null,
+        ))
+        dao.putDurableAssociation(DurableArtistAssociationRecord(
+            libraryId = anchor.libraryId, creditKey = anchor.creditKey,
+            associationId = anchor.albumGroupKey, identityAssociationId = identity,
+            createdAtMs = 1L, updatedAtMs = 1L,
+        ))
+        dao.putAlbumCreditBinding(ArtistAlbumCreditBindingRecord(
+            libraryId = anchor.libraryId, albumKey = "album-${anchor.albumGroupKey}",
+            creditKey = anchor.creditKey, associationId = anchor.albumGroupKey,
+            evidenceType = "EXPLICIT", confirmedAtMs = 1L,
+        ))
+    }
+
     @Test
     fun libraryRevisionFlowEmitsAfterSelectionChanges() = runBlocking {
         val flow = store.observeLibraryRevision("lib")
         assertEquals(0L, withTimeout(5_000) { flow.first() })
 
         val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
+        ensureAssociation(anchor)
         store.save(
             anchor = anchor,
             candidate = ArtistArtworkCandidate(
@@ -90,6 +118,7 @@ class ArtistArtworkStoreTest {
         val root = File(context.filesDir, "artist-artwork").apply { mkdirs() }
         val file = File(root, "disappears.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
+        ensureAssociation(anchor)
         val saved = store.save(
             anchor = anchor,
             candidate = ArtistArtworkCandidate(
@@ -169,6 +198,8 @@ class ArtistArtworkStoreTest {
         )
         val first = ArtistIdentityAnchor("lib", "midnight oil", "group-a", mbid, "Q48284", "Midnight Oil")
         val second = ArtistIdentityAnchor("lib", "midnight oil", "group-b", mbid, "Q48284", "Midnight Oil")
+        ensureAssociation(first)
+        ensureAssociation(second)
         store.save(first, candidate, ArtworkSlot.ARTIST_THUMB, downloaded, ArtworkFocus(), false)
         store.save(second, candidate, ArtworkSlot.ARTIST_THUMB, downloaded, ArtworkFocus(0.4f, 0.6f), true)
 

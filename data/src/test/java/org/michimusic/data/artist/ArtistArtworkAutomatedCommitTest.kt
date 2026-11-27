@@ -116,7 +116,12 @@ class ArtistArtworkAutomatedCommitTest {
         val oldSelection = selection.copy(assetId = oldAsset.assetId,
             confirmedMbid = previousMbid, manuallyChosen = true)
         val dao = database.artistEnrichmentDao()
-        dao.persistArtwork(oldAsset, oldLink, oldSelection)
+        // Legacy/manual rows may predate the current identity. Seed them directly:
+        // today's guarded manual save correctly refuses a foreign MBID, but the
+        // automated write must still preserve an existing manual slot.
+        dao.putArtworkAsset(oldAsset)
+        dao.putArtworkLink(oldLink)
+        dao.putArtworkSelection(oldSelection)
         assertNull(dao.persistArtworkAutomated(asset, link, selection, source))
         assertEquals(previousMbid, dao.getArtworkSelections("lib", "artist", "assoc", previousMbid)
             .single().confirmedMbid)

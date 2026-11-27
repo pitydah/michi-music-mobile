@@ -4,8 +4,6 @@ import android.os.SystemClock
 import android.text.Html
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -53,11 +51,9 @@ class ArtistEnrichmentRepository(
         .build(),
 ) : ArtistEnrichmentGateway, ArtistDiscographyGateway, AlbumEnrichmentGateway {
     private val json = Json { ignoreUnknownKeys = true }
-    private val musicBrainzMutex = Mutex()
     private val discographyCache = ArtistDiscographyPageCache(
         nowMs = { SystemClock.elapsedRealtime() },
     )
-    private var nextMusicBrainzRequestAtMs = 0L
     private val profiles = object : LinkedHashMap<String, Pair<Long, ArtistExternalProfile>>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, ArtistExternalProfile>>?): Boolean = size > 32
     }
@@ -452,14 +448,9 @@ class ArtistEnrichmentRepository(
         return portrait
     }
 
-    private suspend fun musicBrainzJson(url: String): JsonObject = musicBrainzMutex.withLock {
-        // This shared repository instance serializes calls. A conservative 1.1s interval prevents
-        // hitting the public MusicBrainz rate limit even when two screens search concurrently.
-        val wait = nextMusicBrainzRequestAtMs - SystemClock.elapsedRealtime()
-        if (wait > 0) delay(wait)
-        nextMusicBrainzRequestAtMs = SystemClock.elapsedRealtime() + 1_100
-        readJson(url)
-    }
+    private suspend fun musicBrainzJson(url: String): JsonObject = readJson(
+        url, beforeAttempt = { ArtistMusicBrainzSharedRateGate.awaitAttempt() },
+    )
 
     private fun api(base: String, args: Map<String, String>): String {
         val builder = requireNotNull(base.toHttpUrlOrNull()).newBuilder()
@@ -468,9 +459,14 @@ class ArtistEnrichmentRepository(
     }
 
     /** Retry only throttled/transient provider replies; never retry parsing or permission errors. */
-    private suspend fun readJson(url: String): JsonObject {
+    private suspend fun readJson(
+        url: String, beforeAttempt: suspend () -> Unit = {},
+    ): JsonObject {
         var retries = 0
         while (true) {
+            // Guard EVERY MusicBrainz attempt, including 429/503 retries. Non-MB providers
+            // retain their existing behavior; no new dispatch path is introduced.
+            beforeAttempt()
             try {
                 return readJsonOnce(url)
             } catch (e: ProviderHttpException) {
@@ -561,8 +557,5 @@ internal const val MAX_RETRY_AFTER_MS: Long = 5_000L
  * Parses `Retry-After` in seconds (the only form Wikimedia and MusicBrainz send) into a
  * bounded delay. HTTP-date values and garbage return 0, which falls back to backoff.
  */
-internal fun retryAfterDelayMs(raw: String?): Long {
-    val seconds = raw?.trim()?.toLongOrNull() ?: return 0L
-    if (seconds <= 0L) return 0L
-    return (seconds * 1_000L).coerceAtMost(MAX_RETRY_AFTER_MS)
-}
+internal fun retryAfterDelayMs(raw: String?): Long =
+    boundedProviderRetryAfterMs(raw, MAX_RETRY_AFTER_MS)

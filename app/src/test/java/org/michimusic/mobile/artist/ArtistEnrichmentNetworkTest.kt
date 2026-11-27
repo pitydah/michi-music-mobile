@@ -9,6 +9,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -21,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = android.app.Application::class)
 class ArtistEnrichmentNetworkTest {
+    @Before fun resetSharedGate() = ArtistMusicBrainzSharedRateGate.resetForTests()
+
     @Test fun throttledMusicBrainzRetriesAndPreservesUserAgent() = runBlocking {
         val attempts = AtomicInteger(0)
         val hosts = java.util.concurrent.ConcurrentLinkedQueue<String>()

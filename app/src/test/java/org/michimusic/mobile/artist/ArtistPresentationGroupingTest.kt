@@ -62,6 +62,36 @@ class ArtistPresentationGroupingTest {
     }
 
     @Test
+    fun variantReviewRetainsExactCreditAlbumOwnershipAndIndependentIdentity() {
+        val plan = planArtistPresentation(listOf(
+            occurrence("A-ha", listOf("album_a"), mbid = "MBID-ONE"),
+            occurrence("a-ha", listOf("album_b", "album_c")),
+        ))
+        val hint = plan.variantHints.single()
+        assertEquals(2, hint.reviewChoices.size)
+        assertEquals(listOf("A-ha", "a-ha"), hint.reviewChoices.map { it.credit })
+        assertEquals(listOf("album_a"), hint.reviewChoices[0].albumIds)
+        assertEquals(listOf("album_b", "album_c"), hint.reviewChoices[1].albumIds)
+        assertEquals("mbid-one", hint.reviewChoices[0].verifiedMbid)
+        assertNull(hint.reviewChoices[1].verifiedMbid)
+        assertTrue(hint.reviewChoices.none { it.conflictingEvidence })
+        assertEquals("lib_1", hint.reviewChoices[1].libraryId)
+    }
+
+    @Test
+    fun differentConfirmedIdentitiesRemainSeparateReviewChoices() {
+        val plan = planArtistPresentation(listOf(
+            occurrence("A-ha", listOf("album_a"), mbid = "MBID-ONE"),
+            occurrence("a-ha", listOf("album_b"), mbid = "MBID-TWO"),
+        ))
+        val hint = plan.variantHints.single()
+        assertEquals(ArtistVariantReason.IDENTITY_CONFLICT, hint.reason)
+        assertEquals(setOf("mbid-one", "mbid-two"),
+            hint.reviewChoices.mapNotNull { it.verifiedMbid }.toSet())
+        assertEquals(2, hint.reviewChoices.size)
+    }
+
+    @Test
     fun withoutEvidenceCreditsRemainSeparateAndAreOnlySuggested() {
         val plan = planArtistPresentation(
             listOf(
@@ -131,6 +161,22 @@ class ArtistPresentationGroupingTest {
         )
         assertEquals(3, plan.entries.size)
         assertTrue(plan.variantHints.isEmpty())
+    }
+
+    @Test
+    fun literalHomonymWithTwoCorroboratedMbidsIsNotAReviewableSingleIdentity() {
+        val plan = planArtistMemberships(listOf(
+            ArtistMembershipOccurrence("lib_1", "album-a", "Alex", "track-1", "mbid-one"),
+            ArtistMembershipOccurrence("lib_1", "album-b", "Alex", "track-2", "mbid-two"),
+        ))
+        assertEquals(1, plan.entries.size) // local music remains visible; never invent a split.
+        assertNull(plan.entries.single().mbid)
+        val hint = plan.variantHints.single()
+        assertEquals(ArtistVariantReason.IDENTITY_CONFLICT, hint.reason)
+        assertEquals(listOf("Alex"), hint.credits)
+        assertEquals(listOf("album-a", "album-b"), hint.albumIds)
+        assertTrue(hint.reviewChoices.single().conflictingEvidence)
+        assertNull(hint.reviewChoices.single().verifiedMbid)
     }
 
     @Test

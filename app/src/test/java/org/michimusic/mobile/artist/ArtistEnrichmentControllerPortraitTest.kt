@@ -189,7 +189,8 @@ class ArtistEnrichmentControllerPortraitTest {
         controller.searchPortraits("'Til Tuesday", "lib-a", listOf("album-1"))
         runCurrent()
 
-        controller.clear("'Til Tuesday", "lib-a", listOf("album-1"))
+        controller.requestDelete("'Til Tuesday", "lib-a", listOf("album-1"))
+        controller.confirmDelete("'Til Tuesday", "lib-a", listOf("album-1"))
         advanceUntilIdle()
         gate.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate())))
         advanceUntilIdle()

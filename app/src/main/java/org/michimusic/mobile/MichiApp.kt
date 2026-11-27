@@ -15,6 +15,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
@@ -64,6 +65,33 @@ class MichiApp : Application() {
         configureStrictMode()
         startVisualPreferencesLoad()
         startIdentityResolution()
+        startArtistArtworkCleanupRecovery()
+    }
+
+    /** D43: detect durable orphaned cleanup after process death or external cancel.
+     * Only an already-existing artist database is read, off the main thread. The
+     * journal, not an in-memory worker handle, is the source of truth.
+     */
+    private fun startArtistArtworkCleanupRecovery() {
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                val existed = getDatabasePath("michi-artist-enrichment.db").isFile
+                if (!existed) return@launch
+                val pending = org.michimusic.mobile.artist.ArtistEnrichmentPersistence
+                    .database(this@MichiApp).artistEnrichmentDao().pendingArtworkCleanup(1).size
+                if (org.michimusic.mobile.artist.artwork.artistCleanupStartupAction(
+                        databaseExists = true, pendingRows = pending,
+                    ) == org.michimusic.mobile.artist.artwork.ArtistCleanupStartupAction.ENQUEUE
+                ) {
+                    org.michimusic.mobile.artist.artwork.ArtistArtworkCleanupWorker.schedule(this@MichiApp)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // No database deletion, retry spin or network fallback on startup failure.
+                Log.w("MichiApp", "Artist artwork cleanup journal will be retried on the next app start")
+            }
+        }
     }
 
     /**

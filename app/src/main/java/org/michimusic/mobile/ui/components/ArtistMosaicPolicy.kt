@@ -11,6 +11,11 @@ data class ArtistMosaicEntry(
     val trackCount: Int,
     /** Validated membership scopes; used only for ALL with multiple libraries. */
     val profileScopes: List<ArtistProfileScope> = emptyList(),
+    /** D37: stable per-card key; equal names MUST NOT collide in LazyGrid/CardDeck. */
+    val entryKey: String = credit,
+    /** Presentation-only MBID, never implicit permission to read shared photographs. */
+    val identityMbid: String? = null,
+    val suppressArtwork: Boolean = false,
 )
 
 /** No invented photographic identity: fallback is a stable typographic monogram. */
@@ -31,4 +36,4 @@ internal fun artistMosaicMinCellWidthDp(fontScale: Float): Float = when {
 /** Deterministic order for local library credits, not a manufactured recents list. */
 internal fun orderedArtistMosaicEntries(artists: List<ArtistMosaicEntry>): List<ArtistMosaicEntry> =
     artists.sortedWith(compareBy<ArtistMosaicEntry> { it.credit.lowercase(Locale.ROOT) }
-        .thenBy { it.credit })
+        .thenBy { it.credit }.thenBy { it.entryKey })

@@ -144,12 +144,14 @@ class ArtistManualArtworkRouteTest {
             }
         }
 
-        compose.onNodeWithTag("artist_artwork_choose_ARTIST_HERO_0")
-            .assertExists()
-        compose.onNodeWithTag("artist_artwork_identity_confirm")
+        compose.onNodeWithTag("artist_artwork_gallery_0")
             .performScrollTo()
             .performClick()
-        compose.onNodeWithTag("artist_artwork_choose_ARTIST_HERO_0")
+        compose.onNodeWithTag("artist_artwork_preview_target_CARD")
+            .performScrollTo().performClick()
+        compose.onNodeWithTag("artist_artwork_preview_confirm_identity")
+            .performScrollTo().performClick()
+        compose.onNodeWithTag("artist_artwork_preview_save")
             .performScrollTo()
             .assertIsEnabled()
             .performClick()

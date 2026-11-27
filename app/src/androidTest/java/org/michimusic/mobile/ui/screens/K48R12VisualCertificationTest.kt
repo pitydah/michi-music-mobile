@@ -182,7 +182,7 @@ class K48R12VisualCertificationTest {
             if (name == "artist_picker_with_candidates") {
                 // Composed versus actually on screen: a node that only exists in semantics
                 // cannot be certified as a rendered surface.
-                compose.onNodeWithTag("artist_artwork_choose_ARTIST_THUMB_0").assertIsDisplayed()
+                compose.onNodeWithTag("artist_artwork_gallery_0").assertIsDisplayed()
             }
             val measuredPx = compose.onNodeWithTag("cert_surface").fetchSemanticsNode().size.width
             val effectiveDp = measuredPx / baseDensity
@@ -371,7 +371,6 @@ class K48R12VisualCertificationTest {
             Column {
             ArtistArtworkPickerContent(
                 uiState = pickerState(png).copy(
-                    confirmedIdentity = true,
                     candidates = listOf(
                         ArtistArtworkPickerCandidateUi(
                             index = 0,
@@ -503,6 +502,7 @@ class K48R12VisualCertificationTest {
                 wikidataQid = "Q48284",
             ),
             profilePersisted = true,
+            persisted = true,
             persistedMbid = mbid,
             selections = selections,
         )

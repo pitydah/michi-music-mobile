@@ -42,6 +42,7 @@ data class ArtistPhotoSlot(
     val imagePath: String? = null,
     val attribution: String? = null,
     val license: String? = null,
+    val recovery: ArtistS3Recovery? = null,
 ) {
     val hasThumbnail: Boolean get() = imagePath != null
     val isSatisfied: Boolean
@@ -122,6 +123,11 @@ data class ArtistEnrichmentUiState(
     val sections: ArtistEnrichmentSection = ArtistEnrichmentSection.NONE,
     /** Number of albums the advanced deletion would unbind. */
     val albumCount: Int = 0,
+    /** Based solely on biography content already present in the current profile. */
+    val biographyAvailable: Boolean = false,
+    /** True only from typed provider evidence; never parse an error from human text. */
+    val providerFailed: Boolean = false,
+    val artworkStorageFailed: Boolean = false,
 ) {
     val slots: List<ArtistPhotoSlot> get() = listOf(mosaic, card)
 
@@ -164,7 +170,10 @@ data class ArtistEnrichmentUiState(
             section: ArtistEnrichmentSection = ArtistEnrichmentSection.NONE,
         ): ArtistEnrichmentUiState {
             val profile = state.profile
-            val confirmedMbid = profile?.mbid?.takeIf { it.isNotBlank() }
+            val confirmedMbid = profile?.mbid?.takeIf {
+                artistS3IdentityIsConfirmed(it, state.persistedMbid,
+                    state.persisted, state.needsConfirmation)
+            }
             val slots = ArtworkSlot.entries.map { slot ->
                 val slotCoverage = coverage.slots.firstOrNull { it.slot == slot }
                 slotPresentation(
@@ -223,6 +232,9 @@ data class ArtistEnrichmentUiState(
                     state.unboundAlbumIds.isNotEmpty() || albumCount > 1,
                 sections = section,
                 albumCount = albumCount,
+                biographyAvailable = profile?.biography?.isNotBlank() == true,
+                providerFailed = coverage.slots.any { it.state == ArtistArtworkCoverageState.NETWORK_FAILED },
+                artworkStorageFailed = coverage.slots.any { it.state == ArtistArtworkCoverageState.STORAGE_FAILED },
             )
         }
 
@@ -271,7 +283,13 @@ data class ArtistEnrichmentUiState(
                 title = titleOf(slot),
                 availability = effective,
                 statusLabel = labelOf(effective, coverageLabel),
-                detail = if (effective == ArtistPhotoAvailability.BLOCKED) reason else null,
+                detail = if (effective != ArtistPhotoAvailability.AVAILABLE &&
+                    effective != ArtistPhotoAvailability.MANUALLY_CHOSEN) reason else null,
+                recovery = if (verifiedPath == null) artistS3Recovery(
+                    if (state == ArtistArtworkCoverageState.READY ||
+                        state == ArtistArtworkCoverageState.MANUAL_PROTECTED)
+                        ArtistArtworkCoverageState.DOWNLOAD_FAILED else state,
+                ) else null,
                 imagePath = verifiedPath,
                 attribution = selection?.attribution?.takeIf { verifiedPath != null && it.isNotBlank() },
                 // K48: a catalogue photo carries no licence, and the slot must say so.

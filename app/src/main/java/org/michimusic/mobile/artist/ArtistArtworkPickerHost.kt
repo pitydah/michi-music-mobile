@@ -3,6 +3,7 @@ package org.michimusic.mobile.artist
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -17,10 +18,13 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkService
 import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
+import org.michimusic.mobile.artist.artwork.ArtistManualArtworkSnapshot
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkResolutionReport
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
+import org.michimusic.data.repository.MusicRootPreferences
 
 /**
  * K48-R12-06: the photo picker host.
@@ -34,7 +38,7 @@ import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
  * clear the visible selection after a delete or an association change, not a no-op.
  */
 @Composable
-fun ArtistArtworkPickerHost(
+internal fun ArtistArtworkPickerHost(
     profile: ArtistExternalProfile,
     artistCredit: String,
     libraryId: String?,
@@ -46,13 +50,15 @@ fun ArtistArtworkPickerHost(
     onSearch: (() -> Unit)? = null,
     onSelectionsChanged: (Map<ArtworkSlot, ArtistArtworkSelection>) -> Unit,
     chooser: (suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport)? = null,
+    onClose: () -> Unit = {},
+    preferredSlot: ArtworkSlot? = null,
+    onViewportChanged: (ArtistS3ViewportKey) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
-    val choose: suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport =
-        chooser ?: { anchor, candidate, slot -> coordinator.chooseManual(anchor, candidate, slot) }
+    val rootPreferences = remember(context) { MusicRootPreferences(context.applicationContext) }
     val anchor = remember(
         libraryId, artistCredit, albumIds, profile.mbid,
         profile.wikidataQid, associationGroupKey,
@@ -60,16 +66,49 @@ fun ArtistArtworkPickerHost(
         artistIdentityAnchor(libraryId, artistCredit, albumIds, profile, associationGroupKey)
     }
     if (anchor == null) return
+    // D17: the picker keeps the root generation observed when this identity was shown.
+    // Reading it only after the download would authorize a stale artist on a new root.
+    val rootAtPickerOpen = remember(anchor) { rootPreferences.currentRootStamp() }
     val scope = rememberCoroutineScope()
     val currentAnchor by rememberUpdatedState(anchor)
     var selections by remember(anchor) { mutableStateOf(initialSelections) }
-    // K48-R12-06: the parameter is authoritative even when it is empty.
-    LaunchedEffect(initialSelections) { selections = initialSelections }
     var busy by remember(anchor) { mutableStateOf(false) }
-    var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
+    var focusDraft by remember(anchor) { mutableStateOf<ArtistArtworkFocusDraft?>(null) }
+    // An external choice/delete invalidates a draft by ASSET and REVISION.
+    var previewCandidateId by remember(anchor) { mutableStateOf<String?>(null) }
+    var previewDestination by remember(anchor) { mutableStateOf<ArtistArtworkPickerDestination?>(null) }
+    var previewIdentityConfirmed by remember(anchor) { mutableStateOf(false) }
+    var previewReplacementAcknowledged by remember(anchor) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
+    // An external selection update invalidates preview replacement approval and stale crop drafts.
+    LaunchedEffect(initialSelections) {
+        selections = initialSelections
+        previewReplacementAcknowledged = false
+        val draft = focusDraft
+        if (draft != null) {
+            val current = initialSelections[draft.slot]
+            if (current == null || current.assetId != draft.assetId || current.revision != draft.revision ||
+                current.localImagePath != draft.imagePath
+            ) {
+                focusDraft = null
+                message = "La fotografía cambió; se descartó el encuadre sin guardar."
+            }
+        }
+    }
     var consentOpen by remember(anchor, profile.mbid) { mutableStateOf(false) }
+    var candidateOffset by remember(anchor) { mutableIntStateOf(0) }
+    // Search updates invalidate the preview and its consent, even if a previous image
+    // appears again later; authorization is for ONE candidate in ONE result snapshot.
+    LaunchedEffect(pendingCandidates) {
+        candidateOffset = 0
+        previewCandidateId = null
+        previewDestination = null
+        previewIdentityConfirmed = false
+        previewReplacementAcknowledged = false
+    }
 
+    val replacementRequired = previewDestination?.slots.orEmpty()
+        .any { selections[it]?.manuallyChosen == true }
     val uiState = ArtistArtworkPickerUiState(
         artistCredit = artistCredit,
         mbid = profile.mbid.orEmpty(),
@@ -77,7 +116,12 @@ fun ArtistArtworkPickerHost(
         searching = searching,
         busy = busy,
         canSearch = onSearch != null,
-        confirmedIdentity = confirmedIdentity,
+        previewCandidateId = previewCandidateId,
+        previewDestination = previewDestination,
+        previewIdentityConfirmed = previewIdentityConfirmed,
+        previewReplacementRequired = replacementRequired,
+        previewReplacementAcknowledged = previewReplacementAcknowledged,
+        focusDraft = focusDraft,
         message = message,
         savedSlots = selections.values
             .sortedBy { it.slot.ordinal }
@@ -93,32 +137,81 @@ fun ArtistArtworkPickerHost(
                     attribution = selection.attribution,
                     licenseId = selection.licenseId,
                     sourcePageUrl = selection.sourcePageUrl,
+                    assetId = selection.assetId,
+                    revision = selection.revision,
                 )
             },
-        candidates = pendingCandidates.take(4).mapIndexed { index, candidate ->
+        candidates = pendingCandidates.subList(
+            artistS3GalleryWindow(pendingCandidates.size, candidateOffset).offset,
+            artistS3GalleryWindow(pendingCandidates.size, candidateOffset).let { it.offset + it.size },
+        ).mapIndexed { localIndex, candidate ->
             ArtistArtworkPickerCandidateUi(
-                index = index,
+                index = artistS3GalleryWindow(pendingCandidates.size, candidateOffset).offset + localIndex,
                 stableKey = candidateStableKey(candidate),
                 candidate = candidate,
             )
         },
+        totalCandidates = pendingCandidates.size,
+        candidateOffset = candidateOffset,
     )
 
+    LaunchedEffect(uiState.viewportKey) {
+        onViewportChanged(uiState.viewportKey)
+    }
+
     fun save(candidateId: String, slots: List<ArtworkSlot>) {
-        if (busy) return
+        if (!uiState.canCommitPreview || previewCandidateId != candidateId ||
+            previewDestination?.slots != slots
+        ) return
         val candidate = uiState.candidate(candidateId)?.candidate ?: return
+        val expectedSlots = slots.associateWith { slot ->
+            ArtistManualArtworkSnapshot.from(selections[slot])
+        }
+        val replaceManualAuthorized = replacementRequired
+        // Without the explicit acknowledgment, no manual image can be replaced.
+        val replacementAccepted = previewReplacementAcknowledged && replaceManualAuthorized
         busy = true
+        // Consume the per-candidate confirmation before starting I/O. Double taps and
+        // retries cannot borrow it, even if saving one of two destinations fails.
+        previewIdentityConfirmed = false
+        previewReplacementAcknowledged = false
         message = null
         val startedAt = anchor
         scope.launch {
             try {
                 // K48-R12-05: each destination owns its outcome, so a throw on the second one
                 // never discards the selection the first one already persisted.
-                val outcomes = slots.map { slot -> saveToDestination(choose, startedAt, candidate, slot) }
+                val outcomes = slots.map { slot ->
+                    saveToDestination(
+                        chooser = { chosenAnchor, chosenCandidate, chosenSlot ->
+                            // Injected chooser is a test-only seam; production enforces Room CAS.
+                            chooser?.invoke(chosenAnchor, chosenCandidate, chosenSlot)
+                                ?: coordinator.chooseManualGuarded(
+                                    chosenAnchor, chosenCandidate, chosenSlot,
+                                    expected = expectedSlots.getValue(chosenSlot),
+                                    replaceManualAuthorized = replacementAccepted,
+                                    expectedRootStamp = rootAtPickerOpen,
+                                )
+                        },
+                        anchor = startedAt, candidate = candidate, slot = slot,
+                    )
+                }
                 if (currentAnchor != startedAt) return@launch
-                val merged = mergeSavedSelections(selections, outcomes)
+                val merged = if (chooser == null) {
+                    // A rejected stale receipt must restore current Room ownership, not a ghost preview.
+                    coordinator.loadSelections(startedAt)
+                        .filter { it.status == ArtworkLoadStatus.READY }
+                        .associateBy { it.slot }
+                } else mergeSavedSelections(selections, outcomes)
+                val changedByConcurrentWrite = merged != selections
                 selections = merged
-                if (outcomes.any { it.saved }) onSelectionsChanged(merged)
+                if (outcomes.any { it.saved } || (chooser == null && changedByConcurrentWrite)) {
+                    onSelectionsChanged(merged)
+                }
+                if (outcomes.any { it.saved }) {
+                    previewCandidateId = null
+                    previewDestination = null
+                }
                 message = if (slots.size == 1) {
                     singleDestinationMessage(
                         status = outcomes.first().status,
@@ -130,32 +223,54 @@ fun ArtistArtworkPickerHost(
                         card = outcomes.first { it.slot == ArtworkSlot.ARTIST_HERO },
                     )
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (currentAnchor == startedAt) {
+                    message = "No se pudo comprobar el guardado. Vuelve a abrir el selector para leer Room."
+                }
             } finally {
                 busy = false
             }
         }
     }
 
-    fun commitFocus(slot: ArtworkSlot) {
-        val current = selections[slot] ?: return
+    fun saveFocusDraft() {
+        val draft = focusDraft ?: return
+        val current = uiState.savedSlots.firstOrNull { it.slot == draft.slot }
+        if (!mayCommitArtworkFocus(draft, current, busy)) return
+        // Single flight protects this slot and the normal candidate save at the same time.
+        busy = true
         val startedAt = anchor
         scope.launch {
             try {
-                if (coordinator.updateFocus(startedAt, slot, current.focus)) {
-                    if (currentAnchor == startedAt) onSelectionsChanged(selections)
-                } else {
-                    val persisted = coordinator.loadSelections(startedAt)
-                        .filter { it.status == ArtworkLoadStatus.READY }
-                        .associateBy { it.slot }
-                    if (currentAnchor != startedAt) return@launch
-                    selections = persisted
-                    onSelectionsChanged(persisted)
-                    message = "No fue posible guardar el encuadre; se restauró el valor persistido."
-                }
+                val updated = coordinator.updateFocusGuarded(
+                    startedAt, draft.slot, ArtworkFocus(draft.x, draft.y),
+                    draft.assetId, draft.revision,
+                    expectedRootStamp = rootAtPickerOpen,
+                )
+                if (currentAnchor != startedAt) return@launch
+                // Always publish the real Room result, never the optimistic slider draft.
+                val persisted = coordinator.loadSelections(startedAt)
+                    .filter { it.status == ArtworkLoadStatus.READY }
+                    .associateBy { it.slot }
+                focusDraft = null
+                selections = persisted
+                onSelectionsChanged(persisted)
+                val currentSaved = persisted[draft.slot]
+                message = if (updated && currentSaved != null && currentSaved.assetId == draft.assetId &&
+                    currentSaved.focus.x == draft.x && currentSaved.focus.y == draft.y
+                ) "Encuadre de ${if (draft.slot == ArtworkSlot.ARTIST_THUMB) "mosaico" else "ficha"} guardado."
+                else "La imagen, su revisión o la raíz musical cambiaron; se restauró el encuadre guardado."
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
-                message = "No fue posible guardar el encuadre: ${error.message ?: "error"}"
+            } catch (_: Exception) {
+                if (currentAnchor == startedAt) {
+                    focusDraft = null
+                    message = "No fue posible verificar el encuadre guardado; vuelve a abrir la fotografía."
+                }
+            } finally {
+                busy = false
             }
         }
     }
@@ -164,28 +279,106 @@ fun ArtistArtworkPickerHost(
         uiState = uiState,
         onIntent = { intent ->
             when (intent) {
-                ArtistArtworkPickerIntent.RequestSearch -> consentOpen = true
+                ArtistArtworkPickerIntent.RequestSearch -> if (
+                    !busy && !searching && onSearch != null && focusDraft == null &&
+                    previewCandidateId == null && !consentOpen
+                ) consentOpen = true
                 ArtistArtworkPickerIntent.CancelSearch -> consentOpen = false
                 ArtistArtworkPickerIntent.ConfirmSearch -> {
-                    consentOpen = false
-                    onSearch?.invoke()
+                    if (consentOpen && !busy && !searching && onSearch != null &&
+                        focusDraft == null && previewCandidateId == null
+                    ) {
+                        consentOpen = false
+                        onSearch.invoke()
+                    }
                 }
-                is ArtistArtworkPickerIntent.ChooseForMosaic ->
-                    save(intent.candidateId, listOf(ArtworkSlot.ARTIST_THUMB))
-                is ArtistArtworkPickerIntent.ChooseForCard ->
-                    save(intent.candidateId, listOf(ArtworkSlot.ARTIST_HERO))
-                is ArtistArtworkPickerIntent.ChooseForBoth ->
-                    save(intent.candidateId, listOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO))
-                ArtistArtworkPickerIntent.ToggleIdentityConfirmation ->
-                    confirmedIdentity = !confirmedIdentity
-                is ArtistArtworkPickerIntent.AdjustFocus -> {
-                    val current = selections[intent.slot] ?: return@ArtistArtworkPickerContent
-                    selections = selections + (
-                        intent.slot to current.copy(focus = current.focus.copy(x = intent.x, y = intent.y))
+                is ArtistArtworkPickerIntent.OpenPreview -> {
+                    // A tap opens preview only after the consent/search phase is closed.
+                    if (busy || searching || consentOpen || focusDraft != null) return@ArtistArtworkPickerContent
+                    previewCandidateId = intent.candidateId.takeIf {
+                        uiState.candidate(it) != null
+                    }
+                    previewDestination = when (preferredSlot) {
+                        ArtworkSlot.ARTIST_THUMB -> ArtistArtworkPickerDestination.MOSAIC
+                        ArtworkSlot.ARTIST_HERO -> ArtistArtworkPickerDestination.CARD
+                        null -> null
+                    }
+                    previewIdentityConfirmed = false
+                    previewReplacementAcknowledged = false
+                }
+                is ArtistArtworkPickerIntent.SelectPreviewDestination -> {
+                    if (previewCandidateId != null && !busy) {
+                        previewDestination = intent.target
+                        previewIdentityConfirmed = false
+                        previewReplacementAcknowledged = false
+                    }
+                }
+                ArtistArtworkPickerIntent.TogglePreviewIdentityConfirmation -> {
+                    if (previewCandidateId != null && !busy) {
+                        previewIdentityConfirmed = !previewIdentityConfirmed
+                    }
+                }
+                ArtistArtworkPickerIntent.TogglePreviewReplacementAcknowledgment -> {
+                    if (previewCandidateId != null && replacementRequired && !busy) {
+                        previewReplacementAcknowledged = !previewReplacementAcknowledged
+                    }
+                }
+                ArtistArtworkPickerIntent.BackToGallery -> {
+                    if (!busy) {
+                        previewCandidateId = null
+                        previewDestination = null
+                        previewIdentityConfirmed = false
+                        previewReplacementAcknowledged = false
+                    }
+                }
+                ArtistArtworkPickerIntent.SavePreview -> {
+                    val chosenId = previewCandidateId
+                    val chosenSlots = previewDestination?.slots
+                    if (chosenId != null && chosenSlots != null) save(chosenId, chosenSlots)
+                }
+                ArtistArtworkPickerIntent.ShowMoreCandidates -> if (!busy && !consentOpen &&
+                    previewCandidateId == null && focusDraft == null) {
+                    if (uiState.hasMoreCandidates) candidateOffset = uiState.galleryWindow.nextOffset
+                }
+                ArtistArtworkPickerIntent.ShowPreviousCandidates -> if (!busy && !searching && !consentOpen &&
+                    previewCandidateId == null && focusDraft == null && uiState.hasPreviousCandidates) {
+                    candidateOffset = uiState.galleryWindow.previousOffset
+                }
+                is ArtistArtworkPickerIntent.OpenFocusEditor -> {
+                    if (!busy && !searching && !consentOpen && previewCandidateId == null) {
+                        val saved = uiState.savedSlots.firstOrNull { it.slot == intent.slot }
+                        if (saved != null && saved.assetId.isNotBlank() && saved.revision >= 0) {
+                            focusDraft = newArtworkFocusDraft(saved)
+                            message = null
+                        }
+                    }
+                }
+                is ArtistArtworkPickerIntent.AdjustFocusDraft -> {
+                    val draft = focusDraft
+                    if (!busy && draft != null && intent.x.isFinite() && intent.y.isFinite()) {
+                        focusDraft = draft.copy(
+                            x = intent.x.coerceIn(0f, 1f), y = intent.y.coerceIn(0f, 1f),
                         )
+                    }
                 }
-                is ArtistArtworkPickerIntent.CommitFocus -> commitFocus(intent.slot)
-                ArtistArtworkPickerIntent.Close -> consentOpen = false
+                ArtistArtworkPickerIntent.ResetFocusDraft -> {
+                    if (!busy) focusDraft = focusDraft?.copy(x = 0.5f, y = 0.5f)
+                }
+                ArtistArtworkPickerIntent.CancelFocusDraft -> {
+                    if (!busy) focusDraft = null // No database operation and no optimistic mutation.
+                }
+                ArtistArtworkPickerIntent.SaveFocusDraft -> saveFocusDraft()
+                ArtistArtworkPickerIntent.Close -> {
+                    if (!busy) {
+                        consentOpen = false
+                        previewCandidateId = null
+                        previewDestination = null
+                        previewIdentityConfirmed = false
+                        previewReplacementAcknowledged = false
+                        focusDraft = null
+                        onClose()
+                    }
+                }
             }
         },
         modifier = modifier,

@@ -33,6 +33,9 @@ class LibraryScopeStore(
     private val _resolution = MutableStateFlow<LibraryScopeResolution>(LibraryScopeResolution.Loading)
     val resolution: StateFlow<LibraryScopeResolution> = _resolution.asStateFlow()
     private val selectionEpoch = AtomicLong()
+
+    /** D19: read-only epoch of the canonical selection, including A->B->A. */
+    fun currentSelectionEpoch(): Long = selectionEpoch.get()
     private val persistenceMutex = Mutex()
 
     init {

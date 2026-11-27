@@ -92,7 +92,8 @@ class ArtistEnrichmentControllerClearTest {
         controller.bind("library-a", "Midnight Oil", albums)
         advanceUntilIdle()
 
-        controller.clear("Midnight Oil", "library-a", albums)
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
         runCurrent()
 
         // The delete is suspended in the store: nothing may claim success yet.

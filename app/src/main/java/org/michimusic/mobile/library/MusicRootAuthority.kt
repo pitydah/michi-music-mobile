@@ -15,6 +15,7 @@ import org.michimusic.data.repository.RootScanSummary
 import org.michimusic.data.repository.SafMediaRepository
 import org.michimusic.data.repository.TreeIndexResult
 import org.michimusic.player.AudioController
+import org.michimusic.mobile.artist.artwork.ArtistArtworkWriteGate
 
 /** A prospective choice held by the Wizard until its completion transaction. */
 sealed interface MusicRootSelection {
@@ -54,6 +55,19 @@ class MusicRootAuthority(
     private val changeMutex = Mutex()
     private val _currentRoot = MutableStateFlow(preferences.currentRoot())
     val currentRoot: StateFlow<MusicRoot> = _currentRoot.asStateFlow()
+
+    // D16: observe the *existing persistent* root stamp. Do not mint a second epoch:
+    // MusicRootPreferences.currentRootStamp() already covers successful A -> B -> A
+    // root commits and wizard rollbacks. revision separately covers rescans.
+    private val _reviewStamp = MutableStateFlow(preferences.currentRootStamp())
+    val reviewStamp: StateFlow<org.michimusic.data.repository.MusicRootStamp> = _reviewStamp.asStateFlow()
+
+    fun currentReviewStamp(): org.michimusic.data.repository.MusicRootStamp =
+        preferences.currentRootStamp()
+
+    private fun publishReviewStamp() {
+        _reviewStamp.value = preferences.currentRootStamp()
+    }
 
     /** Emits only after a confirmed change; Library/Search observers reload from it. */
     private val _revision = MutableStateFlow(0L)
@@ -195,7 +209,9 @@ class MusicRootAuthority(
         val count = candidate.second
         val changed = root != previous
 
-        if (changed && !preferences.saveRoot(root)) {
+        // D17: manual/automatic Room commits and a committed SAF root change
+        // share a short process-local gate. Indexing occurs OUTSIDE this gate.
+        if (changed && !ArtistArtworkWriteGate.guarding { preferences.saveRoot(root) }) {
             if (selection is MusicRootSelection.CustomTree && root.sourceId != previousSource) {
                 root.sourceId?.let { safRepository.clearSource(it) }
             }
@@ -208,6 +224,7 @@ class MusicRootAuthority(
         }
 
         _currentRoot.value = root
+        if (changed) publishReviewStamp()
         if (!root.isDefault) {
             val summary = RootScanSummary(System.currentTimeMillis(), count, sourceId = root.sourceId)
             preferences.recordScan(count, sourceId = root.sourceId)
@@ -239,8 +256,9 @@ class MusicRootAuthority(
     /** Restores the prior root if the Wizard's completion transaction fails. */
     suspend fun rollback(change: MusicRootChange): Boolean = changeMutex.withLock {
         val previous = change.previousRoot ?: return@withLock true
-        if (!preferences.saveRoot(previous)) return@withLock false
+        if (!ArtistArtworkWriteGate.guarding { preferences.saveRoot(previous) }) return@withLock false
         _currentRoot.value = previous
+        publishReviewStamp() // The existing persisted epoch advanced on rollback.
         val newSource = change.newSourceId
         if (newSource != null && newSource != change.previousSourceId) {
             safRepository.clearSource(newSource)
@@ -293,7 +311,7 @@ class MusicRootAuthority(
                             message = "No se pudo preservar la lista de canciones ocultas.",
                         )
                     }
-                    if (!preferences.saveRoot(migrated)) {
+                    if (!ArtistArtworkWriteGate.guarding { preferences.saveRoot(migrated) }) {
                         return@withLock MusicRootChange(
                             success = false,
                             root = root,
@@ -302,6 +320,7 @@ class MusicRootAuthority(
                         )
                     }
                     _currentRoot.value = migrated
+                    publishReviewStamp() // saveRoot() advanced the persisted epoch.
                     root.sourceId?.takeIf { it != indexed.sourceId }?.let { safRepository.clearSource(it) }
                     migrated
                 }

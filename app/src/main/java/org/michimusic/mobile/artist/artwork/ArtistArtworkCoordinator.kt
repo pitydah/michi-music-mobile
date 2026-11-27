@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.michimusic.mobile.artist.ArtistEnrichmentDiagnostics
+import org.michimusic.data.repository.MusicRootStamp
 
 /**
  * One owner for provider federation, ranking, download and persistence. No UI surface
@@ -297,11 +298,36 @@ class ArtistArtworkCoordinator internal constructor(
      * Neither path is automatic, and neither replaces a verified slot without this
      * direct user action.
      */
+    /** Legacy entry is fail-closed: no caller can replace manually owned artwork without consent. */
     suspend fun chooseManual(
         anchor: ArtistIdentityAnchor,
         candidate: ArtistArtworkCandidate,
         slot: ArtworkSlot,
+    ): ArtworkResolutionReport {
+        // Read an exact version, then re-check it in the single Room transaction AFTER I/O.
+        // This entry cannot grant replacement of a manually chosen slot; UI confirmation
+        // is available only through chooseManualGuarded.
+        val existing = store.load(anchor).firstOrNull { it.slot == slot }
+        return chooseManualGuarded(
+            anchor, candidate, slot, ArtistManualArtworkSnapshot.from(existing),
+            replaceManualAuthorized = false,
+            expectedRootStamp = store.currentRootStamp(),
+        )
+    }
+
+    /** D15: guarded variant used exclusively by the photo preview after confirmation. */
+    suspend fun chooseManualGuarded(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        expected: ArtistManualArtworkSnapshot,
+        replaceManualAuthorized: Boolean,
+        expectedRootStamp: MusicRootStamp? = null,
     ): ArtworkResolutionReport = withAnchorLock(anchor) {
+        if (expectedRootStamp == null) {
+            return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED,
+                "La sesión de biblioteca no tiene una generación de raíz verificada")
+        }
         if (!candidate.isManualEligible()) {
             return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Candidato manual no admitido")
         }
@@ -330,9 +356,10 @@ class ArtistArtworkCoordinator internal constructor(
             if (!allowedArtworkCandidate(verified, anchor)) {
                 return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El candidato no cumple las reglas de artwork")
             }
-            val selection = store.save(
+            val selection = store.saveManualGuarded(
                 anchor, verified, slot, downloaded,
-                ArtworkFocus(0.5f, 0.5f), manuallyChosen = true,
+                expected = expected, replaceManualAuthorized = replaceManualAuthorized,
+                expectedRootStamp = expectedRootStamp,
             )
             val selections = store.load(anchor).associateBy { it.slot }
             return@withAnchorLock ArtworkResolutionReport(
@@ -356,6 +383,14 @@ class ArtistArtworkCoordinator internal constructor(
 
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean =
         store.updateFocus(anchor, slot, focus)
+
+    /** D14 guarded editor operation: never apply a draft to a replacement asset. */
+    suspend fun updateFocusGuarded(
+        anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus,
+        expectedAssetId: String, expectedRevision: Long,
+        expectedRootStamp: MusicRootStamp? = null,
+    ): Boolean = store.updateFocusGuarded(anchor, slot, focus, expectedAssetId, expectedRevision,
+        expectedRootStamp)
 
     /** Re-reads persisted selections after a failed mutation; the UI never guesses saved state. */
     suspend fun loadSelections(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> =

@@ -85,6 +85,15 @@ data class ArtistArtworkCandidate(
     val downloadedSha256: String? = null,
 )
 
+/** Exact slot image observed BEFORE a user authorizes a manual replacement. */
+data class ArtistManualArtworkSnapshot(val assetId: String?, val revision: Long?) {
+    init { require((assetId == null) == (revision == null)) }
+    companion object {
+        fun from(selection: ArtistArtworkSelection?): ArtistManualArtworkSnapshot =
+            ArtistManualArtworkSnapshot(selection?.assetId, selection?.revision)
+    }
+}
+
 data class ArtworkFocus(val x: Float = 0.5f, val y: Float = 0.5f) {
     fun normalized(): ArtworkFocus = ArtworkFocus(
         x = x.coerceIn(0f, 1f),

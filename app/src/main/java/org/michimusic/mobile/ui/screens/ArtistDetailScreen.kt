@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,8 +51,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flowOf
@@ -76,6 +81,9 @@ import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.library.LibraryScopeStore
+import org.michimusic.mobile.navigation.ArtistReviewContext
+import org.michimusic.mobile.navigation.ArtistReviewRootGuard
+import org.michimusic.mobile.navigation.ArtistExactMembershipTickets
 import org.michimusic.mobile.library.authority
 import org.michimusic.mobile.library.authorizedScope
 import org.michimusic.mobile.library.noAuthorizedScope
@@ -116,6 +124,9 @@ fun ArtistDetailScreen(
     sessionManager: PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
     onNavigateToAlbum: (String) -> Unit = {},
+    reviewContext: ArtistReviewContext? = null,
+    /** Read-only opaque route; never grants enrich/delete authority. */
+    exactMembershipTicketId: String? = null,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
@@ -156,9 +167,76 @@ fun ArtistDetailScreen(
     )
     val profileScopes = if (scoped.identityLibraryId == null && memberships.ready && !memberships.error)
         memberships.byCredit[artistCredit].orEmpty() else emptyList()
-    val localAlbums = remember(scoped, artistCredit) {
-        if (!scoped.ready) emptyList()
-        else scoped.albums.filter { it.album.artist == artistCredit }
+    // D34: a ticket carries only a random token; reconstruct all evidence at destination.
+    // Provider names, photos, and a representative credit can never expand membership.
+    val ticketVersion by ArtistExactMembershipTickets.validityChanges.collectAsStateWithLifecycle()
+    val ticketRootStamp by rootAuthority.reviewStamp.collectAsStateWithLifecycle()
+    val ticketCatalogRevision by rootAuthority.revision.collectAsStateWithLifecycle()
+    val ticketRoot = ArtistReviewRootGuard(ticketRootStamp, ticketCatalogRevision)
+    val ticketLifecycle = LocalLifecycleOwner.current.lifecycle
+    var ticketResumeRevision by remember(exactMembershipTicketId) { mutableIntStateOf(0) }
+    DisposableEffect(ticketLifecycle, exactMembershipTicketId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) ticketResumeRevision++
+        }
+        if (exactMembershipTicketId != null) ticketLifecycle.addObserver(observer)
+        onDispose { ticketLifecycle.removeObserver(observer) }
+    }
+    val ticketRemaining = remember(exactMembershipTicketId, ticketRoot, ticketVersion, ticketResumeRevision) {
+        exactMembershipTicketId?.let { ArtistExactMembershipTickets.remainingLifetimeMs(it, ticketRoot) }
+    }
+    var exactTicketExpired by remember(exactMembershipTicketId, ticketRoot, ticketVersion, ticketResumeRevision) {
+        mutableStateOf(ticketRemaining == 0L)
+    }
+    LaunchedEffect(exactMembershipTicketId, ticketRoot, ticketVersion, ticketResumeRevision) {
+        val token = exactMembershipTicketId ?: return@LaunchedEffect
+        val remaining = ArtistExactMembershipTickets.remainingLifetimeMs(token, ticketRoot)
+        if (remaining > 0L) delay(remaining)
+        ArtistExactMembershipTickets.revoke(token)
+        exactTicketExpired = true
+    }
+    val exactRoute = if (exactMembershipTicketId != null && !exactTicketExpired &&
+        authorizedScope is org.michimusic.core.models.LibraryScope.One &&
+        scoped.ready && scoped.identityLibraryId == authorizedScope.libraryId) {
+        val baseRows = remember(scoped.albums, scoped.identityLibraryId) {
+            org.michimusic.mobile.artist.exactArtistCatalogOccurrences(
+                scoped.albums, scoped.identityLibraryId,
+            )
+        }
+        // D36: the destination re-reads EXACTLY the same current album/track evidence
+        // as the mosaic. A credit-name lookup must not reconstruct a stale ticket.
+        val evidence = org.michimusic.mobile.library.rememberArtistExactOccurrenceIdentities(
+            libraryId = scoped.identityLibraryId,
+            albums = scoped.albums,
+            rootAuthority = rootAuthority,
+            exactOneLibrary = true,
+            retryKey = membershipRetry,
+            sessionProofs = ArtistExactMembershipTickets.sessionProofs(exactMembershipTicketId,
+                ticketRoot, scoped.identityLibraryId),
+        )
+        if (!evidence.ready) Pair(null, true)
+        else if (evidence.error) Pair(null, false)
+        else {
+            val verifiedRows = evidence.applyTo(baseRows)
+            val currentEntries = org.michimusic.mobile.artist.planArtistMemberships(verifiedRows).entries
+            val accepted = ArtistExactMembershipTickets.resolveAgainstCatalog(
+                exactMembershipTicketId, ticketRoot, scoped.identityLibraryId,
+                currentEntries, verifiedRows,
+            )
+            Pair(accepted?.let { snapshot ->
+                org.michimusic.mobile.artist.exactArtistCatalogAlbums(scoped.albums, snapshot)
+            }, false)
+        }
+    } else null
+    val exactRouteLoading = exactRoute?.second == true
+    val exactRouteBlocked = exactMembershipTicketId != null && scoped.ready &&
+        !exactRouteLoading && exactRoute?.first == null
+    val localAlbums = remember(scoped, artistCredit, exactMembershipTicketId, exactRoute) {
+        when {
+            !scoped.ready -> emptyList()
+            exactMembershipTicketId != null -> exactRoute?.first.orEmpty()
+            else -> scoped.albums.filter { it.album.artist == artistCredit }
+        }
     }
     val tracks = remember(localAlbums) { localAlbums.flatMap { it.tracks }.distinctBy { it.id } }
     val playableTrackIds = scoped.playableTrackIds
@@ -178,6 +256,14 @@ fun ArtistDetailScreen(
     }
 
     fun playEligible(selection: org.michimusic.mobile.library.ArtistQueueSelection?) {
+        if (exactMembershipTicketId != null &&
+            (exactRouteBlocked || exactRouteLoading || ArtistExactMembershipTickets.preview(
+                exactMembershipTicketId,
+                ArtistReviewRootGuard(rootAuthority.currentReviewStamp(), rootAuthority.revision.value),
+            ) == null)) {
+            playbackNotice = "La biblioteca cambió; vuelve a abrir la ficha desde Artistas."
+            return
+        }
         if (selection == null) {
             playbackNotice = "No hay audio accesible para esta selección. Conecta el origen o revisa los permisos."
             return
@@ -196,11 +282,56 @@ fun ArtistDetailScreen(
     }
     val libraryId = scoped.identityLibraryId
     val albumIds = remember(localAlbums) { localAlbums.map { it.album.id } }
+    // D16: expiration and root generation are independent of album membership. A review
+    // cannot silently regain authority when the user switches A -> B -> A.
+    val currentRootReviewStamp by rootAuthority.reviewStamp.collectAsStateWithLifecycle()
+    val currentCatalogRevision by rootAuthority.revision.collectAsStateWithLifecycle()
+    val reviewRootGuard = ArtistReviewRootGuard(currentRootReviewStamp, currentCatalogRevision)
+    // D38: presentation-only credits; a ticket never grants profile or write authority.
+    val exactAttribution = remember(exactMembershipTicketId, reviewRootGuard, scoped.albums, localAlbums) {
+        if (exactMembershipTicketId == null || !scoped.ready || exactRouteBlocked) null
+        else {
+            val credits = ArtistExactMembershipTickets.preview(exactMembershipTicketId, reviewRootGuard)
+                ?.mergedCredits.orEmpty()
+            val sources = scoped.albums.groupBy { it.album.id }
+            org.michimusic.mobile.artist.ArtistDetailAttributionPolicy.summarize(
+                creditedNames = credits,
+                albums = localAlbums.map { group ->
+                    val source = sources[group.album.id]?.singleOrNull()
+                    org.michimusic.mobile.artist.ArtistDetailAlbumCreditRow(
+                        albumId = group.album.id,
+                        albumCredit = group.album.artist,
+                        visibleTrackKeys = group.tracks.map {
+                            org.michimusic.mobile.artist.exactArtistTrackIdentity(it)
+                        },
+                        sourceTrackKeys = source?.tracks?.map {
+                            org.michimusic.mobile.artist.exactArtistTrackIdentity(it)
+                        },
+                    )
+                },
+            )
+        }
+    }
+    var reviewExpired by remember(reviewContext) { mutableStateOf(false) }
+    LaunchedEffect(reviewContext) {
+        val expires = reviewContext?.expiresAtMs ?: return@LaunchedEffect
+        val remaining = (expires - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        if (remaining > 0L) delay(remaining)
+        reviewExpired = true
+    }
+    // The ticket is a local navigation hint, never permission to assign a MBID.
+    val reviewScopeValid = reviewContext?.permits(
+        artistCredit, libraryId, albumIds, reviewRootGuard,
+    )?.let { it && !reviewExpired } ?: true
+    val reviewPending = reviewContext != null && !scoped.ready && scoped.errorMessage == null
     val albumIdentityCounts = remember(localAlbums, activeScope) { albumNavigationIdentityCounts(localAlbums, activeScope) }
     val context = LocalContext.current
     val store = remember(context) { ArtistEnrichmentPersistence.from(context) }
     val artworkStore = remember(context) { ArtistArtworkPersistence.from(context) }
-    var showEnrichment by rememberSaveable(artistCredit) { mutableStateOf(initialEnrichment) }
+    var showEnrichment by rememberSaveable(artistCredit, reviewContext?.libraryId,
+        reviewContext?.albumIds, exactMembershipTicketId) {
+        mutableStateOf(initialEnrichment && exactMembershipTicketId == null)
+    }
     var cacheRevision by remember { mutableIntStateOf(0) }
     // Keep the stale bit: a saved association is not evidence of fresh external data.
     var savedRecord by remember(artistCredit, libraryId, albumIds, profileScopes) {
@@ -220,6 +351,11 @@ fun ArtistDetailScreen(
         profileStatus = ArtistProfileStatus.UNRESOLVED
         profileReadError = false
         profileReading = true
+        if (exactMembershipTicketId != null) {
+            // An alias/guest projection cannot inherit a name-only artist profile.
+            profileReading = false
+            return@LaunchedEffect
+        }
         try {
             if (libraryId == null) {
                 val result = resolveArtistProfileConsensus(profileScopes, store)
@@ -255,6 +391,7 @@ fun ArtistDetailScreen(
         savedProfile?.mbid, savedProfile?.wikidataQid, cacheRevision, artworkRevision) {
         heroArtwork = null
         artworkReadError = false
+        if (exactMembershipTicketId != null) return@LaunchedEffect
         if (libraryId == null) return@LaunchedEffect
         try {
             val anchor = artistIdentityAnchor(
@@ -291,14 +428,19 @@ fun ArtistDetailScreen(
             scope = controllerScope,
         )
     }
-    LaunchedEffect(enrichmentController, artistCredit, libraryId, albumIds) {
-        enrichmentController.bind(libraryId, artistCredit, albumIds)
+    LaunchedEffect(enrichmentController, artistCredit, libraryId, albumIds, reviewScopeValid,
+        exactMembershipTicketId) {
+        if (exactMembershipTicketId != null) return@LaunchedEffect
+        enrichmentController.bind(
+            if (reviewScopeValid) libraryId else null, artistCredit,
+            if (reviewScopeValid) albumIds else emptyList(),
+        )
     }
     DisposableEffect(enrichmentController) {
         onDispose { enrichmentController.release() }
     }
     val enrichmentState by enrichmentController.state.collectAsStateWithLifecycle()
-    val effectiveProfile = enrichmentState.profile ?: savedProfile
+    val effectiveProfile = if (exactMembershipTicketId == null) enrichmentState.profile ?: savedProfile else null
     val effectiveStale = enrichmentState.stale || cachedProfileIsStale
     val effectivePortrait = effectiveProfile?.portrait?.takeIf(::allowedCommonsPortrait)
     val effectiveHeroArtwork = selectEffectiveHeroArtwork(
@@ -317,6 +459,10 @@ fun ArtistDetailScreen(
         cacheRevision++ // A confirmed portrait or deleted association is reflected on return.
     }
     fun handleBack() {
+        if (reviewContext != null && !reviewScopeValid) {
+            onBack()
+            return
+        }
         when (artistDetailBackDestination(showEnrichment)) {
             ArtistDetailBackDestination.OVERVIEW -> returnToOverview()
             ArtistDetailBackDestination.LIBRARY -> onBack()
@@ -349,8 +495,13 @@ fun ArtistDetailScreen(
                         fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                if (exactMembershipTicketId != null) {
+                    Text("Pertenencias exactas · solo lectura", color = TextSecondary,
+                        fontSize = 11.sp, modifier = Modifier.testTag("artist_exact_read_only"))
+                }
                 TextButton(
                     onClick = { if (showEnrichment) returnToOverview() else showEnrichment = true },
+                    enabled = reviewScopeValid && exactMembershipTicketId == null,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_enrichment_toggle"),
                 ) {
                     Text(if (showEnrichment) "Ver ficha" else "Enriquecer",
@@ -358,7 +509,21 @@ fun ArtistDetailScreen(
                 }
             }
             if (showEnrichment) {
-                if (collectionPhase == ArtistDetailCollectionPhase.SOURCE_ERROR) {
+                if (reviewPending) {
+                    Box(Modifier.fillMaxSize().testTag("artist_review_waiting"),
+                        contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = TertiaryCyan)
+                    }
+                } else if (reviewContext != null && !reviewScopeValid) {
+                    Column(Modifier.fillMaxSize().padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Esta revisión expiró o cambió su raíz, biblioteca o álbumes. " +
+                            "Vuelve a elegir el artista desde Biblioteca. No se modificó ninguna identidad.",
+                            color = TextSecondary, modifier = Modifier.testTag("artist_review_scope_mismatch"))
+                        AeroActionButton("Volver a Biblioteca", onClick = onBack,
+                            testTag = "artist_review_return")
+                    }
+                } else if (collectionPhase == ArtistDetailCollectionPhase.SOURCE_ERROR) {
                     Column(Modifier.fillMaxSize().padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(scoped.errorMessage.orEmpty(), color = TextSecondary)
@@ -441,6 +606,24 @@ fun ArtistDetailScreen(
                         localTrackIds = localTracks.map { it.id },
                         modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
                     )
+                }
+            } else if (exactRouteLoading) {
+                Box(Modifier.fillMaxSize().testTag("artist_exact_evidence_loading"),
+                    contentAlignment = Alignment.Center) { CircularProgressIndicator(color = TertiaryCyan) }
+            } else if (exactRouteBlocked) {
+                Column(Modifier.fillMaxSize().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("La pertenencia ya no corresponde a esta biblioteca o perdió su evidencia. " +
+                        "Regresa a Artistas y abre la tarjeta nuevamente.", color = TextSecondary,
+                        modifier = Modifier.testTag("artist_exact_scope_mismatch"))
+                    AeroActionButton("Volver a Artistas", onClick = onBack,
+                        testTag = "artist_exact_scope_back")
+                }
+            } else if (reviewContext != null && !reviewScopeValid) {
+                Box(Modifier.fillMaxSize().testTag("artist_review_scope_mismatch_overview"),
+                    contentAlignment = Alignment.Center) {
+                    Text("La revisión ya no coincide con la biblioteca seleccionada.",
+                        color = TextSecondary)
                 }
             } else {
                 LazyColumn(
@@ -566,6 +749,21 @@ fun ArtistDetailScreen(
                         // Discography is exactly the albums present in the local library.
                         // Catalogue-only releases are not shown here: this list must reflect
                         // the files the user actually has, not what MusicBrainz published.
+                        if (exactMembershipTicketId != null) {
+                            item("artist_exact_membership_notice") {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.testTag("artist_exact_membership_notice")) {
+                                    Text("Créditos en tu biblioteca", color = PureWhite,
+                                        fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text(exactAttribution?.displaySummary ?:
+                                        "No es posible distinguir los créditos; vuelve a abrir la tarjeta desde Artistas.",
+                                        color = TextSecondary, fontSize = 12.sp)
+                                    Text("Solo se muestran pistas acreditadas. " +
+                                        "Una participación no convierte el álbum completo en discografía propia.",
+                                        color = TextSecondary, fontSize = 12.sp)
+                                }
+                            }
+                        }
                         item("artist_discography_heading") {
                             ArtistDetailSectionHeader("DISCOGRAFÍA")
                         }
@@ -589,7 +787,8 @@ fun ArtistDetailScreen(
                                             }
                                             .semantics(mergeDescendants = true) {
                                                 contentDescription = if (uniqueAlbum)
-                                                    "Abrir álbum ${group.album.title}"
+                                                    "Abrir álbum ${group.album.title}. " +
+                                                        exactAttribution?.albumLabels?.get(group.album.id)?.displayLabel.orEmpty()
                                                 else "Álbum ${group.album.title}, identidad duplicada"
                                             }
                                             .padding(bottom = 6.dp)
@@ -619,13 +818,20 @@ fun ArtistDetailScreen(
                                             if (group.album.year > 0) "${group.album.year} · $songCount" else songCount,
                                             color = TextSecondary, fontSize = 11.sp,
                                         )
+                                        exactAttribution?.albumLabels?.get(group.album.id)?.let { role ->
+                                            Text(role.displayLabel, color = TertiaryCyan,
+                                                fontSize = 11.sp, maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.testTag("artist_album_credit_${group.album.id}"))
+                                        }
                                     }
                                 }
                             }
                         }
                         item("artist_tracks_heading") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                ArtistDetailSectionHeader("CANCIONES", tracks.size)
+                                ArtistDetailSectionHeader(if (exactMembershipTicketId == null)
+                                    "CANCIONES" else "CANCIONES ACREDITADAS", tracks.size)
                                 if (unavailableCount > 0) {
                                     Text("$unavailableCount ${if (unavailableCount == 1) "pista no disponible" else "pistas no disponibles"}. " +
                                         "Se omitirán al reproducir.", color = TextSecondary,
@@ -640,7 +846,7 @@ fun ArtistDetailScreen(
                                     enabled = tracks.any { it.id in playableTrackIds },
                                     testTag = "artist_detail_play_all",
                                 )
-                                if (tracks.isNotEmpty() && tracks.all {
+                                if (exactMembershipTicketId == null && tracks.isNotEmpty() && tracks.all {
                                     it.source == TrackSource.LOCAL && it.filepath.isNotBlank()
                                 }) {
                                     TextButton(

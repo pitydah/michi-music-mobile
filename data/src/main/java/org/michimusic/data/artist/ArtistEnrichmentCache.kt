@@ -246,6 +246,26 @@ data class ArtistArtworkRevisionRecord(
     val updatedAtMs: Long,
 )
 
+/** Exact, durable per-asset deletion intent. A row is never authority to delete
+ * a currently referenced file; the worker must revalidate all current owners.
+ */
+@Entity(
+    tableName = "artist_artwork_cleanup",
+    primaryKeys = ["cleanupId", "assetId"],
+    indices = [Index(value = ["state", "createdAtMs"])],
+)
+data class ArtistArtworkCleanupRecord(
+    val cleanupId: String,
+    val libraryId: String,
+    val creditKey: String,
+    val associationId: String,
+    val assetId: String,
+    val localRelativePath: String,
+    val sha256: String,
+    val createdAtMs: Long,
+    val state: String,
+)
+
 @Dao
 interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
@@ -267,6 +287,91 @@ interface ArtistEnrichmentDao {
         libraryId: String,
         creditKey: String,
     ): List<DurableArtistAssociationRecord>
+
+    /** S1-B1: exact association ownership; never infer the deletion scope from a credit. */
+    @Query("SELECT * FROM artist_album_credit_binding WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
+    suspend fun bindingsForAssociation(
+        libraryId: String, creditKey: String, associationId: String,
+    ): List<ArtistAlbumCreditBindingRecord>
+
+    @Query("DELETE FROM durable_artist_association WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
+    suspend fun deleteDurableAssociation(
+        libraryId: String, creditKey: String, associationId: String,
+    ): Int
+
+    /** Retire queued work inside the same transaction as the binding and photos. */
+    @Query("DELETE FROM artist_artwork_auto_outbox WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
+    suspend fun deleteAutoArtworkForAssociation(
+        libraryId: String, creditKey: String, associationId: String,
+    ): Int
+
+    @Query("DELETE FROM artist_artwork_source_binding_proof WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
+    suspend fun deleteSourceBindingProofsForAssociation(
+        libraryId: String, creditKey: String, associationId: String,
+    ): Int
+
+    /** D36: exact, explicitly bound album credits with durable association identity.
+     * Two unrelated people sharing a display name never share an album binding.
+     * Inner joins fail closed if the association/identity was deleted.
+     */
+    @Query("""SELECT binding.libraryId AS libraryId, binding.albumKey AS albumKey,
+        binding.creditKey AS creditKey, binding.associationId AS associationId,
+        binding.evidenceType AS evidenceType, binding.confirmedAtMs AS confirmedAtMs,
+        identity.confirmedMbid AS confirmedMbid
+        FROM artist_album_credit_binding AS binding
+        INNER JOIN durable_artist_association AS durable
+          ON durable.libraryId = binding.libraryId
+          AND durable.creditKey = binding.creditKey
+          AND durable.associationId = binding.associationId
+        INNER JOIN artist_enrichment AS identity
+          ON identity.libraryId = durable.libraryId
+          AND identity.creditKey = durable.creditKey
+          AND identity.albumGroupKey = durable.identityAssociationId
+        WHERE binding.libraryId = :libraryId
+          AND binding.albumKey IN (:albumKeys) AND binding.creditKey IN (:creditKeys)
+        ORDER BY binding.albumKey, binding.creditKey, binding.associationId LIMIT :limit""")
+    suspend fun getConfirmedAlbumIdentityRows(
+        libraryId: String, albumKeys: List<String>, creditKeys: List<String>, limit: Int = Int.MAX_VALUE,
+    ): List<ArtistConfirmedAlbumIdentityRow>
+
+    /** Diagnostic only: embedded/automatic MBID observations never grant an identity. */
+    @Query("""SELECT * FROM artist_track_evidence
+        WHERE libraryId = :libraryId AND trackId IN (:trackIds)
+          AND field IN ('ARTIST_MBID', 'AUTO_ARTIST_MBID')
+        ORDER BY trackId, field, ordinal LIMIT :limit""")
+    suspend fun getUntrustedArtistTagMbidsForTracks(
+        libraryId: String, trackIds: List<String>, limit: Int = Int.MAX_VALUE,
+    ): List<ArtistTrackEvidenceRecord>
+
+    /** Exact, manually confirmed track-only identity; no implicit album assignment. */
+    @Query("SELECT * FROM artist_explicit_track_identity WHERE libraryId = :libraryId AND trackId IN (:trackIds) LIMIT :limit")
+    suspend fun explicitTrackIdentities(libraryId: String, trackIds: List<String>, limit: Int = Int.MAX_VALUE): List<ArtistExplicitTrackIdentityRecord>
+
+    @Query("SELECT * FROM artist_explicit_track_identity WHERE libraryId = :libraryId AND albumKey = :albumId AND trackId = :trackId AND creditKey = :creditKey LIMIT 1")
+    suspend fun explicitTrackIdentity(libraryId: String, albumId: String, trackId: String,
+        creditKey: String): ArtistExplicitTrackIdentityRecord?
+
+    /** A first decision is insert-only: unexpected duplicate requests abort transaction. */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertExplicitTrackIdentity(row: ArtistExplicitTrackIdentityRecord)
+
+    /** D46: re-attest an 18->19 legacy row with matching user-chosen MBID.
+     * Never update a verified row, an altered root, or another identity.
+     */
+    @Query("""UPDATE artist_explicit_track_identity SET
+        sourceContentSha256 = :sha256, sourceContentBytes = :byteCount,
+        revision = revision + 1, confirmedAtEpochMs = :nowMs
+        WHERE libraryId = :libraryId AND albumKey = :albumKey AND trackId = :trackId
+          AND creditKey = :creditKey AND trackKeySha256 = :trackKeySha256
+          AND confirmedMbid = :confirmedMbid AND rootSourceId = :rootSourceId
+          AND rootEpoch = :rootEpoch AND evidence = 'USER_EXPLICIT_TRACK_CONFIRMATION'
+          AND sourceContentSha256 = '' AND sourceContentBytes = 0
+          AND revision BETWEEN 1 AND 9223372036854775806""")
+    suspend fun reverifyLegacyExplicitTrackIdentityProof(
+        libraryId: String, albumKey: String, trackId: String, creditKey: String,
+        trackKeySha256: String, confirmedMbid: String, rootSourceId: String,
+        rootEpoch: Long, sha256: String, byteCount: Long, nowMs: Long,
+    ): Int
 
     /** Guard for automatic photos: a durable identity with no album ownership is insufficient. */
     @Query("SELECT COUNT(*) FROM artist_album_credit_binding WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
@@ -436,10 +541,44 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_artwork_asset WHERE assetId = :assetId LIMIT 1")
     suspend fun getArtworkAsset(assetId: String): ArtistArtworkAssetRecord?
 
+    /** D10/D14: only a *real*, currently-unreferenced asset may be cleaned up. */
+    @Query("SELECT DISTINCT assetId FROM artist_artwork_link WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :associationId AND confirmedMbid = :expectedMbid")
+    suspend fun artworkLinkAssetsForAssociation(
+        libraryId: String, creditKey: String, associationId: String, expectedMbid: String,
+    ): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertArtworkCleanup(record: ArtistArtworkCleanupRecord): Long
+
+    @Query("SELECT * FROM artist_artwork_cleanup WHERE state = 'PENDING' ORDER BY createdAtMs ASC, cleanupId ASC, assetId ASC LIMIT :limit")
+    suspend fun pendingArtworkCleanup(limit: Int): List<ArtistArtworkCleanupRecord>
+
+    @Query("""SELECT * FROM artist_artwork_cleanup WHERE state = 'PENDING' AND
+        (createdAtMs > :afterMs OR (createdAtMs = :afterMs AND
+        (cleanupId > :afterCleanup OR (cleanupId = :afterCleanup AND assetId > :afterAsset))))
+        ORDER BY createdAtMs ASC, cleanupId ASC, assetId ASC LIMIT :limit""")
+    suspend fun pendingArtworkCleanupAfter(afterMs: Long, afterCleanup: String, afterAsset: String,
+        limit: Int): List<ArtistArtworkCleanupRecord>
+
+    @Query("UPDATE artist_artwork_cleanup SET state = :state WHERE cleanupId = :cleanupId AND assetId = :assetId AND state = 'PENDING'")
+    suspend fun finishArtworkCleanup(cleanupId: String, assetId: String, state: String): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE assetId = :assetId")
+    suspend fun countSelectionReferencesToAsset(assetId: String): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_link WHERE assetId = :assetId")
+    suspend fun countLinkReferencesToAsset(assetId: String): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_asset WHERE localRelativePath = :path AND assetId != :assetId")
+    suspend fun countOtherArtworkAssetsForPath(assetId: String, path: String): Int
+
+    @Query("DELETE FROM artist_artwork_asset WHERE assetId = :assetId AND NOT EXISTS (SELECT 1 FROM artist_artwork_selection WHERE assetId = :assetId) AND NOT EXISTS (SELECT 1 FROM artist_artwork_link WHERE assetId = :assetId)")
+    suspend fun deleteArtworkAssetIfUnreferenced(assetId: String): Int
+
     @Query("SELECT * FROM artist_artwork_asset")
     suspend fun getAllArtworkAssets(): List<ArtistArtworkAssetRecord>
 
-    @Query("DELETE FROM artist_artwork_asset WHERE assetId NOT IN (SELECT DISTINCT assetId FROM artist_artwork_selection)")
+    @Query("DELETE FROM artist_artwork_asset WHERE assetId NOT IN (SELECT DISTINCT assetId FROM artist_artwork_selection) AND assetId NOT IN (SELECT DISTINCT assetId FROM artist_artwork_link)")
     suspend fun deleteUnreferencedArtworkAssets(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -479,6 +618,17 @@ interface ArtistEnrichmentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putArtworkSelection(selection: ArtistArtworkSelectionRecord)
+
+    /** A legacy slot with a different MBID must not be silently left behind. */
+    @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :associationId AND confirmedMbid != :expectedMbid")
+    suspend fun countForeignArtworkSelections(
+        libraryId: String, creditKey: String, associationId: String, expectedMbid: String,
+    ): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_link WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :associationId AND confirmedMbid != :expectedMbid")
+    suspend fun countForeignArtworkLinks(
+        libraryId: String, creditKey: String, associationId: String, expectedMbid: String,
+    ): Int
 
     @Query("DELETE FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
     suspend fun clearArtworkSelections(
@@ -628,12 +778,92 @@ interface ArtistEnrichmentDao {
         return revision
     }
 
+    /** Read ALL MBIDs for the exact slot; a different owner must never be overwritten. */
+    @Query("""SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId
+        AND creditKey = :creditKey AND albumGroupKey = :associationId AND slot = :slot LIMIT 1""")
+    suspend fun artworkSelectionForExactSlot(
+        libraryId: String, creditKey: String, associationId: String, slot: String,
+    ): ArtistArtworkSelectionRecord?
+
+    /** D15: final manual authorisation guard, checked alongside the Room write atomically. */
+    @Transaction
+    suspend fun persistArtworkManuallyAuthorized(
+        asset: ArtistArtworkAssetRecord,
+        link: ArtistArtworkLinkRecord,
+        selection: ArtistArtworkSelectionRecord,
+        expectedAssetId: String?,
+        expectedRevision: Long?,
+        replaceManualAuthorized: Boolean,
+    ): Long? {
+        if (!selection.manuallyChosen ||
+            (expectedAssetId == null) != (expectedRevision == null) ||
+            selection.assetId != asset.assetId || selection.assetId != link.assetId ||
+            asset.confirmedMbid != selection.confirmedMbid ||
+            link.confirmedMbid != selection.confirmedMbid ||
+            selection.libraryId != link.libraryId || selection.creditKey != link.creditKey ||
+            selection.albumGroupKey != link.albumGroupKey || selection.slot != link.slot ||
+            selection.focusX !in 0f..1f || selection.focusY !in 0f..1f
+        ) return null
+        val association = getDurableAssociation(
+            selection.libraryId, selection.creditKey, selection.albumGroupKey,
+        ) ?: return null
+        val identity = get(
+            selection.libraryId, selection.creditKey, association.identityAssociationId,
+        ) ?: return null
+        if (identity.confirmedMbid != selection.confirmedMbid ||
+            identity.source == "musicbrainz-manual-selection-pending" ||
+            countConfirmedBindingsForAssociation(
+                selection.libraryId, selection.creditKey, association.associationId,
+            ) < 1 ||
+            countForeignArtworkSelections(
+                selection.libraryId, selection.creditKey, association.associationId, selection.confirmedMbid,
+            ) > 0 ||
+            countForeignArtworkLinks(
+                selection.libraryId, selection.creditKey, association.associationId, selection.confirmedMbid,
+            ) > 0
+        ) return null
+        val existing = artworkSelectionForExactSlot(
+            selection.libraryId, selection.creditKey, selection.albumGroupKey, selection.slot,
+        )
+        if (existing?.assetId != expectedAssetId || existing?.revision != expectedRevision ||
+            (existing != null && existing.confirmedMbid != selection.confirmedMbid) ||
+            (existing?.manuallyChosen == true && !replaceManualAuthorized)
+        ) return null
+        // No expected version can authorize replacing a link left by an old owner.
+        val oldLink = getArtworkLink(
+            link.libraryId, link.creditKey, link.albumGroupKey, link.slot, link.confirmedMbid,
+        )
+        if (oldLink != null && oldLink.assetId != existing?.assetId) return null
+        putArtworkAsset(asset)
+        deleteOtherArtworkLinks(
+            link.libraryId, link.creditKey, link.albumGroupKey, link.slot, link.confirmedMbid,
+        )
+        putArtworkLink(link)
+        val revision = bumpArtworkRevisionAndReturn(selection.libraryId, selection.updatedAtMs)
+        putArtworkSelection(selection.copy(revision = revision))
+        return revision
+    }
+
     @Transaction
     suspend fun persistArtwork(
         asset: ArtistArtworkAssetRecord,
         link: ArtistArtworkLinkRecord,
         selection: ArtistArtworkSelectionRecord,
     ): Long {
+        // A picker opened before deletion must not resurrect its old slots.
+        val association = getDurableAssociation(
+            selection.libraryId, selection.creditKey, selection.albumGroupKey,
+        ) ?: error("La asociación artística ya no existe.")
+        val identity = get(
+            selection.libraryId, selection.creditKey, association.identityAssociationId,
+        ) ?: error("La identidad artística ya no existe.")
+        require(identity.confirmedMbid == selection.confirmedMbid &&
+            link.confirmedMbid == selection.confirmedMbid &&
+            asset.confirmedMbid == selection.confirmedMbid &&
+            countConfirmedBindingsForAssociation(
+                selection.libraryId, selection.creditKey, association.associationId,
+            ) > 0
+        ) { "La asociación o la identidad cambió; vuelve a abrir el selector." }
         putArtworkAsset(asset)
         deleteOtherArtworkLinks(
             libraryId = link.libraryId,
@@ -659,6 +889,39 @@ interface ArtistEnrichmentDao {
         clearArtworkSelections(libraryId, creditKey, albumGroupKey, confirmedMbid)
         clearArtworkLinks(libraryId, creditKey, albumGroupKey, confirmedMbid)
         bumpArtworkRevision(libraryId, nowMs)
+    }
+
+    /** D14 optimistic concurrency: old previews cannot change a newly chosen image. */
+    @Query("""UPDATE artist_artwork_selection
+        SET focusX = :focusX, focusY = :focusY, updatedAtMs = :nowMs
+        WHERE libraryId = :libraryId AND creditKey = :creditKey
+          AND albumGroupKey = :albumGroupKey AND slot = :slot
+          AND confirmedMbid = :confirmedMbid AND assetId = :expectedAssetId
+          AND revision = :expectedRevision""")
+    suspend fun updateArtworkFocusGuardedRow(
+        libraryId: String, creditKey: String, albumGroupKey: String, slot: String,
+        confirmedMbid: String, expectedAssetId: String, expectedRevision: Long,
+        focusX: Float, focusY: Float, nowMs: Long,
+    ): Int
+
+    /** Keep the compare-and-swap and published artwork revision in one transaction. */
+    @Transaction
+    suspend fun updateArtworkFocusGuarded(
+        libraryId: String, creditKey: String, albumGroupKey: String, slot: String,
+        confirmedMbid: String, expectedAssetId: String, expectedRevision: Long,
+        focusX: Float, focusY: Float, nowMs: Long,
+    ): Int {
+        val changed = updateArtworkFocusGuardedRow(
+            libraryId, creditKey, albumGroupKey, slot, confirmedMbid,
+            expectedAssetId, expectedRevision, focusX, focusY, nowMs,
+        )
+        if (changed > 0) {
+            val revision = bumpArtworkRevisionAndReturn(libraryId, nowMs)
+            check(setArtworkSelectionRevision(
+                libraryId, creditKey, albumGroupKey, slot, confirmedMbid, revision,
+            ) == 1)
+        }
+        return changed
     }
 
     @Query("UPDATE artist_artwork_selection SET focusX = :focusX, focusY = :focusY, updatedAtMs = :nowMs WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid")
@@ -725,15 +988,271 @@ interface ArtistEnrichmentDao {
         ArtistArtworkSourceCatalogCreditRecord::class,
         ArtistArtworkSourceBindingProofRecord::class,
         ArtistCreditReviewReceiptRecord::class,
+        ArtistArtworkCleanupRecord::class,
+        ArtistBulkSessionRecord::class,
+        ArtistBulkReceiptRecord::class,
+        ArtistBulkPermissionRecord::class,
+        ArtistBulkTerminalReceiptRecord::class,
+        ArtistBulkProviderQuotaRecord::class,
+        ArtistBulkProviderLeaseRecord::class,
+        ArtistBulkProviderObservationRecord::class,
+        ArtistExplicitTrackIdentityRecord::class,
     ],
-    version = 11,
+    version = 19,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
     abstract fun artistEnrichmentDao(): ArtistEnrichmentDao
     abstract fun artistArtworkCatalogJournalDao(): ArtistArtworkCatalogJournalDao
+    abstract fun artistBulkSessionDao(): ArtistBulkSessionDao
+    abstract fun artistBulkTerminalDao(): ArtistBulkTerminalDao
+    abstract fun artistBulkProviderLeaseDao(): ArtistBulkProviderLeaseDao
+    abstract fun artistBulkProviderObservationDao(): ArtistBulkProviderObservationDao
 
     companion object {
+        /** D43: explicitly reviewed local track identities; no implicit album/metadata write. */
+        val MIGRATION_17_18 = Migration(17, 18) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_explicit_track_identity` (
+                    `libraryId` TEXT NOT NULL,
+                    `albumKey` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL,
+                    `trackKeySha256` TEXT NOT NULL,
+                    `confirmedMbid` TEXT NOT NULL,
+                    `rootSourceId` TEXT NOT NULL,
+                    `rootEpoch` INTEGER NOT NULL,
+                    `catalogRevision` INTEGER NOT NULL,
+                    `evidence` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    `confirmedAtEpochMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `albumKey`, `trackId`, `creditKey`)
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_explicit_track_identity_libraryId_trackId` ON `artist_explicit_track_identity` (`libraryId`, `trackId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_explicit_track_identity_libraryId_creditKey_confirmedMbid` ON `artist_explicit_track_identity` (`libraryId`, `creditKey`, `confirmedMbid`)")
+        }
+
+        /** D46: retain old choices but mark pre-hash rows unverified. */
+        val MIGRATION_18_19 = Migration(18, 19) { db ->
+            db.execSQL("ALTER TABLE `artist_explicit_track_identity` ADD COLUMN `sourceContentSha256` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `artist_explicit_track_identity` ADD COLUMN `sourceContentBytes` INTEGER NOT NULL DEFAULT 0")
+        }
+
+        /** D28: append-only untrusted observation notes, no HTTP execution authority. */
+        val MIGRATION_16_17 = Migration(16, 17) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_provider_observation` (
+                    `leaseId` TEXT NOT NULL,
+                    `sessionId` TEXT NOT NULL,
+                    `fingerprint` TEXT NOT NULL,
+                    `permitId` TEXT NOT NULL,
+                    `provider` TEXT NOT NULL,
+                    `mbid` TEXT NOT NULL,
+                    `observedAtEpochMs` INTEGER NOT NULL,
+                    `recordedAtEpochMs` INTEGER NOT NULL,
+                    `httpStatusUnverified` INTEGER NOT NULL,
+                    `responseBytes` INTEGER NOT NULL,
+                    `responseSha256Unverified` TEXT,
+                    `contentType` TEXT,
+                    `classification` TEXT NOT NULL,
+                    `retryAtEpochMs` INTEGER,
+                    `origin` TEXT NOT NULL,
+                    PRIMARY KEY(`leaseId`),
+                    FOREIGN KEY(`leaseId`) REFERENCES `artist_bulk_provider_lease`(`leaseId`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_provider_observation_sessionId_fingerprint`
+                ON `artist_bulk_provider_observation` (`sessionId`, `fingerprint`)
+            """.trimIndent())
+        }
+
+        /** D27 S4-G5: provider quota/admission journal, NO network and NO profile mutation. */
+        val MIGRATION_15_16 = Migration(15, 16) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_provider_quota` (
+                    `provider` TEXT NOT NULL,
+                    `nextEligibleAtEpochMs` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    PRIMARY KEY(`provider`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_provider_lease` (
+                    `leaseId` TEXT NOT NULL,
+                    `sessionId` TEXT NOT NULL,
+                    `fingerprint` TEXT NOT NULL,
+                    `permitId` TEXT NOT NULL,
+                    `provider` TEXT NOT NULL,
+                    `mbid` TEXT NOT NULL,
+                    `permissionRevision` INTEGER NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    `rootEpoch` INTEGER NOT NULL,
+                    `catalogRevision` INTEGER NOT NULL,
+                    `libraryRevision` INTEGER NOT NULL,
+                    `issuedAtEpochMs` INTEGER NOT NULL,
+                    `expiresAtEpochMs` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL,
+                    `state` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    PRIMARY KEY(`leaseId`),
+                    FOREIGN KEY(`sessionId`, `fingerprint`) REFERENCES `artist_bulk_permission`(`sessionId`, `fingerprint`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_artist_bulk_provider_lease_permitId`
+                ON `artist_bulk_provider_lease` (`permitId`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_provider_lease_sessionId_fingerprint`
+                ON `artist_bulk_provider_lease` (`sessionId`, `fingerprint`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_provider_lease_state_expiresAtEpochMs`
+                ON `artist_bulk_provider_lease` (`state`, `expiresAtEpochMs`)
+            """.trimIndent())
+        }
+
+        /** D25: append-only terminal outcomes. No artist profile, audio or artwork rows change. */
+        val MIGRATION_14_15 = Migration(14, 15) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_terminal_receipt` (
+                    `sessionId` TEXT NOT NULL,
+                    `fingerprint` TEXT NOT NULL,
+                    `permitId` TEXT NOT NULL,
+                    `outcome` TEXT NOT NULL,
+                    `evidenceKind` TEXT NOT NULL,
+                    `reservationRevision` INTEGER NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    `rootEpoch` INTEGER NOT NULL,
+                    `catalogRevision` INTEGER NOT NULL,
+                    `libraryRevision` INTEGER NOT NULL,
+                    `completedAtEpochMs` INTEGER NOT NULL,
+                    `receiptDigest` TEXT NOT NULL,
+                    PRIMARY KEY(`sessionId`, `fingerprint`),
+                    FOREIGN KEY(`sessionId`, `fingerprint`) REFERENCES `artist_bulk_permission`(`sessionId`, `fingerprint`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_terminal_receipt_sessionId`
+                ON `artist_bulk_terminal_receipt` (`sessionId`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_artist_bulk_terminal_receipt_permitId`
+                ON `artist_bulk_terminal_receipt` (`permitId`)
+            """.trimIndent())
+        }
+
+        /** D23: consent receipts are distinct from prepared drafts and NOT executable. */
+        val MIGRATION_13_14 = Migration(13, 14) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_permission` (
+                    `sessionId` TEXT NOT NULL,
+                    `fingerprint` TEXT NOT NULL,
+                    `permitId` TEXT NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    `rootEpoch` INTEGER NOT NULL,
+                    `catalogRevision` INTEGER NOT NULL,
+                    `libraryRevision` INTEGER NOT NULL,
+                    `artistCredit` TEXT NOT NULL,
+                    `mbid` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL,
+                    `allowedOperation` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `issuedAtEpochMs` INTEGER NOT NULL,
+                    `expiresAtEpochMs` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    PRIMARY KEY(`sessionId`, `fingerprint`),
+                    FOREIGN KEY(`sessionId`, `fingerprint`) REFERENCES `artist_bulk_receipt`(`sessionId`, `fingerprint`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_permission_sessionId`
+                ON `artist_bulk_permission` (`sessionId`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_artist_bulk_permission_permitId`
+                ON `artist_bulk_permission` (`permitId`)
+            """.trimIndent())
+        }
+
+        /** D22 S4-D: additive, independent enrichment session journal. No audio-table migration. */
+        val MIGRATION_12_13 = Migration(12, 13) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_session` (
+                    `sessionId` TEXT NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    `rootEpoch` INTEGER NOT NULL,
+                    `catalogRevision` INTEGER NOT NULL,
+                    `libraryRevision` INTEGER NOT NULL,
+                    `createdAtEpochMs` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    `receiptCount` INTEGER NOT NULL,
+                    PRIMARY KEY(`sessionId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_session_libraryId_createdAtEpochMs`
+                ON `artist_bulk_session` (`libraryId`, `createdAtEpochMs`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_bulk_receipt` (
+                    `sessionId` TEXT NOT NULL,
+                    `fingerprint` TEXT NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `artistCredit` TEXT NOT NULL,
+                    `albumIdsJson` TEXT NOT NULL,
+                    `mbid` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`sessionId`, `fingerprint`),
+                    FOREIGN KEY(`sessionId`) REFERENCES `artist_bulk_session`(`sessionId`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_bulk_receipt_sessionId`
+                ON `artist_bulk_receipt` (`sessionId`)
+            """.trimIndent())
+        }
+
+        /** S1-B2: additive journal only; no audio, selection, profile or outbox rows are rewritten. */
+        val MIGRATION_11_12 = Migration(11, 12) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_cleanup` (
+                    `cleanupId` TEXT NOT NULL,
+                    `libraryId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL,
+                    `assetId` TEXT NOT NULL,
+                    `localRelativePath` TEXT NOT NULL,
+                    `sha256` TEXT NOT NULL,
+                    `createdAtMs` INTEGER NOT NULL,
+                    `state` TEXT NOT NULL,
+                    PRIMARY KEY(`cleanupId`, `assetId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_cleanup_state_createdAtMs`
+                ON `artist_artwork_cleanup` (`state`, `createdAtMs`)
+            """.trimIndent())
+        }
+
         /** Migrates old R16.4 optional enrichment data in place. No destructive fallback. */
         val MIGRATION_1_2 = Migration(1, 2) { db ->
             db.execSQL("""

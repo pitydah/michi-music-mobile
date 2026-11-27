@@ -403,7 +403,12 @@ class ArtistEnrichmentPersistenceTest {
         now += 8L * 24 * 60 * 60 * 1000
         val cached = store.load("lib-a", credit, albums)
         assertNotNull(cached)
-        assertTrue(requireNotNull(cached).stale)
+        assertTrue(
+            "Expected stale profile, got stale=${cached?.stale}, " +
+                "staleAfter=${database.artistEnrichmentDao().get("lib-a", "patti austin & james ingram", cached?.associationGroupKey.orEmpty())?.staleAfterMs}, " +
+                "now=$now, group=${cached?.associationGroupKey}",
+            requireNotNull(cached).stale,
+        )
         assertEquals(mbid, cached.profile.mbid)
     }
 

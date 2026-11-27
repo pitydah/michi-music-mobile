@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -110,6 +113,9 @@ fun MichiNavHost(
     val hasMiniPlayer = presentation.hasActiveTrack
     val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
     val rootAuthority: MusicRootAuthority = koinInject()
+    val rootStamp by rootAuthority.reviewStamp.collectAsStateWithLifecycle()
+    val catalogRevision by rootAuthority.revision.collectAsStateWithLifecycle()
+    val reviewRootGuard = ArtistReviewRootGuard(rootStamp, catalogRevision)
     val editorLauncher: (MetadataEditorLaunchRequest) -> Unit = remember(navController, rootAuthority) {
         { request ->
             // Scope is stamped at the navigation boundary; origins never need Koin
@@ -217,6 +223,22 @@ fun MichiNavHost(
                             onNavigateToPlaylists = { navController.navigate("playlist") },
                             onNavigateToAlbum = { id -> navController.navigate("album/${android.net.Uri.encode(id)}") },
                             onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
+                            onNavigateToArtistEnrichment = { credit ->
+                                navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=true")
+                            },
+                            onNavigateToArtistExact = { ticket ->
+                                navController.navigate("artist-membership/$ticket")
+                            },
+                            onNavigateToArtistReview = { choice ->
+                                // A review target must never be reduced to a credit-string URL.
+                                // Read the authoritative snapshot at click time, not a stale
+                                // captured composition value during a root transition.
+                                ArtistReviewTickets.issue(choice, ArtistReviewRootGuard(
+                                    rootAuthority.currentReviewStamp(), rootAuthority.revision.value,
+                                ))?.let { ticket ->
+                                    navController.navigate("artist-review/$ticket")
+                                }
+                            },
                             sessionManager = sessionManager,
                         )
                     }
@@ -276,6 +298,66 @@ fun MichiNavHost(
                         initialEnrichment = entry.arguments?.getBoolean("enrich") ?: false,
                         sessionManager = sessionManager,
                     )
+                }
+                composable(
+                    route = "artist-membership/{ticketId}",
+                    arguments = listOf(navArgument("ticketId") { type = NavType.StringType }),
+                ) { entry ->
+                    val id = entry.arguments?.getString("ticketId").orEmpty()
+                    val ticket = remember(id, reviewRootGuard) {
+                        ArtistExactMembershipTickets.preview(id, reviewRootGuard)
+                    }
+                    // Do not revoke on disposal: an album page may temporarily take
+                    // the top back-stack position; returning must revalidate this ticket.
+                    // The bounded store and TTL still revoke abandoned tickets.
+                    if (ticket == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            TextButton(onClick = { navController.popBackStack() }) {
+                                Text("La ficha exacta expiró o cambió de biblioteca. Volver a Biblioteca")
+                            }
+                        }
+                    } else {
+                        ArtistDetailScreen(
+                            artistCredit = ticket.displayCredit,
+                            exactMembershipTicketId = id,
+                            initialEnrichment = false,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToAlbum = { albumId ->
+                                navController.navigate("album/${android.net.Uri.encode(albumId)}")
+                            },
+                            sessionManager = sessionManager,
+                        )
+                    }
+                }
+                composable(
+                    route = "artist-review/{ticketId}",
+                    arguments = listOf(navArgument("ticketId") { type = NavType.StringType }),
+                ) { entry ->
+                    val id = entry.arguments?.getString("ticketId").orEmpty()
+                    val review = remember(id, reviewRootGuard) {
+                        ArtistReviewTickets.resolve(id, reviewRootGuard)
+                    }
+                    DisposableEffect(id) {
+                        onDispose { ArtistReviewTickets.revoke(id) }
+                    }
+                    if (review == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            TextButton(onClick = { navController.popBackStack() }) {
+                                Text("La revisión expiró o cambió de sesión. Volver a Biblioteca")
+                            }
+                        }
+                    } else {
+                        ArtistDetailScreen(
+                            artistCredit = review.credit,
+                            reviewContext = review,
+                            initialEnrichment = true,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToAlbum = { albumId ->
+                                navController.navigate("album/${android.net.Uri.encode(albumId)}")
+                            },
+                            sessionManager = sessionManager,
+                        )
+                    }
                 }
                 composable("search") {
                     SearchScreen(

@@ -4,9 +4,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Process-local mutual exclusion between preference opt-out and a Room auto-write.
- * This is NOT the authoritative Room identity guard: it protects only preference
- * changes initiated in the same Android process as the WorkManager worker.
+ * D17 — short process-local serialization of confirmed SAF root commits, automatic
+ * opt-out, manual photo CAS, framing CAS, and automatic Room artwork writes.
+ * Provider requests and downloads MUST remain outside the gate.
+ * This is not a cross-process lock or a substitute for Room identity/binding CAS.
  */
 internal object ArtistArtworkWriteGate {
     private val mutex = Mutex()

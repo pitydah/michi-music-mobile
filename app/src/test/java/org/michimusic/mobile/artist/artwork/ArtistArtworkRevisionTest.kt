@@ -16,7 +16,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.data.artist.ArtistAlbumCreditBindingRecord
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
+import org.michimusic.data.artist.ArtistEnrichmentRecord
+import org.michimusic.data.artist.DurableArtistAssociationRecord
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -74,7 +77,40 @@ class ArtistArtworkRevisionTest {
         anchor: ArtistIdentityAnchor = anchor(),
         slot: ArtworkSlot = ArtworkSlot.ARTIST_THUMB,
         asset: String = "a",
-    ) = store.save(anchor, candidate(asset), slot, downloaded(asset), ArtworkFocus(), false)
+    ): ArtistArtworkSelection {
+        ensureAssociation(anchor)
+        return store.save(anchor, candidate(asset), slot, downloaded(asset), ArtworkFocus(), false)
+    }
+
+    /** Manual artwork now commits only for an existing durable identity/album binding. */
+    private suspend fun ensureAssociation(anchor: ArtistIdentityAnchor) {
+        ensureAssociation(database.artistEnrichmentDao(), anchor)
+    }
+
+    private suspend fun ensureAssociation(
+        dao: org.michimusic.data.artist.ArtistEnrichmentDao,
+        anchor: ArtistIdentityAnchor,
+    ) {
+        val identity = "identity-${anchor.libraryId}-${anchor.albumGroupKey}"
+        dao.put(ArtistEnrichmentRecord(
+            libraryId = anchor.libraryId, creditKey = anchor.creditKey,
+            albumGroupKey = identity, confirmedMbid = anchor.confirmedMbid,
+            profileJson = "{}", savedAtMs = 1L, staleAfterMs = Long.MAX_VALUE,
+            source = "manual-musicbrainz", biographySourceUrl = null,
+            portraitSourceUrl = null, portraitLicense = null, portraitLicenseUrl = null,
+            portraitAttribution = null,
+        ))
+        dao.putDurableAssociation(DurableArtistAssociationRecord(
+            libraryId = anchor.libraryId, creditKey = anchor.creditKey,
+            associationId = anchor.albumGroupKey, identityAssociationId = identity,
+            createdAtMs = 1L, updatedAtMs = 1L,
+        ))
+        dao.putAlbumCreditBinding(ArtistAlbumCreditBindingRecord(
+            libraryId = anchor.libraryId, albumKey = "album-${anchor.albumGroupKey}",
+            creditKey = anchor.creditKey, associationId = anchor.albumGroupKey,
+            evidenceType = "EXPLICIT", confirmedAtMs = 1L,
+        ))
+    }
 
     @Test
     fun sameMillisecondReplacementAndFocusAdvanceTheMonotonicRevision() = runBlocking {
@@ -126,6 +162,8 @@ class ArtistArtworkRevisionTest {
             .allowMainThreadQueries().build()
         val fileStore = RoomArtistArtworkStore(fileDatabase, context, clock = { 5L })
         try {
+            ensureAssociation(fileDatabase.artistEnrichmentDao(), anchor("lib-a"))
+            ensureAssociation(fileDatabase.artistEnrichmentDao(), anchor("lib-b"))
             fileStore.save(anchor("lib-a"), candidate("a"), ArtworkSlot.ARTIST_THUMB, downloaded("a"), ArtworkFocus(), false)
             fileStore.save(anchor("lib-a"), candidate("b"), ArtworkSlot.ARTIST_HERO, downloaded("b"), ArtworkFocus(), false)
             fileStore.save(anchor("lib-b"), candidate("c"), ArtworkSlot.ARTIST_THUMB, downloaded("c"), ArtworkFocus(), false)

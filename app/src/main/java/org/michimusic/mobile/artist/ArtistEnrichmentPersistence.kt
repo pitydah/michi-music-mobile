@@ -9,6 +9,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
 import org.michimusic.data.artist.ArtistEnrichmentRecord
+import org.michimusic.data.artist.ArtistArtworkCleanupRecord
+import org.michimusic.data.artist.ArtistArtworkAssetRecord
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCleanupWorker
 import org.michimusic.data.artist.ArtistAlbumCreditBindingRecord
 import org.michimusic.data.artist.ArtistAssociationResolutionRecord
 import org.michimusic.data.artist.ArtistMembershipEvidenceRecord
@@ -126,6 +129,20 @@ interface ArtistEnrichmentSelectionStore {
     suspend fun saveLocalTagEvidence(libraryId: String, trackId: String, tags: EmbeddedArtistTags) {}
 }
 
+/** The logical Room commit succeeded, but file cleanup is a separate durable stage. */
+enum class ArtistDeletionCleanupStatus { COMPLETE, CLEANUP_PENDING }
+
+/** A single Room transaction for identity, bindings, artwork slots and automatic work. */
+interface ArtistAtomicEnrichmentRemovalStore {
+    suspend fun clearWithArtwork(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        associationGroupKey: String?,
+        expectedMbid: String,
+    ): ArtistDeletionCleanupStatus
+}
+
 /** Optional production seam for an atomic identity-first Room commit. */
 interface ArtistIdentitySelectionStore {
     suspend fun saveIdentity(
@@ -230,13 +247,17 @@ class RoomArtistEnrichmentSelectionStore(
         String, String, String, org.michimusic.data.repository.MusicRootStamp?, Boolean,
     ) -> Unit = { _, _, _, _, _ -> },
     private val rootStampProvider: () -> org.michimusic.data.repository.MusicRootStamp? = { null },
+    // Keep the clock last: many callers pass it as a trailing lambda, and inserting a
+    // new last parameter would silently rebind that lambda to the cleanup hook.
+    private val afterDeletionCommitted: () -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArtistEnrichmentSelectionStore,
     ArtistIdentitySelectionStore,
     ArtistMembershipBindingStore,
     ArtistMembershipReplacementStore,
     ArtistProfileRefreshStore,
-    ArtistAssociationResolutionStore {
+    ArtistAssociationResolutionStore,
+    ArtistAtomicEnrichmentRemovalStore {
     private val json = Json { ignoreUnknownKeys = true }
     private val dao get() = database.artistEnrichmentDao()
 
@@ -868,6 +889,107 @@ class RoomArtistEnrichmentSelectionStore(
         dao.replaceTrackEvidence(libraryId, trackId, observations)
     }
 
+    /**
+     * S1-B2. The exact selection asset list is journalled in the SAME Room
+     * transaction that removes the association. Private bytes are collected
+     * separately by a bounded, reference-checking, restartable worker.
+     */
+    override suspend fun clearWithArtwork(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        associationGroupKey: String?,
+        expectedMbid: String,
+    ): ArtistDeletionCleanupStatus {
+        val enteredRoot = rootStampProvider()
+        val cleanupNeeded = database.withTransaction {
+            val (creditKey, _) = requireNotNull(
+                scopedArtistCreditKey(libraryId, credit, albumIds),
+            ) { "La eliminación exige una biblioteca y álbumes exactos." }
+            require(expectedMbid == canonicalArtistMbid(expectedMbid)) {
+                "La identidad confirmada es inválida."
+            }
+            require(enteredRoot == rootStampProvider()) { "La raíz musical cambió." }
+            val visibleAlbums = albumIds.distinct().sorted()
+            val visibleBindings = dao.getAlbumCreditBindings(libraryId, creditKey, visibleAlbums)
+            val availableAssociationIds = visibleBindings.map { it.associationId }.toSet()
+            val target = associationGroupKey?.takeIf(String::isNotBlank)
+                ?: when (availableAssociationIds.size) {
+                    1 -> availableAssociationIds.single()
+                    else -> throw ArtistAssociationAmbiguousException()
+                }
+            val association = dao.getDurableAssociation(libraryId, creditKey, target)
+                ?: error("La asociación ya no existe; vuelve a cargar la ficha.")
+            val identity = dao.get(libraryId, creditKey, association.identityAssociationId)
+                ?: error("La identidad asociada ya no existe.")
+            require(identity.confirmedMbid == expectedMbid) {
+                "La asociación cambió de identidad; vuelve a cargar la ficha."
+            }
+            // A resolution does not authorize removal of OTHER associations in a mixed view.
+            require(availableAssociationIds == setOf(target) &&
+                visibleBindings.size == visibleAlbums.size
+            ) { "El contexto contiene álbumes ajenos o sin vincular." }
+            val ownedBindings = dao.bindingsForAssociation(libraryId, creditKey, target)
+            require(ownedBindings.isNotEmpty() &&
+                ownedBindings.map { it.albumKey }.toSet() == visibleAlbums.toSet()
+            ) { "La asociación tiene otros álbumes: confirma el alcance antes de borrarla." }
+            require(dao.countForeignArtworkSelections(
+                libraryId, creditKey, target, expectedMbid,
+            ) == 0 && dao.countForeignArtworkLinks(
+                libraryId, creditKey, target, expectedMbid,
+            ) == 0) { "Existen fotografías con una identidad distinta; no se borró nada." }
+            val assetIds = (
+                dao.getArtworkSelections(libraryId, creditKey, target, expectedMbid)
+                    .map { it.assetId } +
+                    dao.artworkLinkAssetsForAssociation(libraryId, creditKey, target, expectedMbid)
+            ).distinct()
+            val cleanupId = java.util.UUID.randomUUID().toString()
+            val now = clock()
+            // No name-only deletion: all assets are captured BEFORE removing links.
+            val cleanupAssets = mutableListOf<ArtistArtworkAssetRecord>()
+            for (assetId in assetIds) {
+                dao.getArtworkAsset(assetId)?.let { cleanupAssets.add(it) }
+            }
+            cleanupAssets.forEach { asset ->
+                dao.insertArtworkCleanup(
+                    ArtistArtworkCleanupRecord(
+                        cleanupId = cleanupId,
+                        libraryId = libraryId,
+                        creditKey = creditKey,
+                        associationId = target,
+                        assetId = asset.assetId,
+                        localRelativePath = asset.localRelativePath,
+                        sha256 = asset.sha256,
+                        createdAtMs = now,
+                        state = "PENDING",
+                    ),
+                )
+            }
+            dao.clearArtworkSelections(libraryId, creditKey, target, expectedMbid)
+            dao.clearArtworkLinks(libraryId, creditKey, target, expectedMbid)
+            dao.deleteAutoArtworkForAssociation(libraryId, creditKey, target)
+            dao.deleteSourceBindingProofsForAssociation(libraryId, creditKey, target)
+            check(dao.deleteDurableAssociation(libraryId, creditKey, target) == 1)
+            dao.deleteAssociationResolutionsForGroup(libraryId, creditKey, target)
+            val stillReferenced = dao.getDurableAssociationsForCredit(libraryId, creditKey)
+                .any { it.identityAssociationId == association.identityAssociationId }
+            if (!stillReferenced) {
+                check(dao.delete(libraryId, creditKey, association.identityAssociationId) == 1)
+            }
+            dao.bumpArtworkRevision(libraryId, clock())
+            // A -> B -> A is not equivalent to keeping the same root generation.
+            require(enteredRoot == rootStampProvider()) { "La raíz musical cambió durante el borrado." }
+            cleanupAssets.isNotEmpty()
+        }
+        if (cleanupNeeded) {
+            // The semantic commit is already durable. Scheduling failures must NOT
+            // turn success into an apparent rolled-back operation.
+            runCatching { afterDeletionCommitted() }
+        }
+        return if (cleanupNeeded) ArtistDeletionCleanupStatus.CLEANUP_PENDING
+        else ArtistDeletionCleanupStatus.COMPLETE
+    }
+
     override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) =
         clear(libraryId, credit, albumIds, associationGroupKey = null)
 
@@ -929,6 +1051,14 @@ object ArtistEnrichmentPersistence {
                     ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
                     ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
                     ArtistEnrichmentCacheDatabase.MIGRATION_10_11,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_11_12,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_12_13,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_13_14,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_14_15,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_15_16,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_16_17,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_17_18,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_18_19,
                 )
                 .build().also { databaseInstance = it }
         }
@@ -942,6 +1072,11 @@ object ArtistEnrichmentPersistence {
                 if (stamp != null) org.michimusic.mobile.artist.artwork.ArtistArtworkAutoScheduler(app)
                     .onVerifiedAssociationCommitted(libraryId, creditKey, associationId, stamp, mayCapture)
             },
-        ).also { instance = it }
+            afterDeletionCommitted = { ArtistArtworkCleanupWorker.schedule(app) },
+        ).also {
+            instance = it
+            // Crash after Room commit but before scheduling must be recoverable.
+            runCatching { ArtistArtworkCleanupWorker.schedule(app) }
+        }
     }
 }

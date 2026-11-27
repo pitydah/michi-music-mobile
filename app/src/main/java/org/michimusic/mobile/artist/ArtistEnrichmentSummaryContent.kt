@@ -76,47 +76,113 @@ fun ArtistEnrichmentSummaryContent(
     onChoosePhoto: () -> Unit,
     onPrimaryAction: (ArtistEnrichmentPrimaryAction) -> Unit,
     modifier: Modifier = Modifier,
+    onChooseSlot: (org.michimusic.mobile.artist.artwork.ArtworkSlot) -> Unit = { onChoosePhoto() },
+    restoreFocus: Boolean = false,
+    restoreFocusSlot: org.michimusic.mobile.artist.artwork.ArtworkSlot? = null,
+    onFocusRestored: () -> Unit = {},
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ArtistSummaryHeader(uiState)
-        if (artworkSlotsInline()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        val slotToRestore = if (uiState.identityConfirmed && uiState.canPersist)
+            restoreFocusSlot ?: uiState.mosaic.slot else null
+        fun choose(slot: ArtistPhotoSlot) {
+            if (uiState.isBusy) return
+            if (slot.recovery?.route == ArtistS3RecoveryRoute.REVIEW_IDENTITY)
+                onPrimaryAction(ArtistEnrichmentPrimaryAction.ReviewIdentity)
+            else onChooseSlot(slot.slot)
+        }
+        ArtistSummaryHeader(uiState, modifier = Modifier.artistS3ReturnFocus(
+            restoreFocus && slotToRestore == null, onFocusRestored))
+        ArtistS3OverviewStatus(uiState)
+        if (!uiState.identityConfirmed) {
+            // A search or a photograph cannot establish an artist's identity.
+            // The only next task is an explicit MusicBrainz identity review.
+            Text(
+                "Confirma primero a qué artista pertenece tu música. No cambiaremos las etiquetas.",
+                color = TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.testTag("artist_identity_first_explanation"),
+            )
+            ArtistPrimaryAction(
+                action = ArtistEnrichmentPrimaryAction.ReviewIdentity,
+                label = "Identificar artista",
+                busy = uiState.isBusy,
+                onAction = onPrimaryAction,
+            )
+        } else if (!uiState.canPersist) {
+            Text(
+                "Para revisar y guardar fotografías, selecciona una biblioteca individual con pertenencias verificadas.",
+                color = TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.testTag("artist_s3_scope_read_only"),
+            )
+        } else {
+            Text("Información · ${if (uiState.biographyAvailable) "Biografía disponible" else "Biografía pendiente"}",
+                color = TextSecondary, fontSize = 12.sp,
+                modifier = Modifier.testTag("artist_enrichment_information_status"))
+            Text("FOTOGRAFÍAS · MOSAICO Y FICHA", color = TertiaryCyan,
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            ArtistS3SlotExplanation(org.michimusic.mobile.artist.artwork.ArtworkSlot.ARTIST_THUMB)
+            ArtistS3SlotExplanation(org.michimusic.mobile.artist.artwork.ArtworkSlot.ARTIST_HERO)
+            // The two destination-specific actions already open the picker. Do not duplicate
+            // them with another button that performs the same navigation.
+            if (uiState.primaryAction != ArtistEnrichmentPrimaryAction.None &&
+                uiState.primaryAction.panelEffect() != ArtistEnrichmentPanelEffect.OpenPicker) {
+                ArtistPrimaryAction(
+                    action = uiState.primaryAction, label = uiState.primaryActionLabel,
+                    busy = uiState.isBusy, onAction = onPrimaryAction,
+                )
+            }
+            if (artworkSlotsInline()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ArtworkSlotCard(
+                        slot = uiState.mosaic,
+                        artistName = uiState.artistName,
+                        onChoose = { choose(uiState.mosaic) },
+                        actionsEnabled = !uiState.isBusy,
+                        modifier = Modifier.weight(1f).artistS3ReturnFocus(
+                            restoreFocus && slotToRestore == uiState.mosaic.slot, onFocusRestored),
+                        compact = true,
+                    )
+                    ArtworkSlotCard(
+                        slot = uiState.card,
+                        artistName = uiState.artistName,
+                        onChoose = { choose(uiState.card) },
+                        actionsEnabled = !uiState.isBusy,
+                        modifier = Modifier.weight(1f).artistS3ReturnFocus(
+                            restoreFocus && slotToRestore == uiState.card.slot, onFocusRestored),
+                        compact = true,
+                    )
+                }
+            } else {
                 ArtworkSlotCard(
                     slot = uiState.mosaic,
                     artistName = uiState.artistName,
-                    onChoose = onChoosePhoto,
-                    modifier = Modifier.weight(1f),
-                    compact = true,
+                    onChoose = { choose(uiState.mosaic) },
+                    actionsEnabled = !uiState.isBusy,
+                    modifier = Modifier.artistS3ReturnFocus(
+                        restoreFocus && slotToRestore == uiState.mosaic.slot, onFocusRestored),
                 )
                 ArtworkSlotCard(
                     slot = uiState.card,
                     artistName = uiState.artistName,
-                    onChoose = onChoosePhoto,
-                    modifier = Modifier.weight(1f),
-                    compact = true,
+                    onChoose = { choose(uiState.card) },
+                    actionsEnabled = !uiState.isBusy,
+                    modifier = Modifier.artistS3ReturnFocus(
+                        restoreFocus && slotToRestore == uiState.card.slot, onFocusRestored),
                 )
             }
-        } else {
-            ArtworkSlotCard(
-                slot = uiState.mosaic,
-                artistName = uiState.artistName,
-                onChoose = onChoosePhoto,
-            )
-            ArtworkSlotCard(
-                slot = uiState.card,
-                artistName = uiState.artistName,
-                onChoose = onChoosePhoto,
-            )
+            // Existing manually selected photos remain changeable, but only via the
+            // preview and replacement guard in the picker, never as an automatic write.
+            if (uiState.mosaic.isSatisfied || uiState.card.isSatisfied) {
+                TextButton(
+                    onClick = onChoosePhoto,
+                    enabled = !uiState.isBusy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("artist_s3_manage_saved_photos"),
+                ) { Text("Revisar o cambiar fotografías guardadas", color = TertiaryCyan) }
+            }
         }
-        ArtistPrimaryAction(
-            action = uiState.primaryAction,
-            label = uiState.primaryActionLabel,
-            busy = uiState.isBusy,
-            onAction = onPrimaryAction,
-        )
     }
 }
 
@@ -127,9 +193,7 @@ fun ArtistSummaryHeader(
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            // K48-S7: a credit like "'Til Tuesday" already starts with an
-            // apostrophe; wrapping it again printed doubled quotes.
-            uiState.heading,
+            "Enriquecer · ${uiState.artistName}",
             color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.testTag("artist_artwork_summary"),
         )
@@ -139,7 +203,7 @@ fun ArtistSummaryHeader(
             fontSize = 12.sp,
             modifier = Modifier.testTag("artist_identity_state"),
         )
-        uiState.missingSummary?.let { missing ->
+        if (uiState.identityConfirmed) uiState.missingSummary?.let { missing ->
             Text(missing, color = TextSecondary, fontSize = 12.sp,
                 modifier = Modifier.testTag("artist_artwork_missing_summary"))
         }
@@ -161,6 +225,7 @@ fun ArtworkSlotCard(
     onChoose: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    actionsEnabled: Boolean = true,
 ) {
     // K48-R11: a file can be on disk and still fail to decode. Without this the slot kept
     // saying "Disponible" over an empty rectangle, which reads as a photograph that is
@@ -190,7 +255,7 @@ fun ArtworkSlotCard(
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
             )
             ArtistSlotDetailText(slot = slot, imageUnreadable = imageUnreadable)
-            ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = true)
+            ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = true, enabled = actionsEnabled)
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -207,7 +272,7 @@ fun ArtworkSlotCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     ArtistSlotDetailText(slot = slot, imageUnreadable = imageUnreadable)
-                    ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = false)
+                    ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = false, enabled = actionsEnabled)
                 }
             }
         }
@@ -235,6 +300,10 @@ private fun ArtistSlotDetailText(slot: ArtistPhotoSlot, imageUnreadable: Boolean
             color = TextSecondary, fontSize = 11.sp, maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+    slot.recovery?.let { recovery ->
+        Text(recovery.explanation, color = TextSecondary, fontSize = 12.sp,
+            modifier = Modifier.testTag("artist_artwork_recovery_${slot.slot.name}"))
     }
     if (slot.hasThumbnail && imageUnreadable) {
         // The photo is saved, so nothing is lost; only its preview failed. No download is
@@ -275,15 +344,17 @@ private fun ArtistSlotChooseAction(
     slot: ArtistPhotoSlot,
     onChoose: () -> Unit,
     fillWidth: Boolean,
+    enabled: Boolean,
 ) {
     if (slot.isSatisfied) return
     TextButton(
         onClick = onChoose,
+        enabled = enabled,
         modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = 48.dp)
             .testTag("artist_artwork_slot_action_${slot.slot.name}"),
     ) {
-        Text("Elegir fotografía", color = SecondaryPurple, fontSize = 12.sp)
+        Text(slot.recovery?.actionLabel ?: "Elegir fotografía", color = SecondaryPurple, fontSize = 12.sp)
     }
 }
 

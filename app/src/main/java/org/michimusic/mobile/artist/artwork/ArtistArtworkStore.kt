@@ -10,6 +10,8 @@ import org.michimusic.data.artist.ArtistArtworkAssetRecord
 import org.michimusic.data.artist.ArtistArtworkLinkRecord
 import org.michimusic.data.artist.ArtistArtworkSelectionRecord
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
+import org.michimusic.data.repository.MusicRootStamp
+import org.michimusic.data.repository.MusicRootPreferences
 import org.michimusic.mobile.artist.ArtistEnrichmentDiagnostics
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import java.io.File
@@ -19,6 +21,8 @@ private const val PRUNE_GRACE_MS = 15 * 60 * 1000L
 interface ArtistArtworkStore {
     suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection>
     suspend fun loadAsset(assetId: String): ArtistArtworkSelection?
+    /** Legacy manual entry captures its own pre-network generation; fakes fail closed. */
+    fun currentRootStamp(): MusicRootStamp? = null
     suspend fun save(
         anchor: ArtistIdentityAnchor,
         candidate: ArtistArtworkCandidate,
@@ -27,6 +31,19 @@ interface ArtistArtworkStore {
         focus: ArtworkFocus,
         manuallyChosen: Boolean,
     ): ArtistArtworkSelection
+
+    /** D15: manual replacement CAS; all non-Room stores fail closed by default. */
+    suspend fun saveManualGuarded(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        downloaded: DownloadedArtwork,
+        expected: ArtistManualArtworkSnapshot,
+        replaceManualAuthorized: Boolean,
+        expectedRootStamp: MusicRootStamp,
+    ): ArtistArtworkSelection = throw kotlinx.coroutines.CancellationException(
+        "El almacén no admite sustitución manual protegida",
+    )
 
     /** Explicit auto-only entry point. Test/fake stores must opt into it, never silently fallback. */
     suspend fun saveAutomated(
@@ -42,6 +59,13 @@ interface ArtistArtworkStore {
     )
 
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean
+
+    /** No unguarded fallback: other stores must explicitly implement CAS to edit existing art. */
+    suspend fun updateFocusGuarded(
+        anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus,
+        expectedAssetId: String, expectedRevision: Long,
+        expectedRootStamp: MusicRootStamp? = null,
+    ): Boolean = false
     suspend fun clear(anchor: ArtistIdentityAnchor)
     suspend fun counts(): Pair<Int, Int>
 
@@ -59,6 +83,9 @@ class RoomArtistArtworkStore(
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArtistArtworkStore {
     private val dao get() = database.artistEnrichmentDao()
+    private val musicRootPreferences by lazy { MusicRootPreferences(context.applicationContext) }
+
+    override fun currentRootStamp(): MusicRootStamp = musicRootPreferences.currentRootStamp()
 
     override suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> {
         val rows = dao.getArtworkSelections(
@@ -101,6 +128,22 @@ class RoomArtistArtworkStore(
         expectedSourceId = null, expectedRootEpoch = null,
     )
 
+    override suspend fun saveManualGuarded(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        downloaded: DownloadedArtwork,
+        expected: ArtistManualArtworkSnapshot,
+        replaceManualAuthorized: Boolean,
+        expectedRootStamp: MusicRootStamp,
+    ): ArtistArtworkSelection = persistSelection(
+        anchor, candidate, slot, downloaded, ArtworkFocus(), manuallyChosen = true,
+        expectedSourceId = null, expectedRootEpoch = null,
+        expectedManualSnapshot = expected,
+        replaceManualAuthorized = replaceManualAuthorized,
+        expectedManualRootStamp = expectedRootStamp,
+    )
+
     override suspend fun saveAutomated(
         anchor: ArtistIdentityAnchor,
         candidate: ArtistArtworkCandidate,
@@ -123,6 +166,9 @@ class RoomArtistArtworkStore(
         manuallyChosen: Boolean,
         expectedSourceId: String?,
         expectedRootEpoch: Long?,
+        expectedManualSnapshot: ArtistManualArtworkSnapshot? = null,
+        replaceManualAuthorized: Boolean = false,
+        expectedManualRootStamp: MusicRootStamp? = null,
     ): ArtistArtworkSelection {
         val hash = downloaded.sha256.lowercase()
         require(hash.matches(Regex("^[0-9a-f]{64}$"))) { "SHA-256 de artwork no válido" }
@@ -177,8 +223,21 @@ class RoomArtistArtworkStore(
             evidence = candidate.evidence.name,
             linkedAtMs = now,
         )
-        val persistedRevision = if (expectedSourceId == null) {
-            dao.persistArtwork(asset, link, selection)
+        val persistedRevision = if (expectedManualSnapshot != null) {
+            // D15: the checked snapshot and the actual write are in the SAME Room transaction.
+            // A consent checkbox alone cannot authorize a post-download race.
+            require(manuallyChosen && expectedSourceId == null)
+            ArtistArtworkWriteGate.guarding {
+                if (expectedManualRootStamp == null ||
+                    !isArtistArtworkRootCurrent(expectedManualRootStamp, musicRootPreferences.currentRootStamp())
+                ) throw IllegalStateException("La raíz de música cambió durante la elección")
+                dao.persistArtworkManuallyAuthorized(
+                    asset, link, selection, expectedManualSnapshot.assetId,
+                    expectedManualSnapshot.revision, replaceManualAuthorized,
+                ) ?: throw IllegalStateException("La fotografía cambió o la sustitución no fue autorizada")
+            }
+        } else if (expectedSourceId == null) {
+            ArtistArtworkWriteGate.guarding { dao.persistArtwork(asset, link, selection) }
         } else {
             // Preferences and root are external to Room: check immediately BEFORE its
             // transactional identity/binding/manual-selection guard. No remote I/O here.
@@ -214,6 +273,28 @@ class RoomArtistArtworkStore(
             focusY = normalized.y,
             nowMs = clock(),
         ) > 0
+    }
+
+    override suspend fun updateFocusGuarded(
+        anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus,
+        expectedAssetId: String, expectedRevision: Long,
+        expectedRootStamp: MusicRootStamp?,
+    ): Boolean {
+        if (expectedRootStamp == null || expectedAssetId.isBlank() || expectedRevision < 0) return false
+        val normalized = focus.normalized()
+        if (!focus.x.isFinite() || !focus.y.isFinite()) return false
+        return ArtistArtworkWriteGate.guarding {
+            if (!isArtistArtworkRootCurrent(expectedRootStamp, musicRootPreferences.currentRootStamp())) {
+                return@guarding false
+            }
+            dao.updateArtworkFocusGuarded(
+                libraryId = anchor.libraryId, creditKey = anchor.creditKey,
+                albumGroupKey = anchor.albumGroupKey, slot = slot.name,
+                confirmedMbid = anchor.confirmedMbid,
+                expectedAssetId = expectedAssetId, expectedRevision = expectedRevision,
+                focusX = normalized.x, focusY = normalized.y, nowMs = clock(),
+            ) == 1
+        }
     }
 
     override suspend fun clear(anchor: ArtistIdentityAnchor) {

@@ -1,5 +1,11 @@
 package org.michimusic.mobile.artist
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
@@ -7,6 +13,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.Density
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -22,7 +30,7 @@ import org.robolectric.annotation.Config
  * defect this contract exists to prevent.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = android.app.Application::class)
+@Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = android.app.Application::class)
 class ArtistEnrichmentSummaryContentTest {
     @get:Rule
     val compose = createComposeRule()
@@ -75,7 +83,7 @@ class ArtistEnrichmentSummaryContentTest {
     }
 
     @Test
-    fun anEmptyActionDisablesThePrimaryButton() {
+    fun anEmptyActionDoesNotRenderAPlaceholderPrimaryButton() {
         render(
             state(
                 mosaic = pending(ArtworkSlot.ARTIST_THUMB),
@@ -85,7 +93,7 @@ class ArtistEnrichmentSummaryContentTest {
             ),
         )
 
-        compose.onNodeWithTag("artist_artwork_primary_action").assertIsNotEnabled()
+        compose.onNodeWithTag("artist_artwork_primary_action").assertDoesNotExist()
     }
 
     @Test
@@ -149,8 +157,8 @@ class ArtistEnrichmentSummaryContentTest {
     ) = ArtistEnrichmentUiState(
         artistName = "Til Tuesday",
         heading = "Fotografías de 'Til Tuesday",
-        identityConfirmed = false,
-        identityLabel = "Identidad musical pendiente",
+        identityConfirmed = true,
+        identityLabel = "Identidad musical confirmada",
         identityDetail = null,
         mosaic = mosaic,
         card = card,
@@ -175,4 +183,93 @@ class ArtistEnrichmentSummaryContentTest {
         availability = ArtistPhotoAvailability.PENDING,
         statusLabel = "Pendiente",
     )
+
+    @Test
+    fun summaryWithPendingIdentityDoesNotOfferPhotoActions() {
+        render(state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)).copy(identityConfirmed = false))
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").assertDoesNotExist()
+        compose.onNodeWithText("Identificar artista").assertIsDisplayed()
+    }
+
+    @Test
+    fun missingSlotsSendDistinctDestinationsToPicker() {
+        val destinations = mutableListOf<ArtworkSlot>()
+        compose.setContent {
+            ArtistEnrichmentSummaryContent(
+                uiState = state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)),
+                onChoosePhoto = {},
+                onPrimaryAction = {},
+                onChooseSlot = { destinations += it },
+            )
+        }
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").performClick()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_HERO").performClick()
+        assertEquals(listOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO), destinations)
+    }
+
+    @Test
+    fun identityRecoveryRoutesToIdentityAndNeverToPicker() {
+        val actions = mutableListOf<ArtistEnrichmentPrimaryAction>()
+        val slots = mutableListOf<ArtworkSlot>()
+        val recovery = ArtistS3Recovery("Identidad no confirmada para esta fotografía", "Revisar identidad",
+            ArtistS3RecoveryRoute.REVIEW_IDENTITY)
+        compose.setContent {
+            ArtistEnrichmentSummaryContent(
+                uiState = state(mosaic = pending(ArtworkSlot.ARTIST_THUMB).copy(recovery = recovery)),
+                onChoosePhoto = {}, onPrimaryAction = { actions += it },
+                onChooseSlot = { slots += it },
+            )
+        }
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").performClick()
+        assertEquals(listOf(ArtistEnrichmentPrimaryAction.ReviewIdentity), actions)
+        assertEquals(emptyList<ArtworkSlot>(), slots)
+    }
+
+    @Test
+    fun twoDestinationActionsReplaceRedundantGenericSearchAction() {
+        render(state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)))
+        compose.onNodeWithTag("artist_artwork_primary_action").assertDoesNotExist()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").assertIsDisplayed()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_HERO").assertIsDisplayed()
+    }
+
+    @Test
+    fun busySummaryDisablesDestinationActions() {
+        render(state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)).copy(searchActive = true))
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").assertIsNotEnabled()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_HERO").assertIsNotEnabled()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-xhdpi")
+    fun narrowWidthAtFontScaleTwoKeepsBothDestinationActionsReachable() {
+        val destinations = mutableListOf<ArtworkSlot>()
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    ArtistEnrichmentSummaryContent(
+                        uiState = state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)),
+                        onChoosePhoto = {},
+                        onPrimaryAction = {},
+                        onChooseSlot = { destinations += it },
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB")
+            .performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_HERO")
+            .performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(listOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO), destinations)
+    }
+
+    @Test
+    @Config(qualifiers = "w600dp-h960dp-xhdpi")
+    fun wideLayoutShowsBothDestinationActionsWithoutScrolling() {
+        render(state(mosaic = pending(ArtworkSlot.ARTIST_THUMB)))
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_THUMB").assertIsDisplayed()
+        compose.onNodeWithTag("artist_artwork_slot_action_ARTIST_HERO").assertIsDisplayed()
+    }
 }

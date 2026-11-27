@@ -101,6 +101,7 @@ import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.ArtistMembershipOccurrence
 import org.michimusic.mobile.artist.planArtistMemberships
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
+import org.michimusic.mobile.ui.components.ArtistBulkPreviewHost
 import org.michimusic.mobile.ui.components.ArtistVariantNotice
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
@@ -153,6 +154,9 @@ fun AlbumsScreen(
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
     onNavigateToAlbum: (String) -> Unit = {},
+    onNavigateToArtistEnrichment: (String) -> Unit = {},
+    onNavigateToArtistExact: (String) -> Unit = {},
+    onNavigateToArtistReview: (org.michimusic.mobile.artist.ArtistVariantReviewChoice) -> Unit = {},
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
     val genreLibraryViewModel: GenreLibraryViewModel = koinViewModel()
@@ -216,6 +220,11 @@ fun AlbumsScreen(
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.MOSAIC) }
     var artistCardsMode by rememberSaveable { mutableStateOf(false) }
     var selectedArtistCard by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
+    // D32: a tap is a one-shot local-review intent, never an HTTP consent.
+    var artistBulkOpenRequest by remember(activeScope) { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != LibraryTab.ARTISTS) artistBulkOpenRequest = 0
+    }
     // Keep genre exploration state while switching Biblioteca tabs, but reset it
     // when the owning library scope changes (never bleed another owner's state).
     val genreViewState = key(activeScope) { androidx.compose.runtime.saveable.rememberSaveableStateHolder() }
@@ -355,6 +364,16 @@ fun AlbumsScreen(
                                 onViewModeChange = { viewMode = it },
                             )
                         } else if (selectedTab == LibraryTab.ARTISTS && scopedAlbums.isNotEmpty()) {
+                            // D32: left of the ArtistViewModeToggle; 48 dp touch target,
+                            // no Room read, network or session merely from composition.
+                            IconButton(
+                                onClick = { artistBulkOpenRequest += 1 },
+                                modifier = Modifier.size(48.dp).testTag("library_artist_bulk_enrichment"),
+                            ) {
+                                Icon(Icons.Filled.LibraryMusic,
+                                    contentDescription = "Enriquecimiento general de artistas",
+                                    tint = TertiaryCyan)
+                            }
                             ArtistViewModeToggle(
                                 cardsMode = artistCardsMode,
                                 onCardsModeChange = { artistCardsMode = it },
@@ -1187,16 +1206,24 @@ fun AlbumsScreen(
                             val identityStore = remember(context) {
                                 ArtistEnrichmentPersistence.from(context)
                             }
-                            val creditsByAlbum = remember(occurrences) {
-                                occurrences
-                                    .groupBy { it.literalCredit.trim() }
-                                    .mapValues { (_, group) -> group.map { it.albumId }.distinct() }
+                            // D48: only explicit local revalidations in the current UI
+                            // session can resolve missing catalogue hashes. No audio scan.
+                            val proofRoot by rootAuthority.reviewStamp.collectAsStateWithLifecycle()
+                            val proofRevision by rootAuthority.revision.collectAsStateWithLifecycle()
+                            var artistSessionProofs by remember(activeScope, proofRoot, proofRevision) {
+                                mutableStateOf<Map<org.michimusic.mobile.library.ArtistExactOccurrenceKey,
+                                    org.michimusic.mobile.library.ArtistTrackSessionProof>>(emptyMap())
                             }
-                            val verifiedIdentities = rememberVerifiedArtistMbids(
+                            // D36: bounded, durable exact album/track evidence read from Room.
+                            // Unlike legacy by-name lookup, distinct Alex MBIDs survive grouping.
+                            val verifiedIdentities = org.michimusic.mobile.library.rememberArtistExactOccurrenceIdentities(
                                 libraryId = scoped.identityLibraryId,
-                                credits = creditsByAlbum,
-                                store = identityStore,
+                                albums = scoped.albums,
+                                rootAuthority = rootAuthority,
+                                exactOneLibrary = scoped.identityLibraryId != null &&
+                                    (activeScope as? org.michimusic.core.models.LibraryScope.One)?.libraryId == scoped.identityLibraryId,
                                 retryKey = artistScopeRetry,
+                                sessionProofs = artistSessionProofs.values.toList(),
                             )
                             if (!verifiedIdentities.ready) {
                                 Box(
@@ -1204,23 +1231,25 @@ fun AlbumsScreen(
                                     contentAlignment = Alignment.Center,
                                 ) { CircularProgressIndicator(color = TertiaryCyan) }
                             }
-                            val presentation = remember(occurrences, verifiedIdentities.mbidsByCredit) {
-                                planArtistMemberships(
-                                    occurrences.map { occurrence ->
-                                        occurrence.copy(
-                                            verifiedMbid =
-                                                verifiedIdentities.mbidsByCredit[occurrence.literalCredit.trim()],
-                                        )
-                                    },
-                                )
+                            val verifiedRows = remember(occurrences, verifiedIdentities.result) {
+                                verifiedIdentities.applyTo(occurrences)
                             }
-                            val artistEntries = remember(presentation, multiMemberships) {
+                            val presentation = remember(verifiedRows) {
+                                planArtistMemberships(verifiedRows)
+                            }
+                            val artistEntries = remember(presentation, multiMemberships,
+                                verifiedIdentities.ready, verifiedIdentities.error, activeScope) {
                                 presentation.entries.map { entry ->
                                     ArtistMosaicEntry(
                                         credit = entry.credit,
                                         albumIds = entry.albumIds,
                                         albumCount = entry.albumIds.size,
                                         trackCount = entry.trackCount,
+                                        entryKey = entry.presentationKey ?: entry.credit,
+                                        identityMbid = if (entry.identityPartitioned) entry.mbid else null,
+                                        suppressArtwork = entry.identityPartitioned ||
+                                            (activeScope is org.michimusic.core.models.LibraryScope.One &&
+                                                (!verifiedIdentities.ready || verifiedIdentities.error)),
                                         profileScopes = if (scoped.identityLibraryId == null &&
                                             multiMemberships.ready && !multiMemberships.error)
                                             multiMemberships.byCredit[entry.credit].orEmpty() else emptyList(),
@@ -1241,21 +1270,157 @@ fun AlbumsScreen(
                                     scoped.identityLibraryId?.let(artworkStore::observeLibraryRevision)
                                         ?: flowOf(0L)
                                 }.collectAsStateWithLifecycle(initialValue = 0L)
+                                var variantReviewWarning by remember(scoped.identityLibraryId) {
+                                    mutableStateOf<String?>(null)
+                                }
                                 Column(modifier = Modifier.fillMaxSize()) {
+                                    if (activeScope is org.michimusic.core.models.LibraryScope.One &&
+                                        verifiedIdentities.ready && verifiedIdentities.error) {
+                                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                                            .testTag("artist_exact_identity_read_error"),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("No se pudieron verificar las pertenencias exactas. " +
+                                                "Las fotografías quedan ocultas hasta una lectura válida.",
+                                                color = TextSecondary, fontSize = 12.sp)
+                                            AeroActionButton("Reintentar identidades",
+                                                onClick = { artistScopeRetry++ })
+                                        }
+                                    }
+                                    // D19 S4-A2: the exact track/album occurrences, not the
+                                    // visually merged mosaic cards, feed the read-only preview.
+                                    val blockedBulkCredits = presentation.variantHints
+                                        .filter { it.credits.size == 1 &&
+                                            it.reason == org.michimusic.mobile.artist.ArtistVariantReason.IDENTITY_CONFLICT }
+                                        .flatMap { it.credits }.toSet()
+                                    // D34: issue only for a fully revalidated ONE-library projection.
+                                    // The presentation entry, never the label alone, selects a route.
+                                    fun openExactArtist(credit: String, entryKey: String? = null) {
+                                        val lib = scoped.identityLibraryId
+                                        if (activeScope !is org.michimusic.core.models.LibraryScope.One || lib == null) {
+                                            variantReviewWarning = "Selecciona una biblioteca concreta antes de abrir una ficha exacta."
+                                            return
+                                        }
+                                        if (!verifiedIdentities.ready || verifiedIdentities.error) {
+                                            variantReviewWarning = "La identidad exacta aún no está disponible o cambió la biblioteca."
+                                            return
+                                        }
+                                        val candidates = presentation.entries.filter {
+                                            it.credit == credit && it.libraryId == lib &&
+                                                (entryKey == null || (it.presentationKey ?: it.credit) == entryKey)
+                                        }
+                                        if (credit in blockedBulkCredits &&
+                                            candidates.singleOrNull()?.identityPartitioned != true) {
+                                            variantReviewWarning = "Identidades contradictorias sin pertenencias separables."
+                                            return
+                                        }
+                                        if (candidates.size != 1) {
+                                            variantReviewWarning = "La tarjeta no identifica una pertenencia única."
+                                            return
+                                        }
+                                        val observed = verifiedRows
+                                        val outcome = org.michimusic.mobile.artist.ArtistExactMembershipProjection
+                                            .prepare(candidates.single(), observed, lib)
+                                        if (outcome is org.michimusic.mobile.artist.ArtistExactMembershipResult.Ready) {
+                                            variantReviewWarning = null
+                                            if (!candidates.single().identityPartitioned &&
+                                                org.michimusic.mobile.artist.ArtistExactNavigationPolicy.canUseStandardDetail(
+                                                    candidates.single(), scoped.albums)) {
+                                                // Full exact albums keep the existing editable enrichment flow.
+                                                onNavigateToArtist(credit)
+                                            } else {
+                                                // Verified aliases and guest credits stay presentation-only.
+                                                val ticket = org.michimusic.mobile.navigation.ArtistExactMembershipTickets.issue(
+                                                    org.michimusic.mobile.navigation.ArtistReviewRootGuard(
+                                                        rootAuthority.currentReviewStamp(), rootAuthority.revision.value),
+                                                    lib, candidates.single(), observed, artistSessionProofs.values,
+                                                )
+                                                if (ticket != null) onNavigateToArtistExact(ticket)
+                                                else variantReviewWarning = "No se pudo abrir la pertenencia exacta. Vuelve a revisarla."
+                                            }
+                                        } else {
+                                            variantReviewWarning = "La pertenencia de este artista cambió o presenta pruebas insuficientes. " +
+                                                "Vuelve a comprobar sus álbumes; no se transfirió ninguna identidad."
+                                        }
+                                    }
+                                    ArtistBulkPreviewHost(
+                                        openRequestId = artistBulkOpenRequest,
+                                        onOpenRequestConsumed = { artistBulkOpenRequest = 0 },
+                                        libraryId = scoped.identityLibraryId,
+                                        occurrences = occurrences,
+                                        scopeStore = libraryScopeStore,
+                                        rootAuthority = rootAuthority,
+                                        repository = musicLibraryRepo,
+                                        selectionStore = identityStore,
+                                        onOpenArtist = { credit -> openExactArtist(credit) },
+                                    )
                                     if (presentation.variantHints.isNotEmpty()) {
                                         ArtistVariantNotice(
                                             hints = presentation.variantHints,
-                                            onReviewIdentity = onNavigateToArtist,
+                                            onReviewIdentity = { choice ->
+                                                // The existing detail route only understands album.artist.
+                                                // Never pass a union of aliases or track-only membership
+                                                // as if it were an exact, single-credit identity context.
+                                                val exactAlbums = scoped.albums
+                                                    .filter { it.album.artist == choice.credit }
+                                                    .map { it.album.id }.distinct().sorted()
+                                                if (choice.libraryId != null &&
+                                                    choice.libraryId == scoped.identityLibraryId &&
+                                                    choice.albumIds == exactAlbums &&
+                                                    exactAlbums.isNotEmpty() &&
+                                                    !choice.conflictingEvidence
+                                                ) {
+                                                    variantReviewWarning = null
+                                                    onNavigateToArtistReview(choice)
+                                                } else {
+                                                    variantReviewWarning =
+                                                        "Esta variante requiere revisar sus álbumes " +
+                                                        "en un contexto exacto. No se ha cambiado su identidad."
+                                                }
+                                            },
                                             modifier = Modifier.padding(
                                                 start = 20.dp, end = 20.dp, top = 8.dp),
                                         )
                                     }
+                                    variantReviewWarning?.let { warning ->
+                                        Text(warning, color = TextSecondary,
+                                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                                                .testTag("artist_variant_scope_warning"),
+                                            fontSize = 12.sp)
+                                    }
+                                    val ambiguousLiteralCredits = presentation.variantHints
+                                        .filter { it.credits.size == 1 &&
+                                            it.reason == org.michimusic.mobile.artist.ArtistVariantReason.IDENTITY_CONFLICT }
+                                        .flatMap { it.credits }.toSet()
+                                    org.michimusic.mobile.library.ArtistSameAlbumTrackReviewHost(
+                                        libraryId = scoped.identityLibraryId,
+                                        albums = scoped.albums,
+                                        identities = verifiedIdentities.result,
+                                        rootAuthority = rootAuthority,
+                                        onConfirmed = { artistScopeRetry++ },
+                                        onSessionProof = { proof ->
+                                            val root = rootAuthority.currentReviewStamp()
+                                            val lib = scoped.identityLibraryId
+                                            val current = lib?.let {
+                                                org.michimusic.mobile.library.ArtistTrackChoiceAuthority(
+                                                    it, root.sourceId, root.epoch, rootAuthority.revision.value)
+                                            }
+                                            val accepted = current?.let {
+                                                org.michimusic.mobile.library.ArtistTrackSessionProofBudget.add(
+                                                    artistSessionProofs, proof, it)
+                                            }
+                                            if (accepted == null) false else {
+                                                artistSessionProofs = accepted
+                                                true
+                                            }
+                                        },
+                                    )
                                     ArtistMosaicGrid(
                                         artists = artistEntries,
                                         libraryId = scoped.identityLibraryId,
                                         refreshToken = 0,
                                         artworkRevision = artworkRevision,
-                                        onOpenArtist = onNavigateToArtist,
+                                        onOpenArtist = { credit -> openExactArtist(credit) },
+                                        onOpenArtistEntry = { item -> openExactArtist(item.credit, item.entryKey) },
                                         modifier = Modifier.fillMaxWidth().weight(1f),
                                         artworkStore = artworkStore,
                                         cardsMode = artistCardsMode,

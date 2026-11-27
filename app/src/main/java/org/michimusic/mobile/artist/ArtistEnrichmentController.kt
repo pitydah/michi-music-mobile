@@ -350,6 +350,9 @@ class ArtistEnrichmentController(
         portraitJob?.cancel()
         _state.value = current.copy(
             searchingPortraits = true,
+            // A new manual request has no candidates yet. Keep verified saved images
+            // in selections, but do not carry over an older provider result list.
+            pendingPortraits = emptyList(),
             portraitSearchFailure = null,
             message = null,
         )
@@ -372,10 +375,8 @@ class ArtistEnrichmentController(
             if (!isCurrentPortraitReceipt(receipt)) return@launch
             _state.value = _state.value.copy(
                 searchingPortraits = false,
-                pendingPortraits = when (result) {
-                    is ArtistPortraitSearchResult.Candidates -> result.items
-                    else -> _state.value.pendingPortraits
-                },
+                pendingPortraits = (result as? ArtistPortraitSearchResult.Candidates)
+                    ?.items.orEmpty(),
                 // Only a real failure publishes a failure reason. NoMatch and an
                 // unverified identity are ordinary answers, not errors.
                 portraitSearchFailure = (result as? ArtistPortraitSearchResult.Failed)?.reason,
@@ -508,15 +509,10 @@ class ArtistEnrichmentController(
         requestJob = scope.launch { runDelete(receipt, epoch, previous, anchor) }
     }
 
-    /**
-     * Removes the association and cancels in-flight work. A later provider search still
-     * requires a new explicit user action; no bind starts discovery by itself.
-     *
-     * Kept as the single-call entry point: it announces the target and immediately confirms it.
-     */
-    fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
+    /** Legacy callers can only request confirmation; they cannot bypass the receipt. */
+    @Deprecated("Use requestDelete and a separate explicit user confirmation")
+    internal fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
         requestDelete(artistCredit, libraryId, albumIds)
-        confirmDelete(artistCredit, libraryId, albumIds)
     }
 
     private suspend fun runDelete(
@@ -525,23 +521,51 @@ class ArtistEnrichmentController(
         previous: ArtistEnrichmentState,
         anchor: ArtistIdentityAnchor?,
     ) {
-        var associationRemoved = true
-        var associationFailure: EnrichmentDeleteFailure? = null
-        if (receipt.libraryId != null) {
-            try {
+        // S1-A: fail closed. S1-B1: Room removes the exact association and BOTH
+        // artwork slots in one transaction; do not call the legacy second store.
+        val libraryId = receipt.libraryId
+        if (libraryId == null) {
+            if (isCurrentDelete(receipt, epoch)) {
+                _state.value = previous.copy(
+                    delete = EnrichmentDeleteState.Failed(
+                        receipt, EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED,
+                    ),
+                    message = EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED.userMessage(),
+                )
+            }
+            return
+        }
+        val atomicRemoval = profileStore as? ArtistAtomicEnrichmentRemovalStore
+        var cleanupPending = false
+        try {
+            if (atomicRemoval != null) {
+                cleanupPending = atomicRemoval.clearWithArtwork(
+                    libraryId, receipt.artistCredit, receipt.albumIds,
+                    receipt.associationGroupKey,
+                    requireNotNull(receipt.mbid) { "La identidad a borrar no está confirmada." },
+                ) == ArtistDeletionCleanupStatus.CLEANUP_PENDING
+            } else {
+                // Compatibility only for independent fake / non-Room stores.
                 profileStore.clear(
-                    receipt.libraryId, receipt.artistCredit, receipt.albumIds,
+                    libraryId, receipt.artistCredit, receipt.albumIds,
                     receipt.associationGroupKey,
                 )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                associationRemoved = false
-                associationFailure = EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            if (isCurrentDelete(receipt, epoch)) {
+                _state.value = previous.copy(
+                    delete = EnrichmentDeleteState.Failed(
+                        receipt, EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED,
+                    ),
+                    message = EnrichmentDeleteFailure.ASSOCIATION_NOT_REMOVED.userMessage(),
+                )
+            }
+            return
         }
         var artworkFailure: EnrichmentDeleteFailure? = null
-        if (anchor != null) {
+        if (atomicRemoval == null && anchor != null) {
             try {
                 artworkStore.clear(anchor)
             } catch (cancelled: CancellationException) {
@@ -552,19 +576,18 @@ class ArtistEnrichmentController(
         }
         // A re-bind, a newer receipt or a newer identity invalidates this result entirely.
         if (!isCurrentDelete(receipt, epoch)) return
+        // Never preserve a ghost MBID, photo or lookup candidate in Compose state.
         _state.value = when {
-            associationFailure != null -> previous.copy(
-                delete = EnrichmentDeleteState.Failed(receipt, associationFailure),
-                message = associationFailure.userMessage(),
-            )
-            // The identity row is gone, so showing the previous profile again would be a lie.
-            // Keep the coherent empty state and disclose the file cleanup failure.
-            artworkFailure != null -> ArtistEnrichmentState(
+            artworkFailure != null || cleanupPending -> ArtistEnrichmentState(
                 status = ArtistEnrichmentStatus.IDLE,
-                delete = EnrichmentDeleteState.PartiallyCompleted(receipt, artworkFailure),
-                message = artworkFailure.userMessage(),
+                delete = EnrichmentDeleteState.PartiallyCompleted(
+                    receipt, artworkFailure ?: EnrichmentDeleteFailure.ARTWORK_FILES_REMAIN,
+                ),
+                message = if (cleanupPending) "Datos eliminados de la biblioteca; limpieza privada pendiente."
+                    else requireNotNull(artworkFailure).userMessage(),
             )
-            else -> _state.value.copy(
+            else -> ArtistEnrichmentState(
+                status = ArtistEnrichmentStatus.IDLE,
                 delete = EnrichmentDeleteState.Completed(receipt),
                 message = "Datos enriquecidos borrados.",
             )

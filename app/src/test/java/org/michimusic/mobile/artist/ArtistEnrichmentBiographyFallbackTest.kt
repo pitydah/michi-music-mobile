@@ -11,6 +11,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +27,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 @Config(sdk = [33], application = android.app.Application::class)
 class ArtistEnrichmentBiographyFallbackTest {
     private val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+
+    @Before fun resetSharedGate() = ArtistMusicBrainzSharedRateGate.resetForTests()
 
     private fun musicBrainz(vararg relations: String): String =
         """{"id":"$mbid","name":"Midnight Oil","relations":[${relations.joinToString(",")}]}"""

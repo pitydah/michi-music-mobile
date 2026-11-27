@@ -73,7 +73,10 @@ class ArtistEnrichmentUiStateTest {
         albumCount: Int = 1,
     ): ArtistEnrichmentUiState = ArtistEnrichmentUiState.from(
         artistCredit = "'Til Tuesday",
-        state = state,
+        state = if (canPersist && identityConfirmed && state.profile != null &&
+            !state.persisted && state.persistedMbid == null
+        ) state.copy(persisted = true, persistedMbid = state.profile.mbid)
+        else state,
         coverage = ArtistArtworkCoverageUiState.from(
             uiState = artwork ?: artworkUi(*state.selections.values.toTypedArray()),
             report = report,
@@ -125,6 +128,17 @@ class ArtistEnrichmentUiStateTest {
         assertEquals("Identidad musical pendiente", ui.identityLabel)
         assertNull(ui.identityDetail)
         assertEquals("Fotografías de 'Til Tuesday", ui.heading)
+    }
+
+    @Test fun candidateWithMbidButNoRoomConfirmationRemainsUnconfirmed() {
+        val p = profile()
+        val ui = presentation(
+            state = ArtistEnrichmentState(profile = p, persisted = false),
+            identityConfirmed = false,
+        )
+        assertFalse(ui.identityConfirmed)
+        assertEquals("Identidad musical pendiente", ui.identityLabel)
+        assertNull(ui.identityDetail)
     }
 
     @Test

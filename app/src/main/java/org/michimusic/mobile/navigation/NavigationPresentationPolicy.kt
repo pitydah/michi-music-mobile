@@ -30,7 +30,9 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
         route == "settings" || route == "diagnostics" -> null
         route == "playlist/{playlistId}" || route?.startsWith("playlist/") == true -> "playlist"
         route == "queue" || route == "album/{albumId}" || route?.startsWith("album/") == true ||
-            route == "artist/{artistKey}" || route?.startsWith("artist/") == true -> "library"
+            route == "artist/{artistKey}" || route?.startsWith("artist/") == true ||
+            route == "artist-review/{ticketId}" || route?.startsWith("artist-review/") == true ||
+            route == "artist-membership/{ticketId}" || route?.startsWith("artist-membership/") == true -> "library"
         route == "synced" || route == "remote" || route == "sync" ||
             route == "audio-route" || route == "sync_wizard/{deviceId}" ||
             route?.startsWith("sync_wizard/") == true -> "devices"

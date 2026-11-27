@@ -477,12 +477,17 @@ class ArtistEnrichmentPanelTest {
      */
     private fun openIdentityBlock() {
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("artist_artwork_primary_action").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("artist_identity_back").fetchSemanticsNodes().isNotEmpty()
         }
-        val alreadyOpen = compose.onAllNodesWithText("Ocultar identidad y álbumes")
+        val alreadyOpen = compose.onAllNodesWithTag("artist_identity_back")
             .fetchSemanticsNodes().isNotEmpty()
         if (!alreadyOpen) {
-            compose.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
+            val tag = if (compose.onAllNodesWithTag("artist_identity_accordion")
+                .fetchSemanticsNodes().isNotEmpty()) "artist_identity_accordion"
+                else "artist_artwork_primary_action"
+            compose.onNodeWithTag(tag).performScrollTo().performClick()
             compose.waitForIdle()
         }
     }

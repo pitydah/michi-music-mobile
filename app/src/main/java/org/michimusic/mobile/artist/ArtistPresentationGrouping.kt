@@ -27,6 +27,8 @@ data class ArtistMembershipOccurrence(
     val trackIdentity: String,
     /** Corroborated MusicBrainz identity for this exact credit, when one exists. */
     val verifiedMbid: String? = null,
+    /** Only an explicit, exact track-scoped Room choice may set this. */
+    val exactTrackConfirmed: Boolean = false,
 )
 
 /**
@@ -64,6 +66,20 @@ data class ArtistPresentationEntry(
     val trackCount: Int,
     val libraryId: String?,
     val mbid: String?,
+    /** Unique in-memory navigation key; never a provider identity grant. */
+    val presentationKey: String? = null,
+    val identityPartitioned: Boolean = false,
+)
+
+/** One explicit review target. This is NOT permission to transfer identity or photos. */
+data class ArtistVariantReviewChoice(
+    val credit: String,
+    val libraryId: String?,
+    val albumIds: List<String>,
+    val verifiedMbid: String?,
+    val conflictingEvidence: Boolean,
+    /** A scoped number of observed track/album memberships; never an identity grant. */
+    val memberCount: Int = 0,
 )
 
 data class ArtistVariantHint(
@@ -71,6 +87,7 @@ data class ArtistVariantHint(
     val reason: ArtistVariantReason,
     val libraryId: String?,
     val albumIds: List<String>,
+    val reviewChoices: List<ArtistVariantReviewChoice> = emptyList(),
 )
 
 data class ArtistPresentationPlan(
@@ -117,7 +134,50 @@ fun planArtistMemberships(
     val hints = mutableListOf<ArtistVariantHint>()
     for ((_, group) in discoveryGroups) {
         if (group.size == 1) {
-            entries += group.single().toEntry()
+            val credit = group.single()
+            val original = credit.toEntry()
+            // D37: verified, album-disjoint same-literal homonyms become separate
+            // presentation-only entries. Unresolved or overlapping evidence stays locked.
+            val split = if (credit.mbidValues.size > 1)
+                ArtistHomonymMosaicPolicy.split(original,
+                    byCredit[credit.libraryId to credit.credit].orEmpty()) else null
+            entries += split ?: listOf(original)
+            if (credit.mbidValues.size > 1) {
+                // Split only when every album belongs to one confirmed MBID.
+                // Otherwise keep the blocked union and show review evidence
+                // without borrowing identity, biography, artwork or edit authority.
+                val evidence = ArtistLiteralHomonymEvidence.inspect(
+                    credit.credit, credit.libraryId,
+                    byCredit[credit.libraryId to credit.credit].orEmpty(),
+                )
+                val choices = if (evidence is ArtistLiteralHomonymResult.Review) {
+                    evidence.buckets.map { bucket ->
+                        ArtistVariantReviewChoice(
+                            credit = credit.credit, libraryId = bucket.libraryId,
+                            albumIds = bucket.albumIds, verifiedMbid = bucket.mbid,
+                            conflictingEvidence = true, memberCount = bucket.memberCount,
+                        )
+                    } + (if (evidence.unresolved.isEmpty()) emptyList() else listOf(
+                        ArtistVariantReviewChoice(
+                            credit = credit.credit, libraryId = credit.libraryId,
+                            albumIds = evidence.unresolved.map { it.albumId }.distinct().sorted(),
+                            verifiedMbid = null, conflictingEvidence = true,
+                            memberCount = evidence.unresolved.size,
+                        ),
+                    ))
+                } else listOf(ArtistVariantReviewChoice(
+                    credit = credit.credit, libraryId = credit.libraryId,
+                    albumIds = credit.albumIds, verifiedMbid = null,
+                    conflictingEvidence = true,
+                ))
+                hints += ArtistVariantHint(
+                    credits = listOf(credit.credit),
+                    reason = ArtistVariantReason.IDENTITY_CONFLICT,
+                    libraryId = credit.libraryId,
+                    albumIds = credit.albumIds,
+                    reviewChoices = choices,
+                )
+            }
             continue
         }
         val mergeable = group.all { it.mbidValues.size == 1 }
@@ -143,6 +203,16 @@ fun planArtistMemberships(
                 reason = reason,
                 libraryId = group.first().libraryId,
                 albumIds = group.flatMap { it.albumIds }.distinct().sorted(),
+                // Keep each choice's ownership; the union above is display-only.
+                reviewChoices = group.map { credit ->
+                    ArtistVariantReviewChoice(
+                        credit = credit.credit,
+                        libraryId = credit.libraryId,
+                        albumIds = credit.albumIds,
+                        verifiedMbid = credit.mbidValues.singleOrNull(),
+                        conflictingEvidence = credit.mbidValues.size > 1,
+                    )
+                }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.credit }),
             )
         }
     }

@@ -234,7 +234,14 @@ class ArtistEnrichmentControllerDeleteTest {
         controller.bind("library-a", "Midnight Oil", albums)
         advanceUntilIdle()
 
+        // Legacy API must never delete without a separate explicit confirmation.
+        @Suppress("DEPRECATION")
         controller.clear("Midnight Oil", "library-a", albums)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.delete is EnrichmentDeleteState.Confirming)
+        assertEquals(0, stores.profileClears)
+        assertEquals(0, stores.artworkClears)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
         advanceUntilIdle()
 
         val delete = controller.state.value.delete
@@ -251,6 +258,131 @@ class ArtistEnrichmentControllerDeleteTest {
     }
 
     @Test
+    fun successfulDeleteClearsPreviouslyVerifiedStateAndArtworkSelections() = runTest {
+        val stores = Stores()
+        val controller = controller(stores, this)
+        controller.bind("library-a", "Midnight Oil", albums)
+        advanceUntilIdle()
+        assertEquals(mbid, controller.state.value.profile?.mbid)
+
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
+        advanceUntilIdle()
+
+        val current = controller.state.value
+        assertTrue(current.delete is EnrichmentDeleteState.Completed)
+        assertEquals(1, stores.profileClears)
+        assertEquals(1, stores.artworkClears)
+        assertEquals(ArtistEnrichmentStatus.IDLE, current.status)
+        assertNull(current.profile)
+        assertNull(current.persistedMbid)
+        assertNull(current.associationGroupKey)
+        assertTrue(current.candidates.isEmpty())
+        assertTrue(current.pendingPortraits.isEmpty())
+        assertTrue(current.selections.isEmpty())
+        assertTrue(!current.persisted)
+        assertTrue(!current.profilePersisted)
+        controller.release()
+    }
+
+    @Test
+    fun atomicRemovalUsesOneStoreAndDoesNotCallLegacyArtworkClear() = runTest {
+        val stores = Stores()
+        var atomicClears = 0
+        val atomic = object : ArtistEnrichmentSelectionStore by stores.selection(profile()),
+            ArtistAtomicEnrichmentRemovalStore {
+            override suspend fun clearWithArtwork(
+                libraryId: String, credit: String, albumIds: List<String>,
+                associationGroupKey: String?, expectedMbid: String,
+            ): ArtistDeletionCleanupStatus {
+                assertEquals("library-a", libraryId)
+                assertEquals("Midnight Oil", credit)
+                assertEquals(albums, albumIds)
+                assertEquals(mbid, expectedMbid)
+                atomicClears++
+                return ArtistDeletionCleanupStatus.COMPLETE
+            }
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = io.mockk.mockk(relaxed = true),
+            profileStore = atomic,
+            artworkStore = stores.artwork(),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("library-a", "Midnight Oil", albums)
+        advanceUntilIdle()
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.delete is EnrichmentDeleteState.Completed)
+        assertNull(controller.state.value.profile)
+        assertEquals(1, atomicClears)
+        assertEquals(0, stores.profileClears)
+        assertEquals(0, stores.artworkClears)
+        controller.release()
+    }
+
+    @Test
+    fun durableCleanupPendingIsNotMisreportedAsFullyDeleted() = runTest {
+        val stores = Stores()
+        val atomic = object : ArtistEnrichmentSelectionStore by stores.selection(profile()),
+            ArtistAtomicEnrichmentRemovalStore {
+            override suspend fun clearWithArtwork(
+                libraryId: String, credit: String, albumIds: List<String>,
+                associationGroupKey: String?, expectedMbid: String,
+            ): ArtistDeletionCleanupStatus = ArtistDeletionCleanupStatus.CLEANUP_PENDING
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = io.mockk.mockk(relaxed = true),
+            profileStore = atomic,
+            artworkStore = stores.artwork(),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("library-a", "Midnight Oil", albums)
+        advanceUntilIdle()
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.delete is EnrichmentDeleteState.PartiallyCompleted)
+        assertNull(controller.state.value.profile)
+        assertEquals(0, stores.artworkClears)
+        controller.release()
+    }
+
+    @Test
+    fun failedAtomicRemovalKeepsIdentityAndNeverInvokesLegacyStores() = runTest {
+        val stores = Stores()
+        val atomic = object : ArtistEnrichmentSelectionStore by stores.selection(profile()),
+            ArtistAtomicEnrichmentRemovalStore {
+            override suspend fun clearWithArtwork(
+                libraryId: String, credit: String, albumIds: List<String>,
+                associationGroupKey: String?, expectedMbid: String,
+            ): ArtistDeletionCleanupStatus {
+                error("Room transaction rolled back")
+            }
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = io.mockk.mockk(relaxed = true),
+            profileStore = atomic,
+            artworkStore = stores.artwork(),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("library-a", "Midnight Oil", albums)
+        advanceUntilIdle()
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.delete is EnrichmentDeleteState.Failed)
+        assertEquals(mbid, controller.state.value.profile?.mbid)
+        assertEquals(0, stores.profileClears)
+        assertEquals(0, stores.artworkClears)
+        controller.release()
+    }
+
+    @Test
     fun aFailedAssociationDeletionKeepsTheVerifiedProfile() = runTest {
         val stores = Stores()
         stores.profileFails = true
@@ -258,7 +390,8 @@ class ArtistEnrichmentControllerDeleteTest {
         controller.bind("library-a", "Midnight Oil", albums)
         advanceUntilIdle()
 
-        controller.clear("Midnight Oil", "library-a", albums)
+        controller.requestDelete("Midnight Oil", "library-a", albums)
+        controller.confirmDelete("Midnight Oil", "library-a", albums)
         advanceUntilIdle()
 
         val delete = controller.state.value.delete
@@ -272,6 +405,11 @@ class ArtistEnrichmentControllerDeleteTest {
             "A failed deletion cannot silently drop the verified identity",
             mbid,
             controller.state.value.profile?.mbid,
+        )
+        assertEquals(
+            "Failed identity removal must not retire artwork references",
+            0,
+            stores.artworkClears,
         )
         controller.release()
     }
