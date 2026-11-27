@@ -475,8 +475,14 @@ fun PlaylistScreen(
         }
 
         appearanceTarget?.let { target ->
+            // Freeze the draft baseline when the editor opens. A catalog revision
+            // from another screen must not silently re-base this dialog: the store
+            // compares expectedVisual and returns Conflict instead of overwriting.
+            val baseline = remember(target) {
+                visualById[target.id] ?: PlaylistVisualState()
+            }
             PlaylistVisualEditorDialog(
-                visual = visualById[target.id] ?: PlaylistVisualState(),
+                visual = baseline,
                 isSaving = isSavingVisual,
                 errorMessage = visualEditError,
                 onDismiss = {
