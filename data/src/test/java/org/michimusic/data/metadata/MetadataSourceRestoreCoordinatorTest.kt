@@ -32,7 +32,9 @@ import org.robolectric.shadows.ShadowContentResolver
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
 import org.michimusic.core.metadata.MediaStoreFlacTextProfile
 import org.michimusic.core.metadata.MediaStoreM4aTextProfile
-import org.michimusic.core.metadata.MediaStoreM4aTitleProfileV1
+import org.michimusic.core.metadata.MediaStoreM4aHistoricalProfileV1
+import org.michimusic.core.metadata.MediaStoreM4aTitleOnlyRecoveryProfileV1
+import org.michimusic.core.metadata.SafLocalM4aTextProfile
 import org.michimusic.core.metadata.SafLocalM4aTextProfileV1
 import org.michimusic.core.metadata.SafLocalMp3TitleProfile
 import org.michimusic.core.metadata.MetadataAudioContainer
@@ -274,8 +276,8 @@ class MetadataSourceRestoreCoordinatorTest {
         val permit = MetadataRestorePermit.fromDurable(entry, m4aIntent, target, true)
 
         assertTrue(permit != null)
-        assertEquals(MediaStoreM4aTitleProfileV1.ID, permit!!.profileId)
-        assertEquals(MediaStoreM4aTitleProfileV1.EVIDENCE_ID, permit.evidenceId)
+        assertEquals(MediaStoreM4aTitleOnlyRecoveryProfileV1.ID, permit!!.profileId)
+        assertEquals(MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID, permit.evidenceId)
         assertEquals(1, permit.revision)
 
         val artistIntent = MetadataCommitIntentManifest.create(
@@ -286,11 +288,42 @@ class MetadataSourceRestoreCoordinatorTest {
             originalBytes = original.size.toLong(), originalSha256 = originalSha,
             candidateBytes = candidate.size.toLong(), candidateSha256 = candidateSha,
         )
-        // An old unbound advanced intent cannot be attributed to the historical
-        // title-only evidence; it must stay un-recovered rather than widen scope.
+        // The legacy MediaStore M4A contract already covered advanced text, so
+        // an old unbound advanced journal obtains the exact historical permit.
+        val artistPermit = MetadataRestorePermit.fromDurable(
+            entry, artistIntent, target, true,
+        )
+        assertTrue(artistPermit != null)
+        assertEquals(MediaStoreM4aHistoricalProfileV1.ID, artistPermit!!.profileId)
         assertEquals(
-            null,
-            MetadataRestorePermit.fromDurable(entry, artistIntent, target, true),
+            MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID,
+            artistPermit.evidenceId,
+        )
+        val advancedCovrIntent = artistIntent.copy(
+            resources = listOf(
+                MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+                    format = org.michimusic.core.metadata.MetadataArtworkEvidence.Format.MP4_COVR,
+                    ordinal = 0,
+                    type = 3,
+                    description = "Portada",
+                    afterMime = "image/png",
+                    afterBytes = 48,
+                    afterSha256 = "d".repeat(64),
+                ),
+            ),
+        )
+        assertTrue(MetadataCommitIntentManifest.valid(advancedCovrIntent))
+        val advancedCovrPermit = MetadataRestorePermit.fromDurable(
+            entry, advancedCovrIntent, target, true,
+        )
+        assertTrue(advancedCovrPermit != null)
+        assertEquals(
+            MediaStoreM4aHistoricalProfileV1.ID,
+            advancedCovrPermit!!.profileId,
+        )
+        assertEquals(
+            MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID,
+            advancedCovrPermit.evidenceId,
         )
         val boundArtistIntent = MetadataCommitIntentManifest.create(
             transactionId = TX,
@@ -362,6 +395,28 @@ class MetadataSourceRestoreCoordinatorTest {
         assertTrue(historical != null)
         assertEquals(SafLocalM4aTextProfileV1.ID, historical!!.profileId)
         assertEquals(SafLocalM4aTextProfileV1.EVIDENCE_ID, historical.evidenceId)
+        val safCovr = MetadataRestorePermit.fromDurable(
+            entry,
+            safIntent(MetadataField.ARTIST).copy(
+                resources = listOf(
+                    MetadataCommitIntentManifest.ResourceChange.PictureAdd(
+                        format = org.michimusic.core.metadata.MetadataArtworkEvidence
+                            .Format.MP4_COVR,
+                        ordinal = 0,
+                        type = 3,
+                        description = "Portada",
+                        afterMime = "image/png",
+                        afterBytes = 48,
+                        afterSha256 = "d".repeat(64),
+                    ),
+                ),
+            ),
+            safTarget,
+            true,
+        )
+        assertTrue(safCovr != null)
+        assertEquals(SafLocalM4aTextProfile.ID, safCovr!!.profileId)
+        assertEquals(SafLocalM4aTextProfile.EVIDENCE_ID, safCovr.evidenceId)
         assertEquals(
             null,
             MetadataRestorePermit.fromDurable(

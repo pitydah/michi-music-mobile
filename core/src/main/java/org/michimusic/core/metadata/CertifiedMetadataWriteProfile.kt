@@ -211,9 +211,10 @@ private val m4aProfileFields: Set<MetadataField> = setOf(
  * Evidence covers API 36 MediaStore mutation, exact AAC `mdat` preservation,
  * unrelated standard atom preservation, add/clear of representable text,
  * track/disc pairs, cover add/replace/remove, cold readback and atomic Room
- * publication. The old `..._TITLE_V1` evidence never covered advanced text or
- * `covr`; it remains registered only as [MediaStoreM4aTitleProfileV1] so a
- * historical journal whose exact scope is title-only can still be recovered.
+ * publication. The old `..._TITLE_V1` identifier was already stale in the base
+ * build: its executable profile allowed advanced text and `covr`. That exact
+ * legacy scope remains registered as [MediaStoreM4aHistoricalProfileV1] for old
+ * unbound journals.
  */
 object MediaStoreM4aTextProfile {
     const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TEXT_RESOURCES_V2"
@@ -236,13 +237,44 @@ object MediaStoreM4aTextProfile {
 }
 
 /**
- * Historical MediaStore M4A title-only profile. Its evidence covered exactly a
- * scalar title and no resource operation. It is never selected for a new
- * transaction; it exists only so an old journal whose durable intent is exactly
- * title-only can be authorized without borrowing the active broader evidence.
+ * Exact historical MediaStore M4A profile as shipped at `5ea40f95`/`a7059f79`.
+ *
+ * The legacy `..._TITLE_V1` identifier is misleading: that executable contract
+ * already authorized the full [m4aProfileFields] set and
+ * `MP4_COVR_ADD/REPLACE/REMOVE`. Old unbound journals written by that build need
+ * this exact broad scope to obtain a restore/finalize permit; narrowing it to a
+ * title-only profile deadlocks MUTATING/MUTATION_UNKNOWN recovery. It is never
+ * selected for a new transaction.
  */
-object MediaStoreM4aTitleProfileV1 {
+object MediaStoreM4aHistoricalProfileV1 {
     const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1"
+    const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
+    val profile = CertifiedMetadataWriteProfile(
+        id = ID,
+        provider = MetadataProviderRecoveryProfile.Kind.MEDIASTORE_AUDIO,
+        containers = setOf(MetadataAudioContainer.MP4_M4A),
+        tagRevisions = setOf(1),
+        supportedFields = m4aProfileFields,
+        permitsArtwork = false,
+        permitsMultiValue = emptySet(),
+        capabilityEvidenceId = EVIDENCE_ID,
+        supportedResourceOperations = setOf(
+            MetadataResourceOperation.MP4_COVR_REPLACE,
+            MetadataResourceOperation.MP4_COVR_ADD,
+            MetadataResourceOperation.MP4_COVR_REMOVE,
+        ),
+    )
+}
+
+/**
+ * Narrow recovery-only view of the same legacy evidence, retained solely so an
+ * old unbound title-only journal keeps an exact title-only attribution instead
+ * of being described by the broad profile. The old records never persisted a
+ * profile ID, so this internal view is not a new certification and is never
+ * selected for a new write.
+ */
+object MediaStoreM4aTitleOnlyRecoveryProfileV1 {
+    const val ID = "MS_LOCAL_M4A_AUDIO_ONLY_TITLE_ONLY_RECOVERY_V1"
     const val EVIDENCE_ID = "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1"
     val profile = CertifiedMetadataWriteProfile(
         id = ID,
@@ -362,12 +394,13 @@ object SafLocalM4aTextProfileV1 {
 
 object MetadataWriteProfileRegistry {
     /**
-     * Profiles that were superseded by a wider active scope. They are never
-     * returned for a new transaction; they authorize only an old, unbound intent
-     * whose exact durable changes they can still represent.
+     * Recovery-only profiles for intents written before profile binding. They
+     * are never returned for a new transaction; the first (narrowest) one that
+     * represents the exact durable changes authorizes an old unbound intent.
      */
     private val historicalProfiles: List<CertifiedMetadataWriteProfile> = listOf(
-        MediaStoreM4aTitleProfileV1.profile,
+        MediaStoreM4aTitleOnlyRecoveryProfileV1.profile,
+        MediaStoreM4aHistoricalProfileV1.profile,
         SafLocalM4aTextProfileV1.profile,
     )
 
@@ -378,7 +411,9 @@ object MetadataWriteProfileRegistry {
         SafLocalMp3TitleProfile.ID -> SafLocalMp3TitleProfile.profile
         SafLocalFlacTextProfile.ID -> SafLocalFlacTextProfile.profile
         SafLocalM4aTextProfile.ID -> SafLocalM4aTextProfile.profile
-        MediaStoreM4aTitleProfileV1.ID -> MediaStoreM4aTitleProfileV1.profile
+        MediaStoreM4aHistoricalProfileV1.ID -> MediaStoreM4aHistoricalProfileV1.profile
+        MediaStoreM4aTitleOnlyRecoveryProfileV1.ID ->
+            MediaStoreM4aTitleOnlyRecoveryProfileV1.profile
         SafLocalM4aTextProfileV1.ID -> SafLocalM4aTextProfileV1.profile
         else -> null
     }
@@ -432,11 +467,13 @@ object MetadataWriteProfileRegistry {
      * A profile-bound intent is accepted only when the registered profile still
      * matches its evidence ID and can represent every recorded scalar, multivalue
      * and resource change. An old intent written before profile binding existed is
-     * accepted only through a historical profile that fits those exact changes;
-     * for M4A that means title-only MediaStore or text-only SAF. An old M4A intent
-     * that contains advanced text or `covr` cannot be attributed to the historical
-     * evidence, so this returns null and the caller must keep the journal/backup
-     * instead of mutating speculatively.
+     * accepted only through a historical profile that fits those exact changes.
+     * The MediaStore M4A title-only recovery view is tried before the broad
+     * text/`covr` contract that legacy ID actually shipped. The SAF M4A text-only
+     * view stays exact for text; its already-versioned active resource profile is
+     * the exact contract for an old unbound `covr` intent. An old intent that
+     * exceeds every historical contract returns null so the caller keeps the
+     * journal/backup instead of mutating speculatively.
      *
      * Containers without a retained historical definition preserve the previous
      * recovery behavior, still constrained by the intent's exact change set.
@@ -466,7 +503,22 @@ object MetadataWriteProfileRegistry {
         val historical = historicalProfiles.filter {
             it.provider == provider && intent.container in it.containers
         }
-        if (historical.isNotEmpty()) return historical.filter(::fits).singleOrNull()
+        // First registered fit wins. The title-only recovery view precedes the
+        // broad legacy contract, so a title-only journal keeps its exact narrow
+        // attribution while advanced/covr journals fall through to the broad one.
+        if (historical.isNotEmpty()) {
+            historical.firstOrNull(::fits)?.let { return it }
+            // The SAF M4A V2 ID/evidence was already the shipped resource scope
+            // before profile binding existed, so an old unbound covr intent is an
+            // exact fit of that same active profile, not a widened one.
+            if (provider == MetadataProviderRecoveryProfile.Kind.SAF_LOCAL_DOCUMENT &&
+                intent.container == MetadataAudioContainer.MP4_M4A
+            ) {
+                return activeForProviderAndContainer(provider, intent.container)
+                    ?.takeIf(::fits)
+            }
+            return null
+        }
         return activeForProviderAndContainer(provider, intent.container)?.takeIf(::fits)
     }
 

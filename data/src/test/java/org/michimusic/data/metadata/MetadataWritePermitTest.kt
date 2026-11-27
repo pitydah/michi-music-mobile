@@ -4,8 +4,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.core.metadata.MediaStoreM4aTextProfile
-import org.michimusic.core.metadata.MediaStoreM4aTitleProfileV1
+import org.michimusic.core.metadata.MediaStoreM4aHistoricalProfileV1
+import org.michimusic.core.metadata.MediaStoreM4aTitleOnlyRecoveryProfileV1
 import org.michimusic.core.metadata.MediaStoreMp3TextProfile
+import org.michimusic.core.metadata.SafLocalM4aTextProfileV1
 import org.michimusic.core.metadata.MetadataArtworkEvidence
 import org.michimusic.core.metadata.MetadataCommitIntentManifest
 import org.michimusic.core.metadata.MetadataField
@@ -88,19 +90,42 @@ class MetadataWritePermitTest {
         )
     }
 
-    @Test fun historicalM4aPermitNeverWidensToAdvancedTextOrCovr() {
+    @Test fun historicalM4aPermitKeepsItsExactLegacyScope() {
         val historical = m4aPermit(
-            profileId = MediaStoreM4aTitleProfileV1.ID,
-            evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID,
+            profileId = MediaStoreM4aHistoricalProfileV1.ID,
+            evidenceId = MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID,
             fields = setOf(MetadataField.TITLE),
         )
         assertTrue(historical.matches(entry(format = "MP4_M4A")))
-        assertFalse(
+        // The legacy MediaStore contract already authorized advanced text and covr.
+        assertTrue(
             historical.copy(fields = setOf(MetadataField.ARTIST))
                 .matches(entry(format = "MP4_M4A")),
         )
-        assertFalse(
+        assertTrue(
             historical.copy(resources = listOf(m4aPictureAdd()))
+                .matches(entry(format = "MP4_M4A")),
+        )
+        // The SAF legacy contract remains text-only; covr cannot be borrowed.
+        val safLegacy = historical.copy(
+            profileId = SafLocalM4aTextProfileV1.ID,
+            evidenceId = SafLocalM4aTextProfileV1.EVIDENCE_ID,
+            resources = listOf(m4aPictureAdd()),
+        )
+        assertFalse(safLegacy.matches(entry(format = "MP4_M4A")))
+
+        val titleOnly = m4aPermit(
+            profileId = MediaStoreM4aTitleOnlyRecoveryProfileV1.ID,
+            evidenceId = MediaStoreM4aTitleOnlyRecoveryProfileV1.EVIDENCE_ID,
+            fields = setOf(MetadataField.TITLE),
+        )
+        assertTrue(titleOnly.matches(entry(format = "MP4_M4A")))
+        assertFalse(
+            titleOnly.copy(fields = setOf(MetadataField.ARTIST))
+                .matches(entry(format = "MP4_M4A")),
+        )
+        assertFalse(
+            titleOnly.copy(resources = listOf(m4aPictureAdd()))
                 .matches(entry(format = "MP4_M4A")),
         )
 
@@ -112,7 +137,7 @@ class MetadataWritePermitTest {
         )
         assertTrue(active.matches(entry(format = "MP4_M4A")))
         assertFalse(
-            active.copy(evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID)
+            active.copy(evidenceId = MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID)
                 .matches(entry(format = "MP4_M4A")),
         )
     }

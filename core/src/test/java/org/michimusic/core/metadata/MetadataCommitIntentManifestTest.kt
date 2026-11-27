@@ -91,11 +91,11 @@ class MetadataCommitIntentManifestTest {
 
     @Test fun profileBoundIntentCannotHideAnUnsupportedOperation() {
         val bound = manifest().copy(
-            profileId = MediaStoreM4aTitleProfileV1.ID,
-            evidenceId = MediaStoreM4aTitleProfileV1.EVIDENCE_ID,
+            profileId = MediaStoreM4aHistoricalProfileV1.ID,
+            evidenceId = MediaStoreM4aHistoricalProfileV1.EVIDENCE_ID,
             container = MetadataAudioContainer.MP4_M4A,
             changes = listOf(manifest().changes.single().copy(
-                field = MetadataField.ARTIST,
+                field = MetadataField.MEDIA_FORMAT,
             )),
         )
         assertFalse(MetadataCommitIntentManifest.valid(bound))

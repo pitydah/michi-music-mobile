@@ -7,12 +7,14 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.channels.FileChannel
 import java.nio.file.LinkOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.michimusic.core.metadata.CertifiedMetadataWriteProfile
@@ -205,6 +207,12 @@ class MetadataSaveService internal constructor(
                     is MetadataDurableEvidenceBuilder.Result.Refused ->
                         return@withContext Outcome.RecoveryRequired(rebuilt.code)
                 }
+                if (entry.phase == MetadataRecoveryPhase.STAGE_READY &&
+                    intent.container == MetadataAudioContainer.MP4_M4A &&
+                    !persistedM4aSampleEquivalent(entry)
+                ) {
+                    return@withContext Outcome.Blocked("M4A_SAMPLE_EVIDENCE_MISMATCH")
+                }
                 if (!sameSource(Uri.parse(entry.uri), entry.originalSha256,
                         entry.expectedBytes))
                     return@withContext Outcome.RecoveryRequired(
@@ -254,6 +262,8 @@ class MetadataSaveService internal constructor(
         ownerCurrent: () -> Boolean,
         playbackClosed: () -> Boolean,
     ): Outcome {
+        // Every resumed M4A caller must prove persisted sample equivalence before
+        // this funnel. Fresh staging already proved it in MetadataM4aPrivateStage.
         if (entry.phase != MetadataRecoveryPhase.STAGE_READY)
             return Outcome.RecoveryRequired("NOT_PREPARED")
         if (!journal.privateArtifactsIntact(entry))
@@ -552,6 +562,14 @@ class MetadataSaveService internal constructor(
                     return@withContext Outcome.Blocked(
                         "El valor revisado no coincide con la intención persistida",
                     )
+                if (entry.phase == MetadataRecoveryPhase.STAGE_READY &&
+                    intent.container == MetadataAudioContainer.MP4_M4A &&
+                    !persistedM4aSampleEquivalent(entry)
+                ) {
+                    return@withContext Outcome.Blocked(
+                        "M4A_SAMPLE_EVIDENCE_MISMATCH",
+                    )
+                }
             } else {
                 entry = MetadataRecoveryJournalV1.Entry(
                     id = UUID.randomUUID().toString(), phase = MetadataRecoveryPhase.SNAPSHOTTING,
@@ -862,6 +880,37 @@ class MetadataSaveService internal constructor(
             candidateSha256 = entry.stageSha256,
             profile = profile,
         )
+
+    /**
+     * P1: a persisted M4A stage written before MF01 never passed the actual
+     * sample-equivalence gate. Re-prove the exact original/backup against the
+     * exact candidate/stage before any resumed commit can write source bytes.
+     */
+    private suspend fun persistedM4aSampleEquivalent(
+        entry: MetadataRecoveryJournalV1.Entry,
+    ): Boolean {
+        val context = currentCoroutineContext()
+        return try {
+            if (!journal.privateArtifactsIntact(entry)) return false
+            fun evidence(file: File): MetadataM4aAudioOnlyInspector.Evidence? =
+                FileChannel.open(
+                    file.toPath(),
+                    StandardOpenOption.READ,
+                    LinkOption.NOFOLLOW_LINKS,
+                ).use { channel ->
+                    (MetadataM4aAudioOnlyInspector.inspect(channel) {
+                        context.ensureActive()
+                    } as? MetadataM4aAudioOnlyInspector.Result.AudioOnly)?.evidence
+                }
+            val before = evidence(journal.backup(entry)) ?: return false
+            val after = evidence(journal.stage(entry)) ?: return false
+            MetadataM4aAudioOnlyInspector.equivalent(before, after)
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun sameSource(uri: Uri, sha: String, bytes: Long): Boolean {
         if (longQuery(uri, OpenableColumns.SIZE) != bytes) return false

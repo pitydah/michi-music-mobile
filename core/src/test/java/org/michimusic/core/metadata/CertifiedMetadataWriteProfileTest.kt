@@ -2,7 +2,6 @@ package org.michimusic.core.metadata
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,8 +183,30 @@ class CertifiedMetadataWriteProfileTest {
     }
 
     @Test fun m4aHistoricalProfilesKeepTheirOldExactScope() {
-        val titleOnly = MediaStoreM4aTitleProfileV1.profile
-        assertEquals("MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1", titleOnly.id)
+        // Base product 5ea40f95/a7059f79 already allowed advanced text and covr
+        // under the legacy TITLE_V1 identifier. Restoring that exact executable
+        // contract is what lets old unbound journals recover.
+        val legacy = MediaStoreM4aHistoricalProfileV1.profile
+        assertEquals("MS_LOCAL_M4A_AUDIO_ONLY_TITLE_V1", legacy.id)
+        assertEquals(
+            "ME17_MEDIASTORE_M4A_AUDIO_ONLY_TITLE_V1",
+            legacy.capabilityEvidenceId,
+        )
+        assertTrue(legacy.supports(
+            MetadataAudioContainer.MP4_M4A, 1,
+            setOf(MetadataField.TITLE, MetadataField.ARTIST,
+                MetadataField.COMPOSER, MetadataField.TRACK_TOTAL,
+                MetadataField.DISC_NUMBER, MetadataField.LYRICS),
+            emptySet(), false,
+        ))
+        assertTrue(legacy.supports(listOf(m4aPictureAdd())))
+        assertTrue(MetadataWriteProfileRegistry.byId(legacy.id) === legacy)
+
+        val titleOnly = MediaStoreM4aTitleOnlyRecoveryProfileV1.profile
+        assertEquals(
+            MediaStoreM4aTitleOnlyRecoveryProfileV1.ID,
+            titleOnly.id,
+        )
         assertTrue(titleOnly.supports(
             MetadataAudioContainer.MP4_M4A, 1,
             setOf(MetadataField.TITLE), emptySet(), false,
@@ -195,7 +216,6 @@ class CertifiedMetadataWriteProfileTest {
             setOf(MetadataField.ARTIST), emptySet(), false,
         ))
         assertFalse(titleOnly.supports(listOf(m4aPictureAdd())))
-        assertTrue(MetadataWriteProfileRegistry.byId(titleOnly.id) === titleOnly)
 
         val safText = SafLocalM4aTextProfileV1.profile
         assertEquals("SAF_LOCAL_M4A_AUDIO_ONLY_TEXT_V1", safText.id)
@@ -217,12 +237,29 @@ class CertifiedMetadataWriteProfileTest {
         ) === SafLocalM4aTextProfile.profile)
     }
 
-    @Test fun unboundM4aIntentUsesHistoricalScopeOnlyWhenExact() {
-        // A pre-binding title-only journal keeps its original, narrow evidence.
+    @Test fun unboundM4aIntentUsesItsExactHistoricalScope() {
+        // A title-only legacy journal keeps the exact narrow recovery view.
         assertEquals(
-            MediaStoreM4aTitleProfileV1.profile,
+            MediaStoreM4aTitleOnlyRecoveryProfileV1.profile,
             MetadataWriteProfileRegistry.resolveForIntent(
                 m4aIntent(changes = listOf(m4aTitleChange())),
+            ),
+        )
+        // An advanced-text/covr journal resolves the exact broad legacy profile
+        // that build shipped, not the active V2 profile.
+        assertEquals(
+            MediaStoreM4aHistoricalProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(changes = listOf(m4aArtistChange())),
+            ),
+        )
+        assertEquals(
+            MediaStoreM4aHistoricalProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    changes = listOf(m4aArtistChange()),
+                    resources = listOf(m4aPictureAdd()),
+                ),
             ),
         )
         assertEquals(
@@ -234,17 +271,26 @@ class CertifiedMetadataWriteProfileTest {
                 ),
             ),
         )
-        // Advanced text and covr were never covered by that title-only evidence:
-        // no historical profile may be silently replaced by the active one.
-        assertNull(MetadataWriteProfileRegistry.resolveForIntent(
-            m4aIntent(changes = listOf(m4aArtistChange())),
-        ))
-        assertNull(MetadataWriteProfileRegistry.resolveForIntent(
-            m4aIntent(
-                provider = MetadataDocumentProvider.SAF,
-                resources = listOf(m4aPictureAdd()),
+        // SAF text-only keeps its exact historical view, while an old unbound
+        // covr intent resolves the already-shipped SAF V2 resource profile.
+        assertEquals(
+            SafLocalM4aTextProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    provider = MetadataDocumentProvider.SAF,
+                    changes = listOf(m4aTitleChange()),
+                ),
             ),
-        ))
+        )
+        assertEquals(
+            SafLocalM4aTextProfile.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    provider = MetadataDocumentProvider.SAF,
+                    resources = listOf(m4aPictureAdd()),
+                ),
+            ),
+        )
     }
 
     @Test fun boundM4aIntentKeepsItsExactActiveProfile() {
@@ -267,13 +313,24 @@ class CertifiedMetadataWriteProfileTest {
                 ),
             ),
         )
-        // A profile cannot be borrowed for an operation its evidence never had.
+        // The legacy broad profile is valid only for the operations it shipped.
+        assertEquals(
+            MediaStoreM4aHistoricalProfileV1.profile,
+            MetadataWriteProfileRegistry.resolveForIntent(
+                m4aIntent(
+                    resources = listOf(m4aPictureAdd()),
+                    profile = MediaStoreM4aHistoricalProfileV1.profile,
+                ),
+            ),
+        )
+        // The SAF legacy profile never covered covr and cannot be borrowed.
         assertEquals(
             null,
             MetadataWriteProfileRegistry.resolveForIntent(
                 m4aIntent(
+                    provider = MetadataDocumentProvider.SAF,
                     resources = listOf(m4aPictureAdd()),
-                    profile = MediaStoreM4aTitleProfileV1.profile,
+                    profile = SafLocalM4aTextProfileV1.profile,
                 ),
             ),
         )
