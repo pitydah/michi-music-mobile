@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -334,30 +333,35 @@ fun MichiNavHost(
                     arguments = listOf(navArgument("ticketId") { type = NavType.StringType }),
                 ) { entry ->
                     val id = entry.arguments?.getString("ticketId").orEmpty()
-                    val review = remember(id, reviewRootGuard) {
-                        ArtistReviewTickets.resolve(id, reviewRootGuard)
-                    }
-                    DisposableEffect(id) {
-                        onDispose { ArtistReviewTickets.revoke(id) }
-                    }
-                    if (review == null) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            TextButton(onClick = { navController.popBackStack() }) {
-                                Text("La revisión expiró o cambió de sesión. Volver a Biblioteca")
+                    ArtistReviewRoute(
+                        ticketId = id,
+                        root = reviewRootGuard,
+                        content = { review, onClose ->
+                            ArtistDetailScreen(
+                                artistCredit = review.credit,
+                                reviewContext = review,
+                                initialEnrichment = true,
+                                onBack = {
+                                    onClose()
+                                    navController.popBackStack()
+                                },
+                                onNavigateToAlbum = { albumId ->
+                                    navController.navigate("album/${android.net.Uri.encode(albumId)}")
+                                },
+                                sessionManager = sessionManager,
+                            )
+                        },
+                        expired = { onClose ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                TextButton(onClick = {
+                                    onClose()
+                                    navController.popBackStack()
+                                }) {
+                                    Text("La revisión expiró o cambió de sesión. Volver a Biblioteca")
+                                }
                             }
-                        }
-                    } else {
-                        ArtistDetailScreen(
-                            artistCredit = review.credit,
-                            reviewContext = review,
-                            initialEnrichment = true,
-                            onBack = { navController.popBackStack() },
-                            onNavigateToAlbum = { albumId ->
-                                navController.navigate("album/${android.net.Uri.encode(albumId)}")
-                            },
-                            sessionManager = sessionManager,
-                        )
-                    }
+                        },
+                    )
                 }
                 composable("search") {
                     SearchScreen(
