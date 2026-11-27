@@ -1,6 +1,6 @@
 # Remaining P0/P1 risks
 
-> **Historical document (superseded).** This risk inventory predates the ME-OMEGA closure and the MF01–MF05 integration. It is retained for traceability. Current status is authoritative in `megasprint-ledger.md` and `a01-a30.csv`; MF01–MF05 are integrated at `2058a535` with independent REVIEW_GO. Do not treat the findings below as current P0/P1 status.
+> **Historical document (superseded).** This risk inventory predates the ME-OMEGA closure and the MF01–MF05 integration. It is retained for traceability. Current status is authoritative in `megasprint-ledger.md` and `a01-a30.csv`; MF01–MF05 are integrated at `4c3b204c` with independent REVIEW_GO; combined KILLCRITIC found two P1s, fixed in `4c3b204c`, and the combined re-review is pending. Do not treat the findings below as current P0/P1 status.
 
 - **F3:** no Room transaction marker; CAS and applied proof are not one transaction. Kill after UPDATE remains unproven.
 - **F5:** real two-phase process kill did not reach its checkpoint due test-package MediaStore write open failure. T18/T19/T20/T22/T43 NOT RUN.
