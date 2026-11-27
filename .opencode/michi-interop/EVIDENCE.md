@@ -2,6 +2,9 @@
 
 ## Lote 2026-11-27 — MIM-01..08 (parcial 09..11)
 
+- **Commit de implementación:** `d4082d6f` (`feat(interop): add canonical Home auth and R1.4 queue control`).
+- **Baseline anterior:** `a737eb9f`.
+
 ### Baseline
 
 - Mobile `a737eb9f5675e9cd3d4022446096ba240b0b4bfe` (`master`).

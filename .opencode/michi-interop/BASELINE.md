@@ -4,7 +4,7 @@
 
 | Repositorio | Rama | HEAD verificado | Árbol | Rol |
 |---|---|---|---|---|
-| `pitydah/michi-music-mobile` | `master` | `a737eb9f5675e9cd3d4022446096ba240b0b4bfe` | modificado por MIM (sin commit) | Único repo de desarrollo |
+| `pitydah/michi-music-mobile` | `master` | `d4082d6f` (implementación MIM; baseline `a737eb9f`) | limpio tras el commit, salvo la actualización de evidencia | Único repo de desarrollo |
 | `pitydah/michi-micro-server` | `refactor/killcritic-interop-r1` (PR #26) | `b507b47ebd9dec17740ca26d9da8ddb8b045735b` | limpio | Referencia SOLO LECTURA |
 | `pitydah/michi-link` | `main` | `8dad0fb51128df98422bd74968e75f0ae8f85ccf` | limpio | Referencia SOLO LECTURA / norma |
 

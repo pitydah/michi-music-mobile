@@ -8,7 +8,7 @@
 - **Operación pendiente:** ninguna a medias. El árbol compila y los tests pasan.
 - **Siguiente tarea exacta:** MIM-05.5 / MIM-11.2 — UI de enrollment Home.
 - **Después:** MIM-07 / MIM-09 / MIM-10.3 — cablear sesión Home compartida.
-- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, HEAD `a737eb9f5675e9cd3d4022446096ba240b0b4bfe`, cambios locales sin commit.
+- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, commit de implementación `d4082d6f` (baseline `a737eb9f`).
 - **Referencias:** Micro `b507b47...` limpio; Link `8dad0fb5...` limpio; pin `8dad0fb5...` verificado.
 
 ## Qué se completó en este lote
