@@ -9,6 +9,42 @@ audio-only, en MediaStore propio, MediaStore de otra UID con consentimiento real
 SAF local; campos avanzados, multivalor representable, artwork add/replace/remove/resize,
 lyrics add/modify/remove, seguridad durable, recuperación real, UI y Library.
 
+## Estado autoritativo — cierre ME-OMEGA y estabilización MF01–MF07
+
+Fecha: 2026-11-26. Rama: `fix/me14-close-100`. HEAD integrado: `2058a535`. Base auditada: `a7059f79`. `origin/master`: `b0104b93`.
+
+Estado: **MF01–MF05 integrados y revisados; MF06 actualizado; MF07 y CI final pendientes; merge a master pendiente.** No se declara el cierre final hasta que el CI corra sobre el SHA exacto integrado y el merge esté verificado en `origin/master`.
+
+| Frente | Estado | Commit(s) | Evidencia | Límite conocido |
+|---|---|---|---|---|
+| MF01 — muestras MP4 reales | DONE / REVIEW_GO | `209be802` | Hash real de bytes de muestra en orden de decodificación; 19 tests inspector + 5 stage; E2E M4A y M4A carátulas/letras verdes; ffprobe coincide con 17 muestras/4.612 bytes | Trabajo agregado de hashing no acotado por tamaño (muestras solapadas); sin tope de hijos de `stsd`; stage sin callback de cancelación; faltan algunos tests negativos de equivalencia |
+| MF02 — géneros multivalor | DONE / REVIEW_GO | `e500ee54`, `0b6385b6` | Lista ordenada desde evidencia estructurada; escalar primario del escritor activo + lista NUL; Room real close/reopen; 855 tests data, 2.457 app; revisión independiente GO | Reemplazo del mismo tamaño que preserva timestamp/duración no es distinguible sin hashing; marcadores `Other`/`Unknown` conservadores; SAF `attachDurableGenres` sin comprobación de modified-time |
+| MF03 — identidad del overlay | DONE / REVIEW_GO | `e500ee54` + C `93bb966e` | `MetadataAppliedTransaction` exacto (source/track/URI/revisión/candidate bytes+SHA/appliedAt); rechazo de marcador ausente/ajeno/obsoleto; fences de tamaño/duración/modified; sin escaneo/escritura global | Limitaciones de evidencia de proveedor y SAF descritas arriba |
+| MF04 — perfiles M4A versionados | DONE / REVIEW_GO | `8182c6f8` | Perfil activo `...TEXT_RESOURCES_V2`; históricos TITLE_V1/TEXT_V1 retenidos; store v4 `profileId`/`evidenceId`; `resolveForIntent` único en write/restore/recovery/save-resume/index | Intents M4A antiguos no ligados con texto avanzado/covr se rechazan conservadoramente; journal/backup retenidos |
+| MF05 — publicación con marcador | DONE / REVIEW_GO | `2058a535` | Gate exige marcador Room exacto + revisión durable; sin DAO `DURABLE_EVIDENCE_UNAVAILABLE`; tests de marcador ausente/ajeno/obsoleto/segunda edición/Room caído | Sin prueba unitaria dedicada de la rama null-DAO; `sameTransaction` redundante; muerte de proceso cubierta por store/restore, no por kill explícito |
+| MF06 — documentación/certificación | EN CURSO | Este ledger + `a01-a30.csv` | Distinción de evidencia y corrección de limitaciones obsoletas | CI final y reporte de merge aún pendientes |
+| MF07 — regresiones/certificación | PENDIENTE | — | JVM combinado y seis connected metadata verdes; falta lint/builds/migraciones/UI7/Quality/CI exacto | No declarar PASS final sin esos controles |
+
+### Evidencia y clasificación
+
+- **Dispositivo físico:** no disponible; no se certifica rendimiento ni HAL físico.
+- **Emulador / connected:** seis pruebas metadata focalizadas verdes en `Medium_Phone(AVD) - 16`: M4A pair clearing, MP3 described text, M4A artwork+lyrics, MP3 multivalue, SAF M4A resources y FLAC lyrics add/clear; más las campañas A01–A30 previas.
+- **Fixtures reales:** MP3/FLAC y AAC M4A audio-only; `me14-audio-only.m4a` verificado con ffprobe.
+- **Proveedor sintético / harness:** A25 usa checkpoint sintético y reinicio real; A15–A16 usa fixture APK real con UID distinto y consentimiento MediaStore real.
+- **Inyección de fallos:** A23 (Room caído tras escritura), A26 (restauración interrumpida), A28 (ENOSPC/cancelación); no es un ENOSPC físico de almacenamiento.
+- **CI remoto:** run `45902391974` intento 2 verde sobre `5ea40f95` (232 tests instrumentados, Quality Gate y resto de jobs); **no** certifica el HEAD `2058a535`. El CI final debe correr sobre el SHA exacto integrado.
+- **Revisión manual/independiente:** MF01, MF02+MF03 y MF04+MF05 con `REVIEW_GO`; revisión KILLCRITIC combinada pendiente.
+
+### Estado de matriz y merge
+
+`me14-evidence/a01-a30.csv` sigue en **30/30 PASS** para el producto certificado `5ea40f95`; A10 se corrige para indicar que covr está cubierto por A11. El HEAD integrado `2058a535` incorpora MF01–MF05 y requiere CI/regresión final antes de declarar el nuevo baseline certificado.
+
+No se ha hecho push de este HEAD, no se ha abierto PR y no se ha fusionado a `master`. El merge es obligatorio en la Parte II y se ejecutará tras MF07, KILLCRITIC, CI exacto y verificación de protección.
+
+## Historical pre-MF01 ledger
+
+> La tabla y las notas siguientes son el registro histórico anterior a MF01. Se conservan para trazabilidad y están superadas por la sección autoritativa anterior.
+
 ## Estado de tareas
 
 | # | Tarea | Estado | Commit | Test focal | Resultado | Siguiente acción |

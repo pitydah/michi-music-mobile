@@ -1,5 +1,7 @@
 # ME-FINAL verdict
 
+> **Historical document (superseded).** This verdict records an earlier HEAD (`cc1e267a` after `c31b9c66`) and is retained for traceability. Current status is authoritative in `megasprint-ledger.md` and `a01-a30.csv`; the A01–A30 matrix reached 30/30 on certified product `5ea40f95`, and MF01–MF05 are integrated at `2058a535` with independent REVIEW_GO. Do not treat this historical NO-GO as current status.
+
 - HEAD: `cc1e267a` after `c31b9c66`.
 - CAS authority corrected: live row is precondition only; previous values come from durable preimage.
 - A01–A30: 5 PASS, 7 PARTIAL, 18 NOT RUN.
