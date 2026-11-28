@@ -1,6 +1,6 @@
 # MIM — LOTE 03: discovery/autorización, handoff y reauth
 
-**Base publicada:** `64db675e`; working tree LOTE 02+03, sin commit.
+**Base publicada:** `64db675e`; implementación LOTE 02+03 en commit `49a0109c`.
 **Contratos:** R1.4 `8dad0fb5`; R1.5 `ea76ee0e` no adoptado.
 
 ## Implementado

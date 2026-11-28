@@ -131,7 +131,7 @@ Firmas comparadas byte a byte con `michi-link/tests/vectors/interop/micro-mobile
 - R1.5 schemas incluyen `queue_item_id`, `expected_queue_version`, `server_boot_id`, `position: next/after_item_id`, `desktop` en membership, roster completo, `lifecycle`/`generation_id`, `repeat_mode`/`shuffle_enabled`, `previous_volume` y `unmute` con volumen previo.
 - **No se adopta R1.5 en Mobile** hasta que Micro commitee esos cambios y fije el pin; LOTE 02 sigue certificado contra R1.4 `8dad0fb5`.
 
-## LOTE 03 — 2026-11-27 (working tree, sin commit)
+## LOTE 03 — 2026-11-27 (commit `49a0109c`)
 
 - **Workflow gradle-run:** `4b4e7dba90c9bcaab4a40a308eef50e8`; cero `./gradlew` directo.
 - **Skills cargados:** `using-chrisbanes-skills`, `to-plan`, `deliver-spec`, `kotlin-concurrency-and-flow`, `kotlin-api-design`, `kotlin-control-flow`, `compose-state-and-effects`, `compose-component-design`, `compose-ui-testing-patterns`, `gradle-run`, `tdd`, `systematic-debugging`, `code-review`.

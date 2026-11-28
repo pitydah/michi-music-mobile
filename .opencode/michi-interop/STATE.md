@@ -1,14 +1,14 @@
 # Estado MIM
 
-## Checkpoint actual — LOTE 03 (2026-11-27)
+## Checkpoint actual — LOTE 03 publicado (2026-11-27)
 
-- **Estado global:** LOTE_03_CHECKPOINT con cambios locales **sin commit** sobre `64db675e`.
+- **Estado global:** LOTE_02+03 en commit local `49a0109c` sobre `64db675e`; CI pendiente de publicar.
 - **Avance de implementación:** 90.0% (ver `BACKLOG.md`); no es certificación.
 - **Verificación:** JVM de todos los módulos PASS (237 link + 1095 core + 414 aircat + 234 player + 2948 normal + 2948 fdroid); lint PASS; arquitectura PASS; instrumentado de LOTE 03 **NOT_RUN**; red real/físico **NOT_RUN**.
 - **Operación pendiente:** ninguna a medias; el árbol compila, las suites JVM pasan y lint/arquitectura pasan. Instrumentado/red/físico NO-RUN.
 - **Siguiente tarea exacta:** MIM-10 — E2E AirCat real (manifest/grant/download, revocación durante transferencia) si hay servidor autorizado; en su defecto MIM-11 estados restantes y MIM-09 recuperación/rollback.
 - **Después:** MIM-09 recuperación completa/rollback y MIM-03 mDNS/roster si se autoriza.
-- **Repo:** `/home/cristian/michi-music-mobile`, `master`, HEAD base `64db675e9f64dfc0148d0ef9fa5fe6e394d2895e`, working tree sucio por LOTE 02+03, sin commit.
+- **Repo:** `/home/cristian/michi-music-mobile`, `master`, commit de implementación `49a0109c` (base `64db675e`); la actualización de esta evidencia se commiteará aparte.
 - **Referencias:** Micro HEAD `b507b47...` pero working tree con 24 entradas R1.5, incluidos docs y tests nuevos (no tocado); Link `main` avanzó a `ea76ee0e` (R1.5) y está limpio. DRIFT registrado; el código sigue contra el pin R1.4 `8dad0fb5`. No adoptar R1.5 hasta commit/pin upstream.
 - **CI histórico:** run `46071123540` (head `64db675e`) **SUCCESS** con Job A/G.
 

@@ -1,7 +1,7 @@
 # MIM — LOTE 02: sesión Home, enrollment UI y cola por instancia
 
 **Base publicada:** `64db675e` (CI `46071123540` verde)
-**Estado:** working tree, sin commit.
+**Estado:** commit `49a0109c` (LOTE 02+03).
 
 ## Implementado
 
