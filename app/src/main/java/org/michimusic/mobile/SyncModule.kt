@@ -18,6 +18,9 @@ val syncModule = module {
     // Trust never comes from UDP, mDNS, /server/info or legacy device tokens.
     single { org.michimusic.mobile.devices.aircat.AirCatHomeEnrollmentStore(androidContext()) }
     single { org.michimusic.mobile.devices.home.HomeMembershipStore(androidContext()) }
+    single<org.michimusic.mobile.devices.home.HomeMembershipPersistence> {
+        get<org.michimusic.mobile.devices.home.HomeMembershipStore>()
+    }
     single {
         org.michimusic.mobile.devices.home.HomeEnrollmentCoordinator(
             identityProvider = { get<org.michimusic.link.identity.MichiIdentityAuthority>().await() },

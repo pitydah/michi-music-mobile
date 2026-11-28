@@ -168,3 +168,18 @@ Firmas comparadas byte a byte con `michi-link/tests/vectors/interop/micro-mobile
 ### DRIFT
 
 - Link `main` `ea76ee0e` (R1.5, limpio); Micro HEAD `b507b47` con 12 archivos R1.5 y vendor a `ea76ee0e` (sin commit). No adoptado; Mobile sigue R1.4 `8dad0fb5`.
+
+## CI remoto y corrección — 2026-11-28
+
+- **Push:** `64db675e..1edbf73f` a `origin/master`, sin force; no hubo rechazo de protección.
+- **Run `46099034554` (head `1edbf73f`):**
+  - Attempt 1: PASS en Job A (lint), C (fdroid), D (Room), E (build normal), F (build fdroid) y H (UI7 gate). FAIL en Job B (un test de `PlaybackSessionManagerTest` que pasa en aislamiento y pasó en el rerun) y en Job G.
+  - Attempt 2 (`--failed`): Job B PASS. Job G FAIL de forma determinista en `MetadataEditorLibraryReopenInstrumentedTest`.
+  - Quality Gate FAIL por Job G.
+- **Causa raíz (Job G):** `NoDefinitionFoundException: No definition found for type 'HomeMembershipPersistence'` al crear `PlaybackSessionManager` desde `SyncModule.kt:65`. `HomeEnrollmentCoordinator` y `HomeSessionAuthority` ya dependían de la interfaz, pero el módulo sólo registraba el `HomeMembershipStore` concreto. Era un fallo de arranque real, no un test defectuoso.
+- **Fix:** `single<HomeMembershipPersistence> { get<HomeMembershipStore>() }` en `SyncModule`; una sola instancia del store. Ningún test fue modificado, debilitado ni eliminado.
+- **Validación local (mediaStore limpio, emulador API 36):**
+  - `:app:connectedNormalDebugAndroidTest` PASS — 232 tests, 0 fallos, 25 skipped, 4m45s.
+  - El test original de Metadata Editor pasa en 15 s ejecutado solo.
+  - El "track missing" observado en el AVD era estado residual: 31 filas de audio de ejecuciones previas en `MediaStore`. Al vaciarlas, el mismo test y toda la suite pasan; no es una regresión de producto.
+- **Re-run de CI:** pendiente sobre el SHA de esta corrección.
