@@ -182,4 +182,4 @@ Firmas comparadas byte a byte con `michi-link/tests/vectors/interop/micro-mobile
   - `:app:connectedNormalDebugAndroidTest` PASS — 232 tests, 0 fallos, 25 skipped, 4m45s.
   - El test original de Metadata Editor pasa en 15 s ejecutado solo.
   - El "track missing" observado en el AVD era estado residual: 31 filas de audio de ejecuciones previas en `MediaStore`. Al vaciarlas, el mismo test y toda la suite pasan; no es una regresión de producto.
-- **Re-run de CI:** pendiente sobre el SHA de esta corrección.
+- **Re-run de CI:** run `46104446846` (head `6003e582`) **SUCCESS**. Job A (lint), B (unit normal), C (unit F-Droid), D (Room), E (build normal), F (build F-Droid), G (instrumentado normal API 36) y H (UI7 gate) verdes; Quality Gate verde. Ningún test fue modificado.

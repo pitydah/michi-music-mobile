@@ -4,7 +4,7 @@
 
 | Repositorio | Rama | HEAD verificado | Árbol | Rol |
 |---|---|---|---|---|
-| `pitydah/michi-music-mobile` | `master` | `49a0109c` (implementación LOTE 02+03 sobre `64db675e`) | limpio tras el commit; actualización de evidencia en curso | Único repo de desarrollo |
+| `pitydah/michi-music-mobile` | `master` | `6003e582` (LOTE 02+03 + fix CI sobre `64db675e`) | limpio; CI `46104446846` verde | Único repo de desarrollo |
 | `pitydah/michi-micro-server` | `refactor/killcritic-interop-r1` (PR #26) | `b507b47ebd9dec17740ca26d9da8ddb8b045735b` | limpio | Referencia SOLO LECTURA |
 | `pitydah/michi-link` | `main` | **DRIFT**: `ea76ee0e3ffabf23c921db71454cd6294b7ae960` (R1.5); baseline de código fijado `8dad0fb5` | limpio | Referencia SOLO LECTURA / norma |
 
@@ -14,7 +14,7 @@
 - CI GitHub `46071123540` (`64db675e`, intento 1): **SUCCESS**, incluido Job A (Lint + arquitectura), Job G (instrumentado API 36) y Job F (F-Droid).
 - CI GitHub `46068074299` (`f8a37cf3`, intento 3): **SUCCESS** (histórico).
 - La rama de Micro es de interoperabilidad, **no** `main`; no se asumió que main incluya el PR #26.
-- Mobile partía limpio en `64db675e`; LOTE 02+03 está en el commit `49a0109c` y la evidencia se actualiza en un commit posterior.
+- Mobile partía limpio en `64db675e`; LOTE 02+03 está en `49a0109c`, la evidencia en `1edbf73f` y el fix de CI en `6003e582`. Los tres están publicados en `origin/master`; el run `46104446846` (head `6003e582`) está verde en los 9 jobs.
 
 ## Compatibilidad fijada
 

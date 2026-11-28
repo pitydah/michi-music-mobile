@@ -22,4 +22,4 @@ Workflow `4b4e7dba90c9bcaab4a40a308eef50e8`: 237 link + 1095 core + 414 aircat +
 - Run `46099034554`: Job A/C/D/E/F/H PASS; Job B falló una vez y pasó en el rerun; Job G FAIL porque `PlaybackSessionManager` requería `HomeMembershipPersistence` sin definición Koin. Fue un fallo de arranque real.
 - Corrección: binding `single<HomeMembershipPersistence> { get<HomeMembershipStore>() }` en `SyncModule`, sin tocar tests.
 - Instrumentado normal local PASS: 232 tests, 0 fallos, 25 skipped (emulador API 36). El "track missing" del AVD era estado residual de MediaStore, no producto.
-- Re-run de CI pendiente sobre el SHA de la corrección.
+- Re-run de CI: run `46104446846` (head `6003e582`) **SUCCESS**, 9/9 jobs verdes incluido el instrumentado API 36 y el Quality Gate. Ningún test fue modificado.
