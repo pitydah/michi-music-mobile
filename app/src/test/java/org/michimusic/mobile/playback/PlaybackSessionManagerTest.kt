@@ -89,8 +89,24 @@ class PlaybackSessionManagerTest {
         val registry = mockk<PairedDeviceRegistry>(relaxed = true)
         every { registry.getAllDevices() } returns emptyList()
         
-        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = false))
-        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
+        var stateCalls = 0
+        var queueCalls = 0
+        coEvery { linkClient.getPlaybackState() } answers {
+            stateCalls += 1
+            if (stateCalls == 1) Result.success(PlaybackStateDto(playing = false))
+            else Result.success(PlaybackStateDto(
+                state = "playing", lifecycle = "playing", playing = true, queueIndex = 0,
+            ))
+        }
+        coEvery { linkClient.getQueue() } answers {
+            queueCalls += 1
+            if (queueCalls == 1) Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
+            else Result.success(org.michimusic.link.dto.QueueDto(
+                tracks = listOf(org.michimusic.link.dto.QueueTrackDto("srv_t1", "Test")),
+                currentIndex = 0,
+                itemIds = listOf("item-1"),
+            ))
+        }
         coEvery { linkClient.search(any()) } returns Result.success(listOf(TrackResponseDto(id = "srv_t1", title = "Test")))
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s1"))
 
@@ -110,8 +126,10 @@ class PlaybackSessionManagerTest {
         val endpoint = PlaybackEndpoint("remote_1", "Remote", EndpointType.DESKTOP_PLAYER, isLocal = false)
         
         var successResult = false
-        manager.handoffTo(endpoint) { success, _ ->
+        var handoffMessage = ""
+        manager.handoffTo(endpoint) { success, message ->
             successResult = success
+            handoffMessage = message
         }
         
         testDispatcher.scheduler.advanceUntilIdle()
@@ -119,7 +137,7 @@ class PlaybackSessionManagerTest {
         coVerify { linkClient.transferQueue(any()) }
         verify { audioController.pause() }
         
-        assertTrue("Handoff debe ser exitoso", successResult)
+        assertTrue("Handoff debe ser exitoso: $handoffMessage (state=$stateCalls queue=$queueCalls)", successResult)
         assertEquals("Debe marcarse como remoto activo", endpoint, manager.sessionState.value.activeEndpoint)
         assertTrue(manager.sessionState.value.isRemoteActive)
     }

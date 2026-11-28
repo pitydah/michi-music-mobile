@@ -26,6 +26,9 @@ object AirCatEligibilityPolicy {
         if (!device.isPaired) return false
         // K49B-06: Require effective connection state; devices in CONNECTING, PAIRING, or DISCONNECTED are not ready for transfer
         if (device.connectionState != org.michimusic.core.models.SyncConnectionState.CONNECTED) return false
+        // MIM-03: an enrolled Home peer without an authenticated Home session
+        // must not expose AirCat; legacy deviceToken is not a fallback here.
+        if (device.accessState.homeAuthorized && !device.accessState.authenticated) return false
 
         val normalizedType = device.deviceType.trim().lowercase().replace('-', '_')
         if (isProvisionedMichiStream(device.deviceType) ||

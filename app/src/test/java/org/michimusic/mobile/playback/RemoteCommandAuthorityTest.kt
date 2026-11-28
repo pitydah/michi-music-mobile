@@ -87,6 +87,7 @@ class RemoteCommandAuthorityTest {
             linkDiscovery = linkDiscovery,
             registry = registry,
             scope = testScope,
+            ioDispatcher = testDispatcher,
         )
     }
 
@@ -243,7 +244,7 @@ class RemoteCommandAuthorityTest {
         assertEquals("remove_queue_item", lastCmd.action)
         // The pre-delete snapshot is authoritative: deletion targets the ITEM,
         // not the track id that the UI held before the operation.
-        assertEquals("trk-a", lastCmd.param)
+        assertEquals("item-a", lastCmd.param)
 
         // Queue should now contain only Track B
         val state = sessionManager.sessionState.value
@@ -393,6 +394,123 @@ class RemoteCommandAuthorityTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { client.sendSeek(9_900L) }
+    }
+
+    @Test
+    fun removeQueueItem_targetsTheDuplicateInstanceAndConfirmsItsAbsence() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        coEvery { client.removeQueueItem("item-1") } returns Result.success(Unit)
+        val before = QueueDto(
+            tracks = listOf(
+                QueueTrackDto("trk-a", "Track A"),
+                QueueTrackDto("trk-a", "Track A"),
+            ),
+            currentIndex = 0,
+            queueId = "q-1",
+            queueVersion = 4,
+            itemIds = listOf("item-1", "item-2"),
+        )
+        val after = before.copy(
+            tracks = listOf(QueueTrackDto("trk-a", "Track A")),
+            currentIndex = 0,
+            queueVersion = 5,
+            itemIds = listOf("item-2"),
+        )
+        coEvery { client.getQueue() } returns Result.success(before)
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        coEvery { client.getQueue() } returns Result.success(before) andThen Result.success(after)
+
+        sessionManager.removeQueueItem("item-1", "trk-a")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { client.removeQueueItem("item-1") }
+        coVerify(exactly = 0) { client.removeQueueItem("item-2") }
+        assertEquals(RemoteCommandStatus.CONFIRMED, sessionManager.sessionState.value.lastRemoteCommand?.status)
+        assertEquals(listOf("item-2"), sessionManager.sessionState.value.queueItemIds)
+    }
+
+    @Test
+    fun removeQueueItem_rejectsAChangedInstanceWithoutDeletingAnything() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        val before = QueueDto(
+            tracks = listOf(QueueTrackDto("trk-a", "Track A")),
+            currentIndex = 0,
+            queueId = "q-1",
+            queueVersion = 4,
+            itemIds = listOf("item-1"),
+        )
+        coEvery { client.getQueue() } returns Result.success(before)
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        coEvery { client.getQueue() } returns Result.success(
+            before.copy(tracks = listOf(QueueTrackDto("trk-b", "Track B")), itemIds = listOf("item-1")),
+        )
+
+        sessionManager.removeQueueItem("item-1", "trk-a")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { client.removeQueueItem(any()) }
+        assertEquals(RemoteCommandStatus.CONFLICT, sessionManager.sessionState.value.lastRemoteCommand?.status)
+    }
+
+    @Test
+    fun moveQueueItem_confirmsTheExactObservedSequence() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        val before = QueueDto(
+            tracks = listOf(QueueTrackDto("trk-a", "A"), QueueTrackDto("trk-b", "B")),
+            currentIndex = 0,
+            queueId = "q-1",
+            queueVersion = 4,
+            itemIds = listOf("item-1", "item-2"),
+        )
+        val after = before.copy(
+            tracks = listOf(QueueTrackDto("trk-b", "B"), QueueTrackDto("trk-a", "A")),
+            queueVersion = 5,
+            itemIds = listOf("item-2", "item-1"),
+        )
+        coEvery { client.getQueue() } returns Result.success(before)
+        coEvery { client.reorderQueueItems(listOf("item-2", "item-1"), "q-1") } returns Result.success(Unit)
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        coEvery { client.getQueue() } returns Result.success(before) andThen Result.success(after)
+
+        sessionManager.moveQueueItem("item-2", -1)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { client.reorderQueueItems(listOf("item-2", "item-1"), "q-1") }
+        assertEquals(RemoteCommandStatus.CONFIRMED, sessionManager.sessionState.value.lastRemoteCommand?.status)
+        assertEquals(listOf("item-2", "item-1"), sessionManager.sessionState.value.queueItemIds)
+    }
+
+    @Test
+    fun skipToQueueItem_confirmsTheInstanceNotTheOldIndex() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        val before = QueueDto(
+            tracks = listOf(QueueTrackDto("trk-a", "A"), QueueTrackDto("trk-b", "B")),
+            currentIndex = 0,
+            queueId = "q-1",
+            queueVersion = 4,
+            itemIds = listOf("item-1", "item-2"),
+        )
+        val after = before.copy(currentIndex = 1, queueVersion = 5)
+        coEvery { client.getQueue() } returns Result.success(before)
+        coEvery { client.getPlaybackState() } returns Result.success(
+            PlaybackStateDto(state = "playing", playing = true, queueIndex = 0),
+        )
+        coEvery { client.jumpQueueToItem("item-2", null) } returns Result.success("ok")
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        advanceUntilIdle()
+        assertEquals(listOf("item-1", "item-2"), sessionManager.sessionState.value.queueItemIds)
+        coEvery { client.getQueue() } returns Result.success(after)
+
+        sessionManager.skipToQueueItem("item-2", "trk-b")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { client.jumpQueueToItem("item-2", null) }
+        assertEquals(RemoteCommandStatus.CONFIRMED, sessionManager.sessionState.value.lastRemoteCommand?.status)
+        assertEquals(1, sessionManager.sessionState.value.queueIndex)
     }
 
     @Test

@@ -140,6 +140,9 @@ class LinkClient(
      */
     @Volatile private var homeSessionToken: String = ""
     @Volatile private var homeSessionExpiresAtMillis: Long = 0L
+    @Volatile private var homeSessionHomeId: String = ""
+    @Volatile private var homeSessionServerMichiId: String = ""
+    @Volatile private var homeSessionClientMichiId: String = ""
     private val json = Json { ignoreUnknownKeys = true }
     private var ownsClient = true
     private var pinnedAirCatMetadata = false
@@ -180,8 +183,18 @@ class LinkClient(
 
     val isAuthenticated: Boolean get() = sessionToken.isNotEmpty() || deviceToken.isNotEmpty()
 
-    fun createEventClient(token: String = deviceToken.ifEmpty { sessionToken }): EventClient {
-        return EventClient(baseUrl, token, clientDeviceId, client)
+    fun createEventClient(
+        token: String = deviceToken.ifEmpty { sessionToken },
+        tokenProviderOverride: (() -> String)? = null,
+    ): EventClient {
+        return EventClient(
+            baseUrl = baseUrl,
+            token = token,
+            clientDeviceId = clientDeviceId,
+            client = client,
+            tokenProvider = tokenProviderOverride
+                ?: { homeSessionBearer() ?: deviceToken.ifEmpty { sessionToken } },
+        )
     }
 
     // --- Michi Home membership enrollment + mutual authentication (MIM-05/06) ---
@@ -198,19 +211,48 @@ class LinkClient(
     }
 
     fun isHomeSessionValid(nowMillis: Long = System.currentTimeMillis()): Boolean =
-        homeSessionToken.startsWith("michi_home_") && homeSessionExpiresAtMillis > nowMillis
+        homeSessionToken.startsWith("michi_home_") &&
+            homeSessionToken.length in 16..512 &&
+            homeSessionHomeId.isNotBlank() &&
+            homeSessionServerMichiId.isNotBlank() &&
+            homeSessionClientMichiId.isNotBlank() &&
+            homeSessionExpiresAtMillis > nowMillis
 
-    /** Publishes a token ONLY after [HomeServerSessionVerifier] accepted the response. */
-    fun acceptVerifiedHomeSession(token: String, expiresInSeconds: Long, nowMillis: Long = System.currentTimeMillis()) {
-        require(token.startsWith("michi_home_")) { "HOME_SESSION_TOKEN_INVALID" }
-        require(expiresInSeconds in 1..86_400) { "HOME_SESSION_TTL_INVALID" }
-        homeSessionToken = token
-        homeSessionExpiresAtMillis = nowMillis + expiresInSeconds * 1_000
+    val homeSessionHome: String get() = homeSessionHomeId
+    val homeSessionServer: String get() = homeSessionServerMichiId
+
+    /** Bearer for an SSE/auxiliary transport; null when the Home session expired. */
+    fun homeSessionBearer(nowMillis: Long = System.currentTimeMillis()): String? =
+        homeSessionToken.takeIf { isHomeSessionValid(nowMillis) }
+
+    /**
+     * MIM-07: installs a session ONLY through the unforgeable proof produced by
+     * [HomeServerSessionVerifier]. A prefix or a caller-supplied String is not
+     * enough; the verifier has already checked membership and server signature.
+     */
+    fun acceptVerifiedHomeSession(
+        verified: org.michimusic.link.home.VerifiedHomeSession,
+        nowMillis: Long = System.currentTimeMillis(),
+    ) {
+        require(verified.sessionToken.startsWith("michi_home_") &&
+            verified.sessionToken.length in 16..512) { "HOME_SESSION_TOKEN_INVALID" }
+        require(verified.expiresInSeconds in 1..86_400) { "HOME_SESSION_TTL_INVALID" }
+        require(verified.homeId.isNotBlank() &&
+            verified.serverMichiId.isNotBlank() &&
+            verified.clientMichiId.isNotBlank()) { "HOME_SESSION_CONTEXT_INVALID" }
+        homeSessionToken = verified.sessionToken
+        homeSessionExpiresAtMillis = nowMillis + verified.expiresInSeconds * 1_000
+        homeSessionHomeId = verified.homeId
+        homeSessionServerMichiId = verified.serverMichiId
+        homeSessionClientMichiId = verified.clientMichiId
     }
 
     fun clearHomeSession() {
         homeSessionToken = ""
         homeSessionExpiresAtMillis = 0L
+        homeSessionHomeId = ""
+        homeSessionServerMichiId = ""
+        homeSessionClientMichiId = ""
     }
 
     private fun homeAuthHeader(): String = "Bearer $homeSessionToken"
@@ -1436,7 +1478,9 @@ class LinkClient(
 
     /** Append canonical track ids through the R1.4 queue coordinator. */
     suspend fun addQueueItems(trackIds: List<String>): Result<String> = withContext(Dispatchers.IO) {
-        val clean = trackIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        // MIM-08: duplicate occurrences are intentional. Only blank IDs are
+        // removed; de-duplicating here would silently change the queue.
+        val clean = trackIds.map { it.trim() }.filter { it.isNotEmpty() }
         if (clean.isEmpty()) return@withContext Result.failure(
             IllegalArgumentException("QUEUE_TRACK_IDS_REQUIRED"),
         )

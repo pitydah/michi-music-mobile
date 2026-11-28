@@ -42,6 +42,8 @@ val playerModule = module {
             connectionManager = get(),
             linkDiscovery = get(),
             registry = get(),
+            homeTrust = getOrNull(),
+            homeSession = getOrNull(),
         ).also { it.startDeviceObservation() }
     }
 }

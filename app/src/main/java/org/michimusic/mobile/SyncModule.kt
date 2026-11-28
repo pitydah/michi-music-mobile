@@ -24,6 +24,13 @@ val syncModule = module {
             membershipStore = get(),
         )
     }
+    single {
+        org.michimusic.mobile.devices.home.HomeSessionAuthority(
+            coordinator = get(),
+            membershipStore = get(),
+            identityProvider = { get<org.michimusic.link.identity.MichiIdentityAuthority>().await() },
+        )
+    }
     single<AirCatHomeAuthorityProvider> {
         get<org.michimusic.mobile.devices.aircat.AirCatHomeEnrollmentStore>()
     }

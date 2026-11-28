@@ -27,5 +27,38 @@ Un peer que anuncia cualquier flag canónico debe tener los cinco; un peer parci
 ## D009 — Enrollment probado en JVM, UI pendiente
 `HomeEnrollmentCoordinator` implementa challenge/PoP/request/pending/status/approved/auth con persistencia cifrada. No se conectó aún a la pantalla de Devices; se registra como MIM-05.5/MIM-11.2 pendiente. No se declara GO de enrollment físico.
 
-## D010 — Sin commit/push
-Todos los cambios quedan en el working tree de Mobile. El operador decide la publicación. No se crearon ramas.
+## D010 — Publicación autorizada sólo en un lote anterior
+El operador autorizó commit/push/CI del LOTE 01 a `origin/master` (commits `d4082d6f`..`64db675e`, CI `46071123540` verde). LOTE 02 vuelve a la regla por defecto: cambios en working tree, sin commit/push hasta nueva autorización.
+
+## D011 — HomeSessionAuthority única y prueba de token no falsificable
+`HomeSessionAuthority` serializa la autenticación con `Mutex`, usa TTL monotónico, generación de sesión, backoff con jitter y revocación terminal. `LinkClient.acceptVerifiedHomeSession` sólo acepta `VerifiedHomeSession`, una prueba de módulo que produce `HomeServerSessionVerifier` tras verificar membership y firma del servidor. Un prefijo no instala nada.
+
+## D012 — Enrollment UI en trust screen, no auto-aprobación
+`MichiLinkTrustHost` expone solicitud/pending/refresco/poll/auth por origen. El operador aprueba en WebUI; la app nunca se auto-aprueba ni convierte `/server/info` en conexión.
+
+## D013 — Identidad de instancia en cola
+Jump, delete y reorder aceptan `queue_item_id` capturado en el gesto y confirman la postcondición exacta (instancia ausente, secuencia exacta, instancia esperada). `removeFromQueue(index)` queda como compatibilidad y delega al item id si existe.
+
+## D014 — Features: ausente ≠ vacío ≠ false
+`ServerInfoDto.verifiedFeatures` devuelve `null` si el campo falta (conservar cache histórica) y una lista (posiblemente vacía) si el servidor lo envió. `ConnectionManager` ya no usa `ifEmpty` para borrar o conservar por accidente.
+
+## D015 — Lifecycle de playback manda sobre `state`
+El servidor envía `state=playing|paused` y `lifecycle`; `effectiveState` prioriza lifecycle, de modo que `stopped`/`ended`/`failed` no se convierten en `paused`. `generation_id` se conserva en el estado de sesión.
+
+## D016 — AirCat Home antes que legacy
+`AirCatOperationCoordinator` resuelve `HomeSessionAuthority` para un origen Home y falla cerrado si no hay lease; sólo usa deviceToken legacy cuando no existe ancla Home.
+
+## D017 — Estado de acceso ortogonal (MIM-03)
+`DeviceAccessState` separa availability, identityVerified, homeAuthorized, authenticated, capabilitiesVerified y authorization. Un peer REACHABLE o con identidad firmada no es Home-authorized; un HOME_ENROLLED sin lease no es authenticated y no habilita AirCat. Un descubrimiento nunca asigna capabilities.
+
+## D018 — Dedup por identidad criptográfica
+`LinkDiscovery` elimina observaciones previas con el mismo `michiId` verificado cuando cambia el `deviceId`; `LinkDeviceRosterProjector` deduplica contra la identidad fijada. Un `deviceId` legacy no crea un peer nuevo.
+
+## D019 — Handoff confirmado en destino (MIM-09)
+`handoffTo` no pausa el origen ni declara éxito tras un 200 de `transferQueue`. Lee `getPlaybackState`/`getQueue` y exige `playing` + track/índice esperados; si no confirma, deja el audio local activo y reporta el fallo. El índice -1 se normaliza a 0 en la petición y en la postcondición.
+
+## D020 — Reauth de polling y SSE (MIM-07)
+`refreshRemotePlayback`/`refreshRemoteQueue` renuevan la sesión Home con `HomeSessionAuthority` antes de leer; `EventClient` recibe un `tokenProvider` que relee el bearer en cada reconnect para no usar un token viejo tras reauth.
+
+## D021 — Gaps de discovery declarados
+mDNS `_michi-link._tcp` y Tailscale no tienen auto-discovery en Mobile; el roster Home no se consume (requiere admin). Quedan documentados como GAP, no se presentan como implementados. `LinkAuthStrategyGate` sigue rechazando `HOME_MEMBERSHIP` en el pairing legacy; el enrollment real vive en el trust screen.

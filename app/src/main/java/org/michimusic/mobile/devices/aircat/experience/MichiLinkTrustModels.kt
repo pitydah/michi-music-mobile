@@ -1,5 +1,6 @@
 package org.michimusic.mobile.devices.aircat.experience
 
+import org.michimusic.link.home.HomeEnrollmentPhase
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource
 
@@ -71,6 +72,19 @@ internal data class MichiLinkTrustNotice(
         }
 }
 
+/** MIM-05.5: what the QR-anchored enrollment has actually observed. */
+internal data class HomeEnrollmentUiState(
+    val sourceMichiId: String? = null,
+    val phase: HomeEnrollmentPhase = HomeEnrollmentPhase.NOT_ENROLLED,
+    val requestId: String? = null,
+    val message: String? = null,
+    val busy: Boolean = false,
+) {
+    val isPending: Boolean get() = phase == HomeEnrollmentPhase.ENROLLMENT_PENDING
+    val isEnrolled: Boolean get() = phase == HomeEnrollmentPhase.ENROLLED_OFFLINE
+    val isAuthenticated: Boolean get() = phase == HomeEnrollmentPhase.AUTHENTICATED_ONLINE
+}
+
 /** Everything the trust screen may draw. No client, no grant, no mutation. */
 internal data class MichiLinkTrustState(
     val loading: Boolean = true,
@@ -80,11 +94,16 @@ internal data class MichiLinkTrustState(
     val pending: MichiLinkTrustPending? = null,
     val busy: Boolean = false,
     val notice: MichiLinkTrustNotice? = null,
+    val enrollment: HomeEnrollmentUiState = HomeEnrollmentUiState(),
+    val enrollmentAvailable: Boolean = false,
 ) {
     val hasInventory: Boolean get() = homes.isNotEmpty() || sources.isNotEmpty()
 
     /** Actions are only offered while the inventory is readable and settled. */
     val canRequest: Boolean get() = !loading && !busy && loadFailure == null
+
+    /** MIM-05.5: enrollment needs an anchor and a coordinator wired by Koin. */
+    val canEnroll: Boolean get() = canRequest && enrollmentAvailable
 }
 
 /** One intent per user decision; the controller owns every state transition. */
@@ -95,6 +114,13 @@ internal sealed interface MichiLinkTrustIntent {
     data object ConfirmRevocation : MichiLinkTrustIntent
     data object CancelRevocation : MichiLinkTrustIntent
     data object DismissNotice : MichiLinkTrustIntent
+
+    // MIM-05.5: explicit, user-driven enrollment; no discovery or automatic approval.
+    data class RequestEnrollment(val source: AirCatEnrolledHomeSource) : MichiLinkTrustIntent
+    data object RefreshEnrollment : MichiLinkTrustIntent
+    data object PollEnrollment : MichiLinkTrustIntent
+    data object AuthenticateEnrollment : MichiLinkTrustIntent
+    data object CancelEnrollment : MichiLinkTrustIntent
 }
 
 /** Short, stable rendering for base64url identifiers and digests. */

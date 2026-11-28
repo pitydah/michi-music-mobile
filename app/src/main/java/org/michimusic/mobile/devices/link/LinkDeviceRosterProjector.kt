@@ -1,6 +1,9 @@
 package org.michimusic.mobile.devices.link
 
 import java.net.URI
+import org.michimusic.core.models.DeviceAccessState
+import org.michimusic.core.models.DeviceAuthorization
+import org.michimusic.core.models.DeviceAvailability
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.UnifiedDevice
@@ -8,7 +11,11 @@ import org.michimusic.core.devices.AirCatCapabilityPolicy
 import org.michimusic.link.PairedDeviceRegistry
 
 /** Pure roster projection with no sockets, pairing or credential exposure. */
-internal class LinkDeviceRosterProjector(private val registry: PairedDeviceRegistry) {
+internal class LinkDeviceRosterProjector(
+    private val registry: PairedDeviceRegistry,
+    private val homeAuthorized: (sourceMichiId: String) -> Boolean = { false },
+    private val homeAuthenticated: (sourceMichiId: String) -> Boolean = { false },
+) {
     fun project(
         peers: List<DiscoveredPeer>,
         connectionStates: Map<String, SyncConnectionState>,
@@ -47,6 +54,8 @@ internal class LinkDeviceRosterProjector(private val registry: PairedDeviceRegis
                     roles = reg.roles,
                     features = (reg.features + AirCatCapabilityPolicy.enabledFeatureKeys(reg.featuresMap)).distinct(),
                     isRevoked = reg.isRevoked,
+                    accessState = registeredAccess(reg.effectiveMichiId, reg.isRevoked,
+                        connectionStates[reg.deviceId], reg.featuresMap.isNotEmpty()),
                 )
             )
         }
@@ -74,9 +83,67 @@ internal class LinkDeviceRosterProjector(private val registry: PairedDeviceRegis
                     deviceType = peer.deviceType,
                     roles = emptyList(), // Discovery never assigns functional capabilities.
                     features = emptyList(),
+                    accessState = DeviceAccessState(
+                        availability = DeviceAvailability.DISCOVERED,
+                        identityVerified = peer.identityTrust == "VERIFIED" &&
+                            peer.michiId.isNotBlank(),
+                        authorization = if (peer.identityTrust == "VERIFIED" &&
+                            peer.michiId.isNotBlank()) {
+                            DeviceAuthorization.DISCOVERED_IDENTITY
+                        } else {
+                            DeviceAuthorization.NONE
+                        },
+                    ),
                 )
             )
         }
         return unified.distinctBy { it.id }
+    }
+
+    private fun registeredAccess(
+        sourceMichiId: String,
+        revoked: Boolean,
+        connection: SyncConnectionState?,
+        capabilitiesVerified: Boolean,
+    ): DeviceAccessState {
+        val availability = when (connection) {
+            SyncConnectionState.CONNECTED,
+            SyncConnectionState.CONNECTING,
+            SyncConnectionState.PAIRING,
+            SyncConnectionState.PAIRING_REQUIRED,
+            SyncConnectionState.PAIRED,
+            -> DeviceAvailability.REACHABLE
+            SyncConnectionState.OFFLINE,
+            SyncConnectionState.DISCONNECTED,
+            SyncConnectionState.DISCOVERING,
+            -> DeviceAvailability.OFFLINE
+            SyncConnectionState.ERROR,
+            SyncConnectionState.AUTH_ERROR,
+            SyncConnectionState.UNAUTHORIZED,
+            SyncConnectionState.REVOKED,
+            null,
+            -> DeviceAvailability.UNKNOWN
+        }
+        val home = sourceMichiId.isNotBlank() && homeAuthorized(sourceMichiId)
+        val authenticated = !revoked && sourceMichiId.isNotBlank() && home &&
+            homeAuthenticated(sourceMichiId)
+        val legacyAuthenticated = !revoked && !home &&
+            connection == SyncConnectionState.CONNECTED
+        val authorization = when {
+            revoked -> DeviceAuthorization.REVOKED
+            home && authenticated -> DeviceAuthorization.HOME_AUTHENTICATED
+            home -> DeviceAuthorization.HOME_ENROLLED
+            legacyAuthenticated || connection == SyncConnectionState.PAIRED ->
+                DeviceAuthorization.LEGACY_PAIRED
+            else -> DeviceAuthorization.NONE
+        }
+        return DeviceAccessState(
+            availability = availability,
+            identityVerified = sourceMichiId.isNotBlank(),
+            homeAuthorized = home,
+            authenticated = authenticated || legacyAuthenticated,
+            capabilitiesVerified = capabilitiesVerified,
+            authorization = authorization,
+        )
     }
 }

@@ -48,6 +48,8 @@ val appModule = module {
             checkpointRepository = getOrNull(),
             approvedPlanRepository = getOrNull(),
             autoSyncScheduler = get(),
+            airCatHomeTrust = getOrNull(),
+            homeSessionAuthority = getOrNull(),
         )
     }
     viewModelOf(::AlbumsViewModel)

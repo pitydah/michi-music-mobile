@@ -169,6 +169,8 @@ fun DevicesScreen(
     val scope = rememberCoroutineScope()
 
     val homeEnrollment: AirCatHomeEnrollmentStore = koinInject()
+    val homeEnrollmentCoordinator: org.michimusic.mobile.devices.home.HomeEnrollmentCoordinator = koinInject()
+    val homeSessionAuthority: org.michimusic.mobile.devices.home.HomeSessionAuthority = koinInject()
     // A71-09: one admin bridge for the trust screen and the QR-flow revocation,
     // so both report the same real outcome instead of a local generic failure.
     val trustAdmin = remember(homeEnrollment) { MichiLinkTrustAdmin(homeEnrollment) }
@@ -1079,6 +1081,8 @@ fun DevicesScreen(
             ) {
                 MichiLinkTrustHost(
                     store = homeEnrollment,
+                    homeEnrollment = homeEnrollmentCoordinator,
+                    sessionAuthority = homeSessionAuthority,
                     onLinkHome = {
                         showHomeTrustManager = false
                         homeAdminQrMode = true

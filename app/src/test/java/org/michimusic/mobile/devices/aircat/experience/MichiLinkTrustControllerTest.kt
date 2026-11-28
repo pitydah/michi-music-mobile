@@ -1,6 +1,7 @@
 package org.michimusic.mobile.devices.aircat.experience
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -12,7 +13,11 @@ import org.junit.Test
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority
 import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource
 import org.michimusic.mobile.devices.aircat.AirCatHomeAnchor
+import org.michimusic.link.home.HomeEnrollmentPhase
 import org.michimusic.mobile.devices.aircat.AirCatHomeTrustAdmin
+import org.michimusic.mobile.devices.home.HomeEnrollmentCoordinator
+import org.michimusic.mobile.devices.home.HomeEnrollmentService
+import org.michimusic.mobile.devices.home.HomeMembershipStore
 
 /**
  * A71-09: the trust controller must never turn a `false` from the store into a
@@ -21,6 +26,7 @@ import org.michimusic.mobile.devices.aircat.AirCatHomeTrustAdmin
  * realities — committed, changed, already gone, failed commit, unreadable
  * Keystore — is observed as a distinct outcome.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class MichiLinkTrustControllerTest {
 
     private class FakeStore(
@@ -121,6 +127,105 @@ class MichiLinkTrustControllerTest {
             scope = CoroutineScope(dispatcher),
             admin = MichiLinkTrustAdmin(store, dispatcher),
         )
+    }
+
+    private class FakeEnrollment(
+        var requestOutcome: HomeEnrollmentCoordinator.Outcome =
+            HomeEnrollmentCoordinator.Outcome.Pending("request-1", "2026-11-27T21:00:00Z"),
+        var refreshOutcome: HomeEnrollmentCoordinator.Outcome = requestOutcome,
+    ) : HomeEnrollmentService {
+        var requests = 0
+        var refreshes = 0
+        override suspend fun requestEnrollment(
+            anchor: AirCatHomeAnchor,
+            deviceName: String,
+            requestedRoles: List<String>,
+        ): HomeEnrollmentCoordinator.Outcome {
+            requests += 1
+            return requestOutcome
+        }
+        override suspend fun refreshEnrollment(anchor: AirCatHomeAnchor): HomeEnrollmentCoordinator.Outcome {
+            refreshes += 1
+            return refreshOutcome
+        }
+        override suspend fun awaitApproval(
+            anchor: AirCatHomeAnchor,
+            maxAttempts: Int,
+            intervalMillis: Long,
+        ): HomeEnrollmentCoordinator.Outcome = refreshOutcome
+        override fun storedMembership(anchor: AirCatHomeAnchor) = null
+        override fun pendingRequest(anchor: AirCatHomeAnchor): HomeMembershipStore.PendingEnrollment? = null
+    }
+
+    private fun TestScope.enrollmentControllerFor(
+        store: FakeStore,
+        enrollment: HomeEnrollmentService,
+    ): MichiLinkTrustController {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        return MichiLinkTrustController(
+            scope = CoroutineScope(dispatcher),
+            admin = MichiLinkTrustAdmin(store, dispatcher),
+            homeTrust = store,
+            enrollment = enrollment,
+        )
+    }
+
+    @Test
+    fun enrollmentRequestIsExplicitAndPublishesOnlyThePendingState() = runTest {
+        val store = FakeStore(sources = listOf(sourceOf(SOURCE_A)))
+        val enrollment = FakeEnrollment()
+        val controller = enrollmentControllerFor(store, enrollment)
+        load(controller)
+
+        controller.dispatch(MichiLinkTrustIntent.RequestEnrollment(store.sources.single()))
+        advanceUntilIdle()
+
+        assertEquals(1, enrollment.requests)
+        val state = controller.state.value
+        assertEquals(HomeEnrollmentPhase.ENROLLMENT_PENDING, state.enrollment.phase)
+        assertEquals(SOURCE_A, state.enrollment.sourceMichiId)
+        assertEquals("request-1", state.enrollment.requestId)
+        assertEquals(false, state.busy)
+    }
+
+    @Test
+    fun approvedStatusBecomesEnrolledOfflineNotConnected() = runTest {
+        val store = FakeStore(sources = listOf(sourceOf(SOURCE_A)))
+        val enrollment = FakeEnrollment().apply {
+            refreshOutcome = HomeEnrollmentCoordinator.Outcome.EnrolledOffline(
+                org.michimusic.link.home.HomeMembershipDto(
+                    homeId = "home-a",
+                    deviceMichiId = "device-a",
+                    devicePublicKey = "key-a",
+                    deviceType = "mobile",
+                    roles = listOf("mobile_player"),
+                    issuedAt = "2026-11-27T21:00:00Z",
+                    serial = 1,
+                    signature = "signature",
+                ),
+            )
+        }
+        val controller = enrollmentControllerFor(store, enrollment)
+        load(controller)
+        controller.dispatch(MichiLinkTrustIntent.RequestEnrollment(store.sources.single()))
+        advanceUntilIdle()
+        controller.dispatch(MichiLinkTrustIntent.RefreshEnrollment)
+        advanceUntilIdle()
+
+        assertEquals(1, enrollment.refreshes)
+        assertEquals(HomeEnrollmentPhase.ENROLLED_OFFLINE, controller.state.value.enrollment.phase)
+        assertEquals(false, controller.state.value.enrollment.isAuthenticated)
+    }
+
+    @Test
+    fun enrollmentIsUnavailableWithoutAWiredCoordinator() = runTest {
+        val store = FakeStore(sources = listOf(sourceOf(SOURCE_A)))
+        val controller = controllerFor(store)
+        load(controller)
+        controller.dispatch(MichiLinkTrustIntent.RequestEnrollment(store.sources.single()))
+        advanceUntilIdle()
+        assertEquals(false, controller.state.value.enrollmentAvailable)
+        assertEquals(HomeEnrollmentPhase.NOT_ENROLLED, controller.state.value.enrollment.phase)
     }
 
     private fun TestScope.load(controller: MichiLinkTrustController) {

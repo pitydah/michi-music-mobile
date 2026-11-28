@@ -1,19 +1,20 @@
 # Baseline
 
-## Última verificación: 2026-11-27 (inicio y cierre del lote MIM-01..08)
+## Última verificación: 2026-11-27 (LOTE 03, sin commit)
 
 | Repositorio | Rama | HEAD verificado | Árbol | Rol |
 |---|---|---|---|---|
-| `pitydah/michi-music-mobile` | `master` | `f8a37cf3` (implementación `d4082d6f`, evidencia `c8036bc4`, CI `af03ca41`/`972795f4`/`f8a37cf3`; baseline `a737eb9f`) | limpio | Único repo de desarrollo |
+| `pitydah/michi-music-mobile` | `master` | `64db675e` (HEAD publicado; LOTE 02+03 en working tree) | modificado por LOTE 02+03, sin commit | Único repo de desarrollo |
 | `pitydah/michi-micro-server` | `refactor/killcritic-interop-r1` (PR #26) | `b507b47ebd9dec17740ca26d9da8ddb8b045735b` | limpio | Referencia SOLO LECTURA |
-| `pitydah/michi-link` | `main` | `8dad0fb51128df98422bd74968e75f0ae8f85ccf` | limpio | Referencia SOLO LECTURA / norma |
+| `pitydah/michi-link` | `main` | **DRIFT**: `ea76ee0e3ffabf23c921db71454cd6294b7ae960` (R1.5); baseline de código fijado `8dad0fb5` | limpio | Referencia SOLO LECTURA / norma |
 
 - Pin vendorizado por Micro: `8dad0fb51128df98422bd74968e75f0ae8f85ccf` (`git rev-parse HEAD:vendor/michi-link`). Coincide exactamente con `main` local de Link.
-- No hubo drift entre inicio y cierre.
+- **DRIFT EXTERNO DETECTADO AL CIERRE:** Link `main` avanzó de `8dad0fb5` a `ea76ee0e` (R1.5: ML-001..004). Micro HEAD sigue `b507b47`, pero su working tree tiene 24 entradas modificadas/nuevas R1.5 (incluye docs/handoff, tests `interop_r1_5_*` y `vendor/michi-link` → `ea76ee0e`). MIM no escribió en ninguno; no se adopta R1.5 hasta que Micro lo commitee y fije el pin. El código/tests de LOTE 02 siguen contra R1.4 `8dad0fb5`.
 - CI GitHub `46064991170` (`972795f4`, intento 2): **SUCCESS**.
-- CI GitHub `46068074299` (`f8a37cf3`, intento 3): **SUCCESS**, incluido Job A (Lint + arquitectura), Job G (instrumentado API 36) y Job F (F-Droid; dos intentos previos con HTTP 429 externo).
+- CI GitHub `46071123540` (`64db675e`, intento 1): **SUCCESS**, incluido Job A (Lint + arquitectura), Job G (instrumentado API 36) y Job F (F-Droid).
+- CI GitHub `46068074299` (`f8a37cf3`, intento 3): **SUCCESS** (histórico).
 - La rama de Micro es de interoperabilidad, **no** `main`; no se asumió que main incluya el PR #26.
-- Mobile partía limpio; los cambios de este lote están descritos en `EVIDENCE.md` y no se han commiteado.
+- Mobile partía limpio en `64db675e`; los cambios de LOTE 02+03 están descritos en `EVIDENCE.md` y no se han commiteado.
 
 ## Compatibilidad fijada
 

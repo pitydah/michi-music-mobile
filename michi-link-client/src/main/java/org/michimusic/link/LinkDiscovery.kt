@@ -157,6 +157,20 @@ open class LinkDiscovery(
             peerLastSeen.remove(key)
             _events.tryEmit(DiscoveryEvent.PeerLost(peerKey = key, alias = peerAlias))
         } else {
+            // MIM-03: a verified cryptographic identity is the dedup key. A
+            // firmware migration that changes device_id/alias must replace the
+            // old observation, not create a second peer for the same device.
+            if (level == LinkSignedAnnounceSecurity.Level.VERIFIED && msg.michiId.isNotBlank()) {
+                val staleIdentity = _peers.value
+                    .filterValues { it.michiId == msg.michiId && it.deviceId != msg.deviceId }
+                    .keys
+                if (staleIdentity.isNotEmpty()) {
+                    val lost = staleIdentity.map { id -> id to _peers.value[id]?.alias }
+                    _peers.value = _peers.value - staleIdentity
+                    staleIdentity.forEach { peerLastSeen.remove(it) }
+                    lost.forEach { (id, alias) -> _events.tryEmit(DiscoveryEvent.PeerLost(id, alias)) }
+                }
+            }
             val peer = DiscoveredPeer(
                 alias = msg.name.ifBlank { msg.alias },
                 ip = hostAddress,

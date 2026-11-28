@@ -15,6 +15,7 @@ import org.michimusic.link.home.HomeMembershipDto
 import org.michimusic.link.home.HomeMembershipVerifier
 import org.michimusic.link.home.HomeRoles
 import org.michimusic.link.home.HomeServerSessionVerifier
+import org.michimusic.link.home.HomeSessionVerification
 import org.michimusic.link.home.HomeVerification
 import org.michimusic.link.home.MichiBase64Url
 import org.michimusic.link.home.MichiIdentityHash
@@ -43,7 +44,7 @@ class HomeEnrollmentCoordinator(
         { baseUrl, pin, clientMichiId ->
             LinkClient(baseUrl, clientDeviceId = clientMichiId).pinnedAirCatSession(pin)
         },
-) {
+) : HomeEnrollmentService {
 
     sealed interface Outcome {
         data class Pending(val requestId: String, val expiresAt: String) : Outcome
@@ -57,7 +58,7 @@ class HomeEnrollmentCoordinator(
         data class Failure(val code: String, val message: String) : AuthOutcome
     }
 
-    fun storedMembership(anchor: AirCatHomeAnchor): HomeMembershipDto? {
+    override fun storedMembership(anchor: AirCatHomeAnchor): HomeMembershipDto? {
         val record = membershipStore.loadMembership(anchor.homeId) ?: return null
         if (record.sourceMichiId != anchor.sourceMichiId) return null
         return record.membership.takeIf {
@@ -67,14 +68,19 @@ class HomeEnrollmentCoordinator(
         }
     }
 
-    fun pendingRequest(anchor: AirCatHomeAnchor): HomeMembershipStore.PendingEnrollment? =
+    override fun pendingRequest(anchor: AirCatHomeAnchor): HomeMembershipStore.PendingEnrollment? =
         membershipStore.loadPending(anchor.homeId)?.takeIf { it.sourceMichiId == anchor.sourceMichiId }
 
-    /** Step 1-2: challenge + PoP + 202 pending request. Never grants membership. */
     suspend fun requestEnrollment(
         anchor: AirCatHomeAnchor,
         deviceName: String,
-        requestedRoles: List<String> = DEFAULT_MOBILE_ROLES,
+    ): Outcome = requestEnrollment(anchor, deviceName, DEFAULT_MOBILE_ROLES)
+
+    /** Step 1-2: challenge + PoP + 202 pending request. Never grants membership. */
+    override suspend fun requestEnrollment(
+        anchor: AirCatHomeAnchor,
+        deviceName: String,
+        requestedRoles: List<String>,
     ): Outcome {
         val identity = identityProvider()
             ?: return Outcome.Failure("IDENTITY_UNAVAILABLE", "La identidad local no está disponible")
@@ -147,11 +153,15 @@ class HomeEnrollmentCoordinator(
         }
     }
 
-    /** Step 7-8: bounded polling; approval is performed externally by the Home admin. */
     suspend fun awaitApproval(
         anchor: AirCatHomeAnchor,
-        maxAttempts: Int = 150,
-        intervalMillis: Long = 2_000,
+    ): Outcome = awaitApproval(anchor, maxAttempts = 150, intervalMillis = 2_000)
+
+    /** Step 7-8: bounded polling; approval is performed externally by the Home admin. */
+    override suspend fun awaitApproval(
+        anchor: AirCatHomeAnchor,
+        maxAttempts: Int,
+        intervalMillis: Long,
     ): Outcome {
         if (maxAttempts < 1) return Outcome.Failure("INVALID_ARGUMENT", "maxAttempts debe ser >= 1")
         var last: Outcome = Outcome.Pending("", "")
@@ -165,7 +175,7 @@ class HomeEnrollmentCoordinator(
     }
 
     /** One idempotent status read; persists a verified membership on approval. */
-    suspend fun refreshEnrollment(anchor: AirCatHomeAnchor): Outcome {
+    override suspend fun refreshEnrollment(anchor: AirCatHomeAnchor): Outcome {
         val identity = identityProvider()
             ?: return Outcome.Failure("IDENTITY_UNAVAILABLE", "La identidad local no está disponible")
         val pending = pendingRequest(anchor)
@@ -244,19 +254,21 @@ class HomeEnrollmentCoordinator(
             ),
         ).getOrElse { return authFailure(it) }
 
-        val verification = HomeServerSessionVerifier.verify(
+        when (val verification = HomeServerSessionVerifier.verify(
             response = response,
             homeRootPublicKeyBase64Url = anchor.authorityPublicKeyBase64Url,
             expectedHomeId = anchor.homeId,
             expectedServerMichiId = challenge.serverMichiId,
             clientMichiId = identity.michiId,
             challengeId = challenge.challengeId,
-        )
-        if (verification is HomeVerification.Invalid) {
-            return AuthOutcome.Failure("SERVER_AUTH_REJECTED", verification.reason)
+        )) {
+            is HomeSessionVerification.Invalid ->
+                return AuthOutcome.Failure("SERVER_AUTH_REJECTED", verification.reason)
+            is HomeSessionVerification.Verified -> {
+                client.acceptVerifiedHomeSession(verification.session, clock())
+                return AuthOutcome.Authenticated(response.expiresIn)
+            }
         }
-        client.acceptVerifiedHomeSession(response.sessionToken, response.expiresIn, clock())
-        return AuthOutcome.Authenticated(response.expiresIn)
     }
 
     private fun verifyAndStore(

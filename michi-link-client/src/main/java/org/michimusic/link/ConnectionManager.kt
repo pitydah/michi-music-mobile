@@ -117,7 +117,9 @@ open class ConnectionManager(
                         serverId = if (device.serverId.isEmpty()) remoteServerId else device.serverId,
                         publicKey = if (device.publicKey.isEmpty()) remotePublicKey else device.publicKey,
                         identityScheme = info.identityScheme ?: device.identityScheme.ifEmpty { "ed25519-blake3-v1" },
-                        features = info.effectiveFeatures.ifEmpty { device.features },
+                        // MIM-03: absent features preserves the historical cache;
+                        // an explicit empty/false map is authoritative and clears it.
+                        features = mergeServerFeatures(device.features, info),
                         roles = info.roles.ifEmpty { device.roles },
                     )
                     if (!isActive || !current(deviceId, epoch)) return@launch
@@ -161,3 +163,10 @@ open class ConnectionManager(
         _connectionStates.value = emptyMap()
     }
 }
+
+
+/** MIM-03: only a missing `features` field falls back to historical capabilities. */
+internal fun mergeServerFeatures(
+    historical: List<String>,
+    info: org.michimusic.link.dto.ServerInfoDto,
+): List<String> = info.verifiedFeatures ?: historical

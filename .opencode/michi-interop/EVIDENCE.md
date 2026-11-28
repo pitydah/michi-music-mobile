@@ -76,3 +76,95 @@ Firmas comparadas byte a byte con `michi-link/tests/vectors/interop/micro-mobile
 
 - Micro y Link permanecen limpios y en el mismo HEAD.
 - No se ejecutó build, fetch, checkout ni escritura en ellos.
+
+## LOTE 02 — 2026-11-27 (working tree, sin commit)
+
+- **Base publicada:** `64db675e` (CI `46071123540` verde). LOTE 02 no se ha commiteado.
+- **Skills cargados en esta sesión:** `using-chrisbanes-skills`, `to-plan`, `deliver-spec`, `kotlin-concurrency-and-flow`, `kotlin-api-design`, `kotlin-control-flow`, `compose-state-and-effects`, `compose-component-design`, `compose-ui-testing-patterns`, `gradle-run`, `tdd`, `systematic-debugging`, `code-review`.
+- **Workflow gradle-run:** `730b654f01c862f8e98ad6face0b80c4`; cero `./gradlew` directo.
+
+### Comandos y resultados
+
+| Comando | Resultado |
+|---|---|
+| `:michi-link-client:testDebugUnitTest` | PASS — 237 tests |
+| `:core:testDebugUnitTest` | PASS — 1095 tests |
+| `:aircat-transfer:testDebugUnitTest` | PASS — 414 tests |
+| `:player:testDebugUnitTest` | PASS — 234 tests |
+| `:app:testNormalDebugUnitTest` | PASS — 2942 tests |
+| `:app:testFdroidDebugUnitTest` | PASS — 2942 tests |
+| `:app:lintNormalDebug` | PASS |
+| `python3 tools/check_settings_architecture.py` | PASS |
+| `git diff --check` | PASS |
+| Instrumentado LOTE 02 | **NOT_RUN** (emulador disponible, pero no se ejecutó la suite conectada completa en este lote) |
+
+### Evidencia de MIM-07
+
+- `HomeSessionAuthorityTest`: single-flight (dos llamadas concurrentes, un challenge), TTL/lease, `MEMBER_REVOKED` limpia membership y no reintenta, `REVOCATION_STORE_UNAVAILABLE` entra en BACKOFF y no genera tormenta, `invalidate` permite reauth con nueva generación.
+- `LinkClient.acceptVerifiedHomeSession` sólo acepta `VerifiedHomeSession` producido por `HomeServerSessionVerifier`; ya no hay instalación por prefijo. `isHomeSessionValid` exige contexto Home y TTL.
+- `EventClient`: replay 0 y `CancellationException` rethrow.
+
+### Evidencia de MIM-05.5
+
+- `HomeEnrollmentService` desacopla el controlador de la implementación; `MichiLinkTrustControllerTest` prueba request explícito, pending, approved→ENROLLED_OFFLINE (no conectado) y ausencia de coordinador.
+- `MichiLinkTrustHost`/`DevicesScreen` reciben coordinador y autoridad por Koin; el QR existente sigue siendo el ancla.
+
+### Evidencia de MIM-03/MIM-08/MIM-10
+
+- `ServerFeatureTruthTest`: ausente ≠ `{}` ≠ `false`; `mergeServerFeatures` conserva histórico sólo si falta el campo.
+- `PlaybackStateTruthTest`: lifecycle `stopped`/`ended`/`failed` no se convierte en `paused`; `generation_id` modelado.
+- `RemoteCommandAuthorityTest`: delete/jump/reorder por `queue_item_id` con pistas duplicadas; postcondición exacta; `CONFLICT` cuando la instancia cambió.
+- `AirCatOperationCoordinator` resuelve la sesión Home antes de `deviceToken`; falla cerrado sin lease.
+- `HomeQueueContractTest`: `addQueueItems` conserva duplicados intencionales.
+
+### NO-RUN / límites
+
+- Suite instrumentada completa y pruebas de UI nuevas en emulador: **NOT_RUN** en este lote.
+- E2E red real Micro Server/ZimaOS, TLS real, AirCat real, revocación real y handoff físico: **NOT_RUN**.
+- Micro/Link no se modificaron; siguen limpios.
+
+
+### DRIFT externo al cierre de LOTE 02
+
+- Link local `main` pasó de `8dad0fb51128df98422bd74968e75f0ae8f85ccf` a `ea76ee0e3ffabf23c921db71454cd6294b7ae960` (R1.5, commits `7060b61` + `ea76ee0`). Árbol limpio.
+- Micro HEAD sigue `b507b47ebd9dec17740ca26d9da8ddb8b045735b`, pero al cierre su working tree tiene 24 entradas R1.5 (docs/handoff, tests `interop_r1_5_*` y `vendor/michi-link` → `ea76ee0e`). No fue escrito por MIM.
+- R1.5 schemas incluyen `queue_item_id`, `expected_queue_version`, `server_boot_id`, `position: next/after_item_id`, `desktop` en membership, roster completo, `lifecycle`/`generation_id`, `repeat_mode`/`shuffle_enabled`, `previous_volume` y `unmute` con volumen previo.
+- **No se adopta R1.5 en Mobile** hasta que Micro commitee esos cambios y fije el pin; LOTE 02 sigue certificado contra R1.4 `8dad0fb5`.
+
+## LOTE 03 — 2026-11-27 (working tree, sin commit)
+
+- **Workflow gradle-run:** `4b4e7dba90c9bcaab4a40a308eef50e8`; cero `./gradlew` directo.
+- **Skills cargados:** `using-chrisbanes-skills`, `to-plan`, `deliver-spec`, `kotlin-concurrency-and-flow`, `kotlin-api-design`, `kotlin-control-flow`, `compose-state-and-effects`, `compose-component-design`, `compose-ui-testing-patterns`, `gradle-run`, `tdd`, `systematic-debugging`, `code-review`.
+
+### Comandos y resultados
+
+| Comando | Resultado |
+|---|---|
+| `:michi-link-client:testDebugUnitTest` | PASS — 237 tests |
+| `:core:testDebugUnitTest` | PASS — 1095 |
+| `:aircat-transfer:testDebugUnitTest` | PASS — 414 |
+| `:player:testDebugUnitTest` | PASS — 234 |
+| `:app:testNormalDebugUnitTest` | PASS — 2948 |
+| `:app:testFdroidDebugUnitTest` | PASS — 2948 |
+| `:app:lintNormalDebug` | PASS |
+| `python3 tools/check_settings_architecture.py` | PASS |
+| `git diff --check` | PASS |
+| Instrumentado LOTE 03 | **NOT_RUN** |
+
+### Evidencia MIM-03
+
+- `DeviceAccessState` en `core/.../DeviceAccessState.kt`; `UnifiedDevice.accessState`.
+- `LinkDeviceRosterProjectorTest`: legacy reachable ≠ Home authorized, Home enrolled sin lease ≠ authenticated, Home authenticated, discovery verified only identity, unsigned none, revoked terminal.
+- `AirCatEligibilityPolicy` y `DeviceActionResolver` bloquean AirCat si `homeAuthorized && !authenticated`.
+- `DeviceUiModels` distingue `HOME_ENROLLED`/`HOME_AUTHENTICATED`; `DeviceDetailSheet` muestra badge.
+- `LinkDiscovery` deduplica por `michiId` verificado; auditoría en `docs/devices/DISCOVERY_AUTH_STATE_AUDIT.md` (mDNS/Tailscale no implementados).
+
+### Evidencia MIM-09/MIM-07/MIM-11
+
+- Handoff `PlaybackSessionManager`: confirma `playing`, track e índice observados antes de pausar el origen; normaliza índice -1; el audio local sigue si no confirma.
+- Reauth Home desde el polling (`refreshRemotePlayback`/`refreshRemoteQueue`) y `EventClient` con `tokenProvider` que relee el bearer en cada reconnect.
+- Runbook `docs/runbooks/HOME_ENROLLMENT.md`; badges Home en UI.
+
+### DRIFT
+
+- Link `main` `ea76ee0e` (R1.5, limpio); Micro HEAD `b507b47` con 12 archivos R1.5 y vendor a `ea76ee0e` (sin commit). No adoptado; Mobile sigue R1.4 `8dad0fb5`.

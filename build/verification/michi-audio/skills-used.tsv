@@ -117,3 +117,31 @@ mim01-gradle	gradle-run	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
 mim01-tdd	tdd	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
 mim01-debug	systematic-debugging	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
 mim01-review	code-review	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+# MIM LOTE 02 (2026-11-27): additional skills loaded for HomeSessionAuthority, enrollment UI and queue/playback work.
+mim02-bootstrap	using-chrisbanes-skills	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-plan	to-plan	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-implement	deliver-spec	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-api	kotlin-api-design	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-control-flow	kotlin-control-flow	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-ui-state	compose-state-and-effects	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-ui-component	compose-component-design	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-ui-test	compose-ui-testing-patterns	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-gradle	gradle-run	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-tdd	tdd	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-debug	systematic-debugging	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim02-review	code-review	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+# MIM LOTE 03 (2026-11-27): access-state, discovery audit, handoff confirmation.
+mim03-bootstrap	using-chrisbanes-skills	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-plan	to-plan	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-implement	deliver-spec	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-api	kotlin-api-design	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-control-flow	kotlin-control-flow	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-ui-state	compose-state-and-effects	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-ui-component	compose-component-design	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-ui-test	compose-ui-testing-patterns	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-gradle	gradle-run	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-tdd	tdd	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-debug	systematic-debugging	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF
+mim03-review	code-review	LOADED	opencode-session:ses_de1c3fb54ffenQTBiEKualinJF

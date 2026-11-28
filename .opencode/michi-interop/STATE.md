@@ -1,45 +1,44 @@
 # Estado MIM
 
-## Checkpoint actual — 2026-11-27
+## Checkpoint actual — LOTE 03 (2026-11-27)
 
-- **Estado global:** LOTE_01_COMPLETADO + CI GREEN en `f8a37cf3` (MIM-01..MIM-08 con código y tests JVM; MIM-09..11 parciales)
-- **Avance de implementación:** 83.25% (pesos en `BACKLOG.md`)
-- **Verificación:** JVM PASS; CI GitHub runs `46064991170` (`972795f4`, intento 2) y `46068074299` (`f8a37cf3`, intento 3) SUCCESS; Android físico/red real NOT_RUN
-- **Operación pendiente:** ninguna a medias. El árbol compila y los tests pasan.
-- **Siguiente tarea exacta:** MIM-05.5 / MIM-11.2 — UI de enrollment Home.
-- **Después:** MIM-07 / MIM-09 / MIM-10.3 — cablear sesión Home compartida.
-- **Repo de desarrollo:** `/home/cristian/michi-music-mobile`, `master`, SHA de código+CI verificado `f8a37cf3` (implementación `d4082d6f`, evidencia `c8036bc4`, fixes CI `af03ca41`, `972795f4`, `f8a37cf3`; baseline `a737eb9f`). Un commit posterior sólo actualiza esta evidencia; el HEAD de `master` es la referencia final.
-- **Referencias:** Micro `b507b47...` limpio; Link `8dad0fb5...` limpio; pin `8dad0fb5...` verificado.
-- **CI:** run `46068074299` (head `f8a37cf3`, intento 3) **SUCCESS**: Job A Lint, Job G Instrumented API 36, Job F Build F-Droid y Quality Gate verdes. El intento 1/2 de Job F falló por HTTP 429 de Maven Central y pasó al reintentar; no fue un fallo de código. Run previo `46064991170` (`972795f4`) también verde.
+- **Estado global:** LOTE_03_CHECKPOINT con cambios locales **sin commit** sobre `64db675e`.
+- **Avance de implementación:** 90.0% (ver `BACKLOG.md`); no es certificación.
+- **Verificación:** JVM de todos los módulos PASS (237 link + 1095 core + 414 aircat + 234 player + 2948 normal + 2948 fdroid); lint PASS; arquitectura PASS; instrumentado de LOTE 03 **NOT_RUN**; red real/físico **NOT_RUN**.
+- **Operación pendiente:** ninguna a medias; el árbol compila, las suites JVM pasan y lint/arquitectura pasan. Instrumentado/red/físico NO-RUN.
+- **Siguiente tarea exacta:** MIM-10 — E2E AirCat real (manifest/grant/download, revocación durante transferencia) si hay servidor autorizado; en su defecto MIM-11 estados restantes y MIM-09 recuperación/rollback.
+- **Después:** MIM-09 recuperación completa/rollback y MIM-03 mDNS/roster si se autoriza.
+- **Repo:** `/home/cristian/michi-music-mobile`, `master`, HEAD base `64db675e9f64dfc0148d0ef9fa5fe6e394d2895e`, working tree sucio por LOTE 02+03, sin commit.
+- **Referencias:** Micro HEAD `b507b47...` pero working tree con 24 entradas R1.5, incluidos docs y tests nuevos (no tocado); Link `main` avanzó a `ea76ee0e` (R1.5) y está limpio. DRIFT registrado; el código sigue contra el pin R1.4 `8dad0fb5`. No adoptar R1.5 hasta commit/pin upstream.
+- **CI histórico:** run `46071123540` (head `64db675e`) **SUCCESS** con Job A/G.
 
-## Qué se completó en este lote
+## Qué se completó en LOTE 03
 
-- MIM-01: matriz de contratos y 8 tickets upstream (MS-001..004, ML-001..003 + índice).
-- MIM-02: criptografía Home canónica + golden vectors (firma byte a byte).
-- MIM-03: identidad de servidor y 5 flags AirCat.
-- MIM-04: transporte Home HTTPS+SPKI y pruebas de rechazo.
-- MIM-05: state machine de enrollment + persistencia cifrada + polling acotado.
-- MIM-06: verificación de membership y auth mutua antes de publicar token.
-- MIM-08: comandos canónicos, identidad de cola, jump fencing, errores tipados y UI degradada.
+- MIM-03: `DeviceAccessState` (availability/identity/Home/authenticated/capabilities/authorization), proyección en roster/UI, gating AirCat, dedup por `michiId`, auditoría Whisker/mDNS/Tailscale.
+- MIM-09: handoff local→remote confirma track/índice/playing observados antes de pausar el origen; normaliza índice -1; no pausa si el destino no confirma.
+- MIM-07: reauth Home desde el polling y proveedor de token SSE que relee el bearer; no reutiliza token viejo.
+- MIM-11: badge Home enrolled/authenticated y runbook `docs/runbooks/HOME_ENROLLMENT.md`.
 
-## Qué falta (no repetir lo anterior)
+## Qué se completó en LOTE 02
 
-1. **MIM-05.5 / MIM-11.2 (UI):** botón “Solicitar membresía” sobre un `AirCatHomeAnchor`; estados Pending/EnrolledOffline/Authenticated; polling; errores tipados. Punto de entrada: `MichiLinkTrustHost` / `AirCatExperienceHost`; coordinador ya en Koin.
-2. **MIM-07 (sesión):** autoridad única por Home; single-flight reauth; invalidación/revocación; stale fencing; limpiar token en `MEMBER_REVOKED`; backoff.
-3. **MIM-09/10.3:** usar `LinkClient.homeAuthenticatedGet` en `PlaybackSessionManager` y `AirCatOperationCoordinator`; no doble reproducción.
-4. **MIM-11.3/11.4:** UX de TLS/revocación, runbook ZimaOS, docs y F-Droid.
-5. **Certificación:** E2E red real + Android físico; no certificar sin evidencia.
+- MIM-07: `HomeSessionAuthority` única (single-flight, TTL monotónico, generación, revocación, backoff con jitter, roles), instalación de token sólo mediante prueba criptográfica `VerifiedHomeSession`.
+- MIM-05.5: enrollment real en `MichiLinkTrustHost`/`DevicesScreen`: QR → request → pending → refresh/poll → approved → auth, estados honestos y cancelación.
+- MIM-03: distinción ausente/explícito-vacío/false en `server/info.features`; cache histórica sólo si el campo falta.
+- MIM-08: operaciones por instancia (`queue_item_id`) en jump/delete/reorder, postcondiciones exactas, estados CONFLICT/UNKNOWN_OUTCOME, lifecycle real y arreglo de unmute.
+- MIM-10.3: `AirCatOperationCoordinator` resuelve la sesión Home antes de credenciales legacy; sin fallback a SERVER_CODE.
+- EventClient: sin replay de eventos viejos y cancelación no tragada.
+
+## Qué falta (no repetir)
+
+1. **MIM-10:** E2E AirCat con manifest/grant/download reales y revocación durante transferencia.
+2. **MIM-11:** estados de enrollment en AirCatExperienceHost/SyncViewModel/ConnectionManager y diagnóstico de discovery.
+3. **MIM-09:** recuperación/rollback completo ante fallo de destino y pruebas de tracks faltantes/duplicados.
+4. **MIM-03:** mDNS (`_michi-link._tcp`) y Home roster no implementados; no adoptar R1.5 sin commit/pin.
 
 ## Bloqueos
 
-- MS-001 (P0 documental) no bloquea a Mobile ya implementado, pero bloquea a otros consumidores.
-- MS-002/MS-003 impiden jump/add-next atómicos; Mobile usa el camino seguro posible.
-- MS-004 obliga a tolerar alias de respuesta.
-- No hay servidor Micro autorizado vivo ni dispositivo Android conectado en este entorno.
-
-## Reglas para el próximo ejecutor
-
-- Leer `STATE.md`, `BACKLOG.md`, `BASELINE.md`, `DECISIONS.md`, `EVIDENCE.md` antes de editar.
-- Verificar HEADs y `git status` de los tres repos; no asumir los SHAs de este checkpoint.
-- No commit/push; no tocar Micro/Link; no Gradle directo.
-- Actualizar los seis informes del Escritorio al cerrar el siguiente lote.
+- MS-001 (P0 documental) sigue abierto; Mobile ya usa vectores reales.
+- MS-002/MS-003 impiden jump/add-next atómicos.
+- MS-004 obliga a tolerar alias de repeat/shuffle.
+- MS-005 (nuevo): `unmute` del servidor impone volumen 80 en vez de restaurar el previo.
+- Sin servidor Micro autorizado vivo ni dispositivo físico; el emulador existe para instrumentación local.

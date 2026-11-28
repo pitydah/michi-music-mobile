@@ -18,6 +18,7 @@ import org.michimusic.link.PairedDevice
 import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.identity.MichiIdentity
 import org.michimusic.link.identity.MichiIdentityAuthority
+import org.michimusic.mobile.devices.home.HomeSessionAuthority
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -74,6 +75,8 @@ internal class AirCatOperationCoordinator(
             pairedClientDeviceId = device.pairedClientDeviceId,
         )
     },
+    private val homeTrust: AirCatHomeAuthorityProvider? = null,
+    private val homeSession: HomeSessionAuthority? = null,
 ) {
     private class TerminalResult(private val callback: (Boolean, String) -> Unit) {
         private val delivered = AtomicBoolean(false)
@@ -88,12 +91,29 @@ internal class AirCatOperationCoordinator(
     private data class SelectedClient(val client: LinkClient, val owned: Boolean)
 
     /** The paired registry is a local hint, not proof of Link cryptographic trust. */
-    private fun resolveClient(
+    private fun hasUsableTransport(device: PairedDevice): Boolean {
+        val homeAnchor = homeTrust?.anchorForSource(device.effectiveMichiId)
+        return (device.lastUrl.isNotBlank() || homeAnchor != null) &&
+            (device.deviceToken.isNotBlank() || (homeAnchor != null && homeSession != null))
+    }
+
+    private suspend fun resolveClient(
         targetDeviceId: String,
         device: PairedDevice,
         identity: MichiIdentity,
         currentClient: LinkClient?,
     ): SelectedClient {
+        // MIM-10.3: a Home-enrolled source uses the one verified Home session,
+        // never a legacy device token or an unpinned client.
+        val homeAnchor = homeTrust?.anchorForSource(device.effectiveMichiId)
+        if (homeAnchor != null && homeSession != null) {
+            val lease = homeSession.ensureAuthenticated(homeAnchor).getOrElse { error ->
+                throw IllegalStateException(
+                    "Sesión Home no disponible para $targetDeviceId: ${error.message}",
+                )
+            }
+            return SelectedClient(lease.client, owned = false)
+        }
         require(device.deviceToken.isNotBlank() && device.lastUrl.isNotBlank()) {
             "El dispositivo $targetDeviceId no posee credenciales o URL válidas"
         }
@@ -223,9 +243,9 @@ internal class AirCatOperationCoordinator(
             else transfer.enrolledSourceTlsPin(canonicalSourceId, device.lastUrl)
         } ?: return Result.failure(IllegalStateException(
             "AirCat seguro requiere vinculación Home, certificado HTTPS fijado y proveedor autorizado"))
-        if (device.deviceToken.isBlank() || device.lastUrl.isBlank()) {
+        if (!hasUsableTransport(device)) {
             return Result.failure(IllegalStateException(
-                "El dispositivo $targetDeviceId no posee credenciales o URL válidas"))
+                "El dispositivo $targetDeviceId no posee credenciales, sesión Home o URL válidas"))
         }
         val identity = identityAuthority.await()
             ?: return Result.failure(IllegalStateException(
@@ -323,8 +343,8 @@ internal class AirCatOperationCoordinator(
                         "AirCat seguro requiere vinculación Home, certificado HTTPS fijado y proveedor autorizado")
                     return@launch
                 }
-                if (device.deviceToken.isBlank() || device.lastUrl.isBlank()) {
-                    terminal.send(false, "El dispositivo $targetDeviceId no posee credenciales o URL válidas")
+                if (!hasUsableTransport(device)) {
+                    terminal.send(false, "El dispositivo $targetDeviceId no posee credenciales, sesión Home o URL válidas")
                     return@launch
                 }
                 val identity = identityAuthority.await() ?: run {

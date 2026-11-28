@@ -173,24 +173,26 @@ class HomeAuthCryptoTest {
             serverMembership = serverMembership,
             serverSignature = serverAuthExpectedSignature,
         )
+        val verified = HomeServerSessionVerifier.verify(
+            response, homeRootPublicKey, homeId, serverMichiId,
+            clientMichiId, authChallengeId,
+        )
+        assertTrue(verified is HomeSessionVerification.Verified)
         assertEquals(
-            HomeVerification.Valid,
-            HomeServerSessionVerifier.verify(
-                response, homeRootPublicKey, homeId, serverMichiId,
-                clientMichiId, authChallengeId,
-            ),
+            sessionToken,
+            (verified as HomeSessionVerification.Verified).session.sessionToken,
         )
         assertTrue(
             HomeServerSessionVerifier.verify(
                 response.copy(serverSignature = "A".repeat(86)),
                 homeRootPublicKey, homeId, serverMichiId, clientMichiId, authChallengeId,
-            ) is HomeVerification.Invalid,
+            ) is HomeSessionVerification.Invalid,
         )
         assertTrue(
             HomeServerSessionVerifier.verify(
                 response.copy(serverMichiId = clientMichiId),
                 homeRootPublicKey, homeId, serverMichiId, clientMichiId, authChallengeId,
-            ) is HomeVerification.Invalid,
+            ) is HomeSessionVerification.Invalid,
         )
     }
 

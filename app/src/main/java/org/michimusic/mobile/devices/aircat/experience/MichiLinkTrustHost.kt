@@ -9,6 +9,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.michimusic.mobile.devices.aircat.AirCatHomeTrustAdmin
+import org.michimusic.mobile.devices.home.HomeEnrollmentCoordinator
+import org.michimusic.mobile.devices.home.HomeSessionAuthority
 
 /**
  * A71-09: wires the Home trust screen to the encrypted inventory.
@@ -24,10 +26,14 @@ internal fun MichiLinkTrustHost(
     onLinkHome: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    homeEnrollment: HomeEnrollmentCoordinator? = null,
+    sessionAuthority: HomeSessionAuthority? = null,
 ) {
     val scope = rememberCoroutineScope()
     val admin = remember(store) { MichiLinkTrustAdmin(store) }
-    val controller = remember(admin) { MichiLinkTrustController(scope, admin) }
+    val controller = remember(admin, homeEnrollment, sessionAuthority) {
+        MichiLinkTrustController(scope, admin, store, homeEnrollment, sessionAuthority)
+    }
     val state by controller.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(controller) {

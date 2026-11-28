@@ -929,7 +929,13 @@ internal fun MichiLinkTrustContent(
                 if (state.sources.isNotEmpty()) {
                     item { TrustSectionTitle("Orígenes autorizados") }
                     items(state.sources, key = { it.sourceMichiId }) { source ->
-                        TrustSourceCard(source, enabled = state.canRequest, onIntent = onIntent)
+                        TrustSourceCard(
+                            source = source,
+                            enabled = state.canRequest,
+                            enrollment = state.enrollment.takeIf { it.sourceMichiId == source.sourceMichiId },
+                            canEnroll = state.canEnroll,
+                            onIntent = onIntent,
+                        )
                     }
                 }
             }
@@ -1012,6 +1018,8 @@ private fun TrustHomeCard(
 private fun TrustSourceCard(
     source: org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource,
     enabled: Boolean,
+    enrollment: HomeEnrollmentUiState?,
+    canEnroll: Boolean,
     onIntent: (MichiLinkTrustIntent) -> Unit,
 ) {
     AeroSurface(
@@ -1034,6 +1042,74 @@ private fun TrustSourceCard(
                 "Huella TLS: ${airCatShortDigest(source.tlsSpkiSha256)}",
                 color = TextSecondary, fontSize = 12.sp,
             )
+            if (enrollment != null) {
+                Text(
+                    when (enrollment.phase) {
+                        org.michimusic.link.home.HomeEnrollmentPhase.NOT_ENROLLED ->
+                            "Membresía: todavía no solicitada"
+                        org.michimusic.link.home.HomeEnrollmentPhase.ENROLLMENT_PENDING ->
+                            "Membresía: pendiente de aprobación en la WebUI del Home"
+                        org.michimusic.link.home.HomeEnrollmentPhase.ENROLLED_OFFLINE ->
+                            "Membresía: verificada y guardada; sesión sin autenticar"
+                        org.michimusic.link.home.HomeEnrollmentPhase.AUTHENTICATED_ONLINE ->
+                            "Sesión Home autenticada y verificada"
+                        org.michimusic.link.home.HomeEnrollmentPhase.REJECTED ->
+                            "Membresía: rechazada o expirada"
+                        org.michimusic.link.home.HomeEnrollmentPhase.REVOKED ->
+                            "Membresía: revocada por el Home"
+                        org.michimusic.link.home.HomeEnrollmentPhase.ERROR ->
+                            "Membresía: no se pudo completar"
+                    },
+                    color = if (enrollment.phase == org.michimusic.link.home.HomeEnrollmentPhase.REVOKED)
+                        PrimaryPinkContainer else TextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.testTag("michi_link_trust_enrollment_status_${source.sourceMichiId}"),
+                )
+                enrollment.message?.takeIf { it.isNotBlank() }?.let { message ->
+                    Text(message, color = TextSecondary, fontSize = 11.sp)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.sm)) {
+                if (enrollment == null ||
+                    enrollment.phase == org.michimusic.link.home.HomeEnrollmentPhase.NOT_ENROLLED ||
+                    enrollment.phase == org.michimusic.link.home.HomeEnrollmentPhase.REJECTED ||
+                    enrollment.phase == org.michimusic.link.home.HomeEnrollmentPhase.ERROR) {
+                    TextButton(
+                        onClick = { onIntent(MichiLinkTrustIntent.RequestEnrollment(source)) },
+                        enabled = canEnroll && enrollment?.busy != true,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .testTag("michi_link_trust_enroll_request_${source.sourceMichiId}"),
+                    ) { Text("Solicitar membresía") }
+                }
+                if (enrollment?.phase == org.michimusic.link.home.HomeEnrollmentPhase.ENROLLMENT_PENDING) {
+                    TextButton(
+                        onClick = { onIntent(MichiLinkTrustIntent.RefreshEnrollment) },
+                        enabled = canEnroll && !enrollment.busy,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .testTag("michi_link_trust_enroll_refresh_${source.sourceMichiId}"),
+                    ) { Text("Actualizar estado") }
+                    TextButton(
+                        onClick = { onIntent(MichiLinkTrustIntent.PollEnrollment) },
+                        enabled = canEnroll && !enrollment.busy,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .testTag("michi_link_trust_enroll_poll_${source.sourceMichiId}"),
+                    ) { Text("Esperar aprobación") }
+                    TextButton(
+                        onClick = { onIntent(MichiLinkTrustIntent.CancelEnrollment) },
+                        enabled = enrollment.busy,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .testTag("michi_link_trust_enroll_cancel_${source.sourceMichiId}"),
+                    ) { Text("Cancelar espera") }
+                }
+                if (enrollment?.phase == org.michimusic.link.home.HomeEnrollmentPhase.ENROLLED_OFFLINE) {
+                    TextButton(
+                        onClick = { onIntent(MichiLinkTrustIntent.AuthenticateEnrollment) },
+                        enabled = canEnroll && !enrollment.busy,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .testTag("michi_link_trust_enroll_auth_${source.sourceMichiId}"),
+                    ) { Text("Autenticar sesión") }
+                }
+            }
             TextButton(
                 onClick = { onIntent(MichiLinkTrustIntent.RequestSourceRevocation(source)) },
                 enabled = enabled,

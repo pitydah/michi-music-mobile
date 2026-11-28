@@ -716,8 +716,20 @@ class RemoteQueueAuthorizationTest {
     @Test
     fun handoffTo_whenRemoteHostIdleAndEmpty_proceedsDirectly() = runTest {
         val linkClient = mockk<LinkClient>(relaxed = true)
-        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = false))
-        coEvery { linkClient.getQueue() } returns Result.success(QueueDto(tracks = emptyList(), currentIndex = -1))
+        coEvery { linkClient.getPlaybackState() } returnsMany listOf(
+            Result.success(PlaybackStateDto(playing = false)),
+            Result.success(PlaybackStateDto(
+                state = "playing", lifecycle = "playing", playing = true, queueIndex = 0,
+            )),
+        )
+        coEvery { linkClient.getQueue() } returnsMany listOf(
+            Result.success(QueueDto(tracks = emptyList(), currentIndex = -1)),
+            Result.success(QueueDto(
+                tracks = listOf(QueueTrackDto("srv_local", "Local Track")),
+                currentIndex = 0,
+                itemIds = listOf("item-1"),
+            )),
+        )
         coEvery { linkClient.search(any()) } returns Result.success(listOf(org.michimusic.link.dto.TrackResponseDto(id = "srv_local", title = "Local Track")))
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
 

@@ -114,3 +114,24 @@ enum class HomeEnrollmentPhase {
     REVOKED,
     ERROR,
 }
+
+
+/**
+ * MIM-07: unforgeable proof that [HomeServerSessionVerifier] accepted a
+ * server auth response. The constructor is module-internal on purpose: callers
+ * cannot fabricate a token from a prefix or a plain String.
+ */
+class VerifiedHomeSession internal constructor(
+    val homeId: String,
+    val serverMichiId: String,
+    val clientMichiId: String,
+    val sessionToken: String,
+    val expiresInSeconds: Long,
+    val challengeId: String,
+    val serverMembership: HomeMembershipDto,
+)
+
+sealed interface HomeSessionVerification {
+    data class Verified(val session: VerifiedHomeSession) : HomeSessionVerification
+    data class Invalid(val reason: String) : HomeSessionVerification
+}

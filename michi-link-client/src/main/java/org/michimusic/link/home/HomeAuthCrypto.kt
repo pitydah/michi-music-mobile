@@ -274,20 +274,27 @@ object HomeServerSessionVerifier {
         clientMichiId: String,
         challengeId: String,
         revokedDeviceMichiIds: Set<String> = emptySet(),
-    ): HomeVerification {
-        if (response.tokenType != "Bearer") return HomeVerification.Invalid("INVALID_TOKEN_TYPE")
-        if (response.sessionToken.isBlank()) return HomeVerification.Invalid("EMPTY_SESSION_TOKEN")
-        if (response.expiresIn <= 0) return HomeVerification.Invalid("INVALID_EXPIRES_IN")
+    ): HomeSessionVerification {
+        if (response.tokenType != "Bearer") return HomeSessionVerification.Invalid("INVALID_TOKEN_TYPE")
+        if (!response.sessionToken.startsWith("michi_home_") ||
+            response.sessionToken.length !in 16..512) {
+            return HomeSessionVerification.Invalid("INVALID_SESSION_TOKEN")
+        }
+        if (response.expiresIn !in 1..86_400) {
+            return HomeSessionVerification.Invalid("INVALID_EXPIRES_IN")
+        }
         if (response.serverMichiId != expectedServerMichiId) {
-            return HomeVerification.Invalid("UNEXPECTED_SERVER")
+            return HomeSessionVerification.Invalid("UNEXPECTED_SERVER")
         }
         val membership = response.serverMembership
         val membershipResult = HomeMembershipVerifier.verify(
             membership, homeRootPublicKeyBase64Url, expectedHomeId, revokedDeviceMichiIds,
         )
-        if (membershipResult is HomeVerification.Invalid) return membershipResult
+        if (membershipResult is HomeVerification.Invalid) {
+            return HomeSessionVerification.Invalid(membershipResult.reason)
+        }
         if (membership.deviceMichiId != response.serverMichiId) {
-            return HomeVerification.Invalid("SERVER_MEMBERSHIP_MISMATCH")
+            return HomeSessionVerification.Invalid("SERVER_MEMBERSHIP_MISMATCH")
         }
         val payload = HomeAuthTranscript.serverAuth(
             homeId = expectedHomeId,
@@ -297,8 +304,18 @@ object HomeServerSessionVerifier {
             sessionToken = response.sessionToken,
         )
         if (!HomeEd25519.verify(membership.devicePublicKey, response.serverSignature, payload)) {
-            return HomeVerification.Invalid("INVALID_SERVER_SIGNATURE")
+            return HomeSessionVerification.Invalid("INVALID_SERVER_SIGNATURE")
         }
-        return HomeVerification.Valid
+        return HomeSessionVerification.Verified(
+            VerifiedHomeSession(
+                homeId = expectedHomeId,
+                serverMichiId = expectedServerMichiId,
+                clientMichiId = clientMichiId,
+                sessionToken = response.sessionToken,
+                expiresInSeconds = response.expiresIn,
+                challengeId = challengeId,
+                serverMembership = membership,
+            ),
+        )
     }
 }

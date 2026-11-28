@@ -7,6 +7,8 @@ enum class RemoteCommandStatus {
     ACCEPTED,
     CONFIRMED,
     REJECTED,
+    CONFLICT,
+    UNKNOWN_OUTCOME,
     TIMED_OUT,
     UNSUPPORTED,
     DISCONNECTED,

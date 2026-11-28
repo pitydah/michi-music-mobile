@@ -44,8 +44,20 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
-        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
+        coEvery { linkClient.getPlaybackState() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false)),
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(
+                state = "playing", lifecycle = "playing", playing = true, queueIndex = 0,
+            )),
+        )
+        coEvery { linkClient.getQueue() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1)),
+            Result.success(org.michimusic.link.dto.QueueDto(
+                tracks = listOf(org.michimusic.link.dto.QueueTrackDto("server_track_42", "Track")),
+                currentIndex = 0,
+                itemIds = listOf("item-1"),
+            )),
+        )
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
@@ -115,8 +127,20 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
-        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
+        coEvery { linkClient.getPlaybackState() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false)),
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(
+                state = "playing", lifecycle = "playing", playing = true, queueIndex = 0,
+            )),
+        )
+        coEvery { linkClient.getQueue() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1)),
+            Result.success(org.michimusic.link.dto.QueueDto(
+                tracks = listOf(org.michimusic.link.dto.QueueTrackDto("remote_hotel_california", "Track")),
+                currentIndex = 0,
+                itemIds = listOf("item-1"),
+            )),
+        )
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
@@ -179,8 +203,24 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
-        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
+        coEvery { linkClient.getPlaybackState() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false)),
+            Result.success(org.michimusic.link.dto.PlaybackStateDto(
+                state = "playing", lifecycle = "playing", playing = true, queueIndex = 1,
+            )),
+        )
+        coEvery { linkClient.getQueue() } returnsMany listOf(
+            Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1)),
+            Result.success(org.michimusic.link.dto.QueueDto(
+                tracks = listOf(
+                    org.michimusic.link.dto.QueueTrackDto("remote_A", "Track A"),
+                    org.michimusic.link.dto.QueueTrackDto("streaming_B", "Track B"),
+                    org.michimusic.link.dto.QueueTrackDto("remote_C", "Track C"),
+                ),
+                currentIndex = 1,
+                itemIds = listOf("item-1", "item-2", "item-3"),
+            )),
+        )
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
@@ -219,10 +259,14 @@ class QueueMappingTest {
         )
 
         var handoffResult = false
-        manager.handoffTo(serverEndpoint) { success, _ -> handoffResult = success }
+        var handoffMessage = ""
+        manager.handoffTo(serverEndpoint) { success, message ->
+            handoffResult = success
+            handoffMessage = message
+        }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(handoffResult)
+        assertTrue(handoffMessage, handoffResult)
         // Verify Track B was NOT searched
         coVerify(exactly = 0) { linkClient.search("Track B") }
         // Verify transferred queue in exact order

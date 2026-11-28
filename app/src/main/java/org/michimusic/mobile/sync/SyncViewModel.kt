@@ -102,6 +102,8 @@ class SyncViewModel(
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
     private val autoSyncScheduler: AutoSyncScheduler? = null,
+    private val airCatHomeTrust: org.michimusic.mobile.devices.aircat.AirCatHomeAuthorityProvider? = null,
+    private val homeSessionAuthority: org.michimusic.mobile.devices.home.HomeSessionAuthority? = null,
     // A68-08: releasing the multicast socket must survive this ViewModel's death,
     // so the coordinator tears down on its own scope. Production uses IO; a test
     // that drives discovery deterministically passes its own scheduler.
@@ -113,8 +115,18 @@ class SyncViewModel(
     private val airCatOperations = org.michimusic.mobile.devices.aircat.AirCatOperationCoordinator(
         context = context, registry = registry, connectionManager = connectionManager,
         identityAuthority = identityAuthority, airCatClient = airCatClient, lease = airCatLease,
+        homeTrust = airCatHomeTrust, homeSession = homeSessionAuthority,
     )
-    private val rosterProjector = org.michimusic.mobile.devices.link.LinkDeviceRosterProjector(registry)
+    private val rosterProjector = org.michimusic.mobile.devices.link.LinkDeviceRosterProjector(
+        registry = registry,
+        homeAuthorized = { sourceMichiId ->
+            airCatHomeTrust?.anchorForSource(sourceMichiId) != null
+        },
+        homeAuthenticated = { sourceMichiId ->
+            val anchor = airCatHomeTrust?.anchorForSource(sourceMichiId)
+            anchor != null && homeSessionAuthority?.currentLease()?.homeId == anchor.homeId
+        },
+    )
     private val discoveryCoordinator by lazy {
         org.michimusic.mobile.devices.link.LinkDiscoveryCoordinator(
             linkDiscovery = linkDiscovery,

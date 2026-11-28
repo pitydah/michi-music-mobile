@@ -46,7 +46,15 @@ data class ServerInfoDto(
         val tr = f["token_refresh"]
         return tr?.let { parseBool(it) } ?: false
     }
-    val effectiveFeatures: List<String> get() = features?.filter { parseBool(it.value) }?.keys?.toList() ?: emptyList()
+    /**
+     * MIM-03: `null` means the server did not send a features field (historical
+     * cache may be kept); an empty list means the server explicitly declared no
+     * features and the cache must be cleared. Never collapse these two cases.
+     */
+    val verifiedFeatures: List<String>?
+        get() = features?.filter { parseBool(it.value) }?.keys?.toList()
+
+    val effectiveFeatures: List<String> get() = verifiedFeatures.orEmpty()
 }
 
 @Serializable

@@ -62,6 +62,8 @@ data class UnifiedDevice(
     // Michi Link canonical identity verified from the trusted pairing registry.
     // Never infer it from id, IP, name or an unsigned discovery announce.
     val canonicalMichiId: String? = null,
+    /** MIM-03: availability/auth/capabilities are never inferred from each other. */
+    val accessState: DeviceAccessState = DeviceAccessState(),
 )
 
 @Serializable

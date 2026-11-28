@@ -49,8 +49,12 @@ class EventClient(
         }
     },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Re-read on every reconnect so a Home reauth never reuses an old bearer. */
+    private val tokenProvider: (() -> String)? = null,
 ) {
-    private val _events = MutableSharedFlow<ServerEvent>(replay = 1, extraBufferCapacity = 64)
+    // MIM-07: no replay across a reauth/reconnect. A late collector must not
+    // receive an event produced by an older session generation.
+    private val _events = MutableSharedFlow<ServerEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
 
     private val _connectionState = MutableStateFlow(EventConnectionState.DISCONNECTED)
@@ -103,8 +107,9 @@ class EventClient(
         onConnected: () -> Unit = {},
     ): Job = scope.launch(ioDispatcher) {
         try {
+            val bearer = tokenProvider?.invoke()?.takeIf { it.isNotBlank() } ?: token
             client.prepareGet("$baseUrl/api/v1/events/sse") {
-                header("Authorization", "Bearer $token")
+                header("Authorization", "Bearer $bearer")
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
             }.execute { response ->
                 // HTTP 401/403/404/500 is not a connected SSE stream.
@@ -124,14 +129,18 @@ class EventClient(
                             try {
                                 val event = json.decodeFromString<ServerEvent>(data)
                                 _events.emit(event)
-                            } catch (_: Throwable) { }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // A malformed event is dropped; the stream stays alive.
+                            }
                         }
                     }
                 }
             }
-        } catch (_: kotlinx.coroutines.CancellationException) {
-            // Normal cancellation
-        } catch (_: Throwable) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             _connectionState.value = EventConnectionState.ERROR
         }
     }

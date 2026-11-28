@@ -41,6 +41,8 @@ class PlaybackSessionManager(
     private val connectionManager: ConnectionManager,
     private val linkDiscovery: LinkDiscovery,
     private val registry: PairedDeviceRegistry,
+    private val homeTrust: org.michimusic.mobile.devices.aircat.AirCatHomeAuthorityProvider? = null,
+    private val homeSession: org.michimusic.mobile.devices.home.HomeSessionAuthority? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -73,7 +75,7 @@ class PlaybackSessionManager(
                 it.type != EndpointType.STREAM_RECEIVER &&
                 "AUDIO_OUTPUT" !in it.capabilities && "REMOTE_CONTROL" in it.capabilities }
             .distinctBy { it.id }.take(8).forEach { endpoint ->
-                val client = connectionManager.getClient(endpoint.id) ?: return@forEach
+                val client = currentClient(endpoint.id) ?: return@forEach
                 scope.launch(ioDispatcher) {
                     val state = runCatching { client.getPlaybackState() }.getOrNull()?.getOrNull()
                     withContext(Dispatchers.Main) {
@@ -163,7 +165,7 @@ class PlaybackSessionManager(
                 if (request.epoch != _sessionEpoch.get() ||
                     _sessionState.value.activeEndpoint.id != request.endpointId
                 ) continue
-                connectionManager.getClient(request.endpointId)?.sendSeek(request.positionMs)
+                currentClient(request.endpointId)?.sendSeek(request.positionMs)
             }
         }
         rtpAudioSender.onError = { ex ->
@@ -356,9 +358,30 @@ class PlaybackSessionManager(
         )
     }
 
+    /**
+     * MIM-07/MIM-09: a Home-enrolled endpoint never falls back to a legacy
+     * SERVER_CODE token. It uses the one verified Home lease or fails closed.
+     */
+    private fun homeAnchorFor(deviceId: String): org.michimusic.mobile.devices.aircat.AirCatHomeAnchor? {
+        val sourceMichiId = registry.getDevice(deviceId)?.effectiveMichiId
+            ?.takeIf { it.isNotBlank() }
+            ?: deviceId.takeIf { it.length == 43 }
+        return sourceMichiId?.let { homeTrust?.anchorForSource(it) }
+    }
+
+    private fun currentClient(deviceId: String): LinkClient? {
+        val anchor = homeAnchorFor(deviceId)
+        if (anchor != null) {
+            return homeSession?.currentLease()
+                ?.takeIf { it.homeId == anchor.homeId }
+                ?.client
+        }
+        return connectionManager.getClient(deviceId)
+    }
+
     private fun startRemoteSync(peer: DiscoveredPeer?, deviceId: String) {
         stopRemoteSync()
-        val client = connectionManager.getClient(deviceId) ?: return
+        val client = currentClient(deviceId) ?: return
         if (peer == null) {
             // A paired host without live mDNS still supports an initial read.
             // Do not install an endless polling job tied to a nonexistent peer.
@@ -369,8 +392,14 @@ class PlaybackSessionManager(
         }
 
         // 1. Events-first SSE sync
-        val token = client.deviceToken.ifEmpty { client.sessionToken }
-        val ec = client.createEventClient(token)
+        val token = client.homeSessionBearer()
+            ?: client.deviceToken.ifEmpty { client.sessionToken }
+        val ec = client.createEventClient(token) {
+            // A reauth publishes a new LinkClient; read the current lease bearer
+            // instead of holding the token captured when this SSE started.
+            homeSession?.currentLease()?.client?.homeSessionBearer()
+                ?: client.deviceToken.ifEmpty { client.sessionToken }
+        }
         eventClient = ec
         eventJob = scope.launch(ioDispatcher) {
             ec.events.collect { event ->
@@ -414,12 +443,20 @@ class PlaybackSessionManager(
     /** Returns true when the read completed, false when the host could not be reached. */
     private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer?, deviceId: String): Boolean {
         val opEpoch = _sessionEpoch.get()
-        val stateDto = client.getPlaybackState().getOrNull() ?: return false
+        // MIM-07: polling is the reauth tick for a Home endpoint. If the lease
+        // expired, renew it through the single authority before reading state.
+        val anchor = homeAnchorFor(deviceId)
+        val activeClient = if (anchor != null) {
+            homeSession?.ensureAuthenticated(anchor)?.getOrNull()?.client ?: return false
+        } else {
+            client
+        }
+        val stateDto = activeClient.getPlaybackState().getOrNull() ?: return false
         if (!isRemoteSelected || opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != deviceId) {
             // A stale read is not a network failure; it was already replaced.
             return true
         }
-        val queueDto = client.getQueue().getOrNull()
+        val queueDto = activeClient.getQueue().getOrNull()
         if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != deviceId) return true
         withContext(Dispatchers.Main) {
             applyRemoteState(peer, stateDto, queueDto, deviceId)
@@ -472,7 +509,7 @@ class PlaybackSessionManager(
             )
         } else null
 
-        val baseUrl = connectionManager.getClient(deviceId)?.baseUrl ?: ""
+        val baseUrl = currentClient(deviceId)?.baseUrl ?: ""
         val qTracks = queueDto?.tracks?.map { qt ->
             Track(
                 id = qt.trackId,
@@ -493,7 +530,11 @@ class PlaybackSessionManager(
                 // above pins this read to the host we are controlling. A status payload
                 // without a title therefore cannot borrow another host's song, but it
                 // must not erase the track this same host just confirmed either.
-                currentTrack = remoteTrack ?: _sessionState.value.currentTrack,
+                currentTrack = when {
+                    remoteTrack != null -> remoteTrack
+                    dto.effectiveState in setOf("stopped", "ended") && dto.trackId.isBlank() -> null
+                    else -> _sessionState.value.currentTrack
+                },
                 isPlaying = dto.effectiveState == "playing",
                 position = dto.effectivePosition,
                 duration = dto.effectiveDuration,
@@ -505,6 +546,8 @@ class PlaybackSessionManager(
                 remoteQueueVersion = queueDto?.queueVersion ?: _sessionState.value.remoteQueueVersion,
                 queueDegraded = queueDto?.queueDegraded ?: _sessionState.value.queueDegraded,
                 queueDegradedReason = queueDto?.queueDegradedReason ?: _sessionState.value.queueDegradedReason,
+                remotePlaybackGeneration = dto.generationId,
+                remoteLifecycle = dto.lifecycle,
                 repeatMode = when (dto.repeat) { "one" -> 1; "all" -> 2; else -> 0 },
                 shuffleMode = if (dto.shuffle) 1 else 0,
                 isRemoteActive = true,
@@ -557,7 +600,7 @@ class PlaybackSessionManager(
         rtpAudioSender.stop()
         val activeEp = _sessionState.value.activeEndpoint
         if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
-            val client = connectionManager.getClient(activeEp.id)
+            val client = currentClient(activeEp.id)
             val sTok = activeReceiverSessionToken
             if (sTok != null) {
                 scope.launch(ioDispatcher) {
@@ -656,7 +699,7 @@ class PlaybackSessionManager(
             return
         }
 
-        val client = connectionManager.getClient(target.id)
+        val client = currentClient(target.id)
         if (client == null) {
             onResult(false, "No hay conexión activa con ${target.name}")
             return
@@ -702,7 +745,7 @@ class PlaybackSessionManager(
         if (target.isLocal) {
             // Handoff Remote -> Local (K46D-32)
             val prevEndpoint = _sessionState.value.activeEndpoint
-            val client = connectionManager.getClient(prevEndpoint.id)
+            val client = currentClient(prevEndpoint.id)
             val wasPlaying = _sessionState.value.isPlaying
             val q = _sessionState.value.queue
             val idx = _sessionState.value.queueIndex
@@ -758,7 +801,7 @@ class PlaybackSessionManager(
             // Handoff Local -> Remote
             val prevEp = _sessionState.value.activeEndpoint
             if (prevEp.id != target.id && (prevEp.type == EndpointType.STREAM_RECEIVER || prevEp.capabilities.contains("AUDIO_OUTPUT"))) {
-                val prevClient = connectionManager.getClient(prevEp.id)
+                val prevClient = currentClient(prevEp.id)
                 val prevTok = activeReceiverSessionToken
                 scope.launch(ioDispatcher) {
                     prevClient?.deleteReceiverLiteSession(prevTok)
@@ -773,7 +816,7 @@ class PlaybackSessionManager(
             }
 
             // Canonical ReceiverLite protocol for Michi Stream
-            val client = connectionManager.getClient(target.id)
+            val client = currentClient(target.id)
             if (client == null) {
                 onResult(false, "No hay conexión activa con ${target.name}")
                 return
@@ -918,7 +961,7 @@ class PlaybackSessionManager(
             }
         } else {
             // Handoff Local -> Remote Playback Host (SERVER / DESKTOP_PLAYER)
-            val client = connectionManager.getClient(target.id)
+            val client = currentClient(target.id)
 
             if (client == null) {
                 onResult(false, "No hay conexión activa con ${target.name}")
@@ -977,6 +1020,7 @@ class PlaybackSessionManager(
                         return@launch
                     }
 
+                    val targetIndex = idx.coerceAtLeast(0)
                     val resolvedTracks = q.mapIndexed { i, t -> t.copy(id = resolvedTrackIds[i]) }
                     val remoteSt = client.getPlaybackState().getOrNull()
                     val remoteQ = client.getQueue().getOrNull()
@@ -991,7 +1035,7 @@ class PlaybackSessionManager(
                         remoteActiveTrackTitle = remoteQ?.tracks?.getOrNull(remoteSt?.queueIndex ?: -1)?.title ?: remoteSt?.trackId,
                         remotePlaying = remotePlaying,
                         proposedTracks = resolvedTracks,
-                        proposedStartIndex = idx.coerceAtLeast(0),
+                        proposedStartIndex = targetIndex,
                         sessionEpoch = _sessionEpoch.get(),
                         snapshotFingerprint = remoteQ?.tracks?.joinToString(",") { it.trackId }
                     )
@@ -1012,12 +1056,34 @@ class PlaybackSessionManager(
 
                     val req = org.michimusic.link.dto.QueueTransferRequest(
                         trackIds = resolvedTrackIds,
-                        currentIndex = idx.coerceAtLeast(0),
+                        currentIndex = targetIndex,
                         positionMs = pos,
                         source = "local",
                         queueId = remoteQ?.queueId?.ifBlank { null }
                     )
-                    client.transferQueue(req).onSuccess {
+                    // MIM-09: the HTTP 200 is not proof of playback. Keep the
+                    // local source alive until the destination reports the exact
+                    // track/index and a playing lifecycle; never double-play.
+                    scope.launch {
+                        val transfer = client.transferQueue(req)
+                        if (transfer.isFailure) {
+                            onResult(false, "Error al transferir cola a ${target.name}")
+                            return@launch
+                        }
+                        val remoteState = client.getPlaybackState().getOrNull()
+                        val remoteQueue = client.getQueue().getOrNull()
+                        val expectedTrack = resolvedTrackIds.getOrNull(targetIndex)
+                        val observedTrack = remoteQueue?.tracks?.getOrNull(targetIndex)?.trackId
+                        val confirmed = remoteState?.playing == true &&
+                            remoteState.effectiveState == "playing" &&
+                            observedTrack != null && observedTrack == expectedTrack
+                        if (!confirmed) {
+                            onResult(
+                                false,
+                                "El host aceptó la cola pero no confirmó la reproducción; el audio local sigue activo",
+                            )
+                            return@launch
+                        }
                         audioController?.pause()
                         isRemoteSelected = true
                         _sessionState.value = _sessionState.value.copy(
@@ -1025,8 +1091,6 @@ class PlaybackSessionManager(
                             isRemoteActive = true,
                         )
                         onResult(true, "Reproduciendo en ${target.name}")
-                    }.onFailure {
-                        onResult(false, "Error al transferir cola a ${target.name}")
                     }
                 } else {
                     client.sendPlaybackCommand("play").onSuccess {
@@ -1048,7 +1112,7 @@ class PlaybackSessionManager(
     fun play() {
         val activeEp = _sessionState.value.activeEndpoint
         if (_sessionState.value.isRemoteActive) {
-            val client = connectionManager.getClient(activeEp.id)
+            val client = currentClient(activeEp.id)
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
@@ -1099,7 +1163,7 @@ class PlaybackSessionManager(
     fun pause() {
         val activeEp = _sessionState.value.activeEndpoint
         if (_sessionState.value.isRemoteActive) {
-            val client = connectionManager.getClient(activeEp.id)
+            val client = currentClient(activeEp.id)
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
@@ -1137,7 +1201,7 @@ class PlaybackSessionManager(
     fun stop() {
         val activeEp = _sessionState.value.activeEndpoint
         if (_sessionState.value.isRemoteActive) {
-            val client = connectionManager.getClient(activeEp.id)
+            val client = currentClient(activeEp.id)
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
@@ -1189,7 +1253,7 @@ class PlaybackSessionManager(
             val opEpoch = _sessionEpoch.get()
             scope.launch {
                 if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.sendPlaybackCommand("next")
+                currentClient(targetEndpoint.id)?.sendPlaybackCommand("next")
             }
         } else {
             audioController?.skipNext()
@@ -1202,7 +1266,7 @@ class PlaybackSessionManager(
             val opEpoch = _sessionEpoch.get()
             scope.launch {
                 if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.sendPlaybackCommand("previous")
+                currentClient(targetEndpoint.id)?.sendPlaybackCommand("previous")
             }
         } else {
             audioController?.skipPrevious()
@@ -1224,10 +1288,97 @@ class PlaybackSessionManager(
         }
     }
 
+    /** MIM-08: jump to the exact queue item captured by the gesture. */
+    fun skipToQueueItem(itemId: String, expectedTrackId: String) {
+        if (!isRemotePlaybackHost) return
+        val state = _sessionState.value
+        val targetEndpoint = state.activeEndpoint
+        if (itemId.isBlank() || expectedTrackId.isBlank()) return
+        if (state.queueItemIds.count { it == itemId } != 1) {
+            _sessionState.value = state.copy(
+                lastRemoteCommand = RemoteCommandRecord(
+                    endpointId = targetEndpoint.id,
+                    epoch = _sessionEpoch.get(),
+                    action = "jump_queue_item",
+                    param = itemId,
+                    status = RemoteCommandStatus.CONFLICT,
+                    resultMessage = "El elemento ya no pertenece a esta cola; no se saltó",
+                ),
+            )
+            return
+        }
+        val opEpoch = _sessionEpoch.get()
+        if (state.lastRemoteCommand?.let {
+                it.endpointId == targetEndpoint.id && it.status == RemoteCommandStatus.PENDING
+            } == true) return
+        val cmd = RemoteCommandRecord(
+            endpointId = targetEndpoint.id,
+            epoch = opEpoch,
+            action = "jump_queue_item",
+            param = itemId,
+            status = RemoteCommandStatus.PENDING,
+        )
+        _sessionState.value = state.copy(lastRemoteCommand = cmd)
+        scope.launch {
+            fun stillCurrent(): Boolean = opEpoch == _sessionEpoch.get() &&
+                _sessionState.value.activeEndpoint.id == targetEndpoint.id &&
+                _sessionState.value.lastRemoteCommand?.commandId == cmd.commandId
+            if (!stillCurrent()) return@launch
+            val client = currentClient(targetEndpoint.id)
+            val result = client?.jumpQueueToItem(itemId)
+            if (!stillCurrent()) return@launch
+            val outcome = if (result?.isSuccess == true) {
+                val observed = runCatching { client?.getQueue()?.getOrNull() }.getOrNull()
+                if (!stillCurrent()) return@launch
+                if (observed == null) {
+                    cmd.copy(
+                        status = RemoteCommandStatus.ACCEPTED,
+                        epoch = opEpoch,
+                        resultMessage = "Salto aceptado; no se pudo confirmar la instancia remota",
+                    )
+                } else {
+                    val tracks = observed.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                    val observedIndex = observed.currentIndex.takeIf { it in tracks.indices } ?: -1
+                    _sessionState.value = _sessionState.value.copy(
+                        queue = tracks,
+                        queueIndex = observedIndex,
+                        queueItemIds = observed.itemIds,
+                        remoteQueueVersion = observed.queueVersion,
+                        queueDegraded = observed.queueDegraded,
+                        queueDegradedReason = observed.queueDegradedReason,
+                        currentTrack = tracks.getOrNull(observedIndex),
+                    )
+                    val observedItem = observed.itemIds.getOrNull(observedIndex)
+                    val observedTrack = tracks.getOrNull(observedIndex)?.id
+                    if (observedItem == itemId && observedTrack == expectedTrackId) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    } else {
+                        cmd.copy(
+                            status = RemoteCommandStatus.CONFLICT,
+                            epoch = opEpoch,
+                            resultMessage = "El host informó otra instancia; la cola observada reemplazó el snapshot",
+                        )
+                    }
+                }
+            } else {
+                val (failure, reason) = resolveFailureStatus(client, result)
+                cmd.copy(status = failure, epoch = opEpoch, resultMessage = reason)
+            }
+            if (stillCurrent()) {
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+            }
+        }
+    }
+
     fun skipToQueueIndex(index: Int) {
         if (isRemotePlaybackHost) {
             val state = _sessionState.value
             if (index !in state.queue.indices) return
+            val itemId = state.queueItemIds.getOrNull(index)
+            if (!itemId.isNullOrBlank()) {
+                skipToQueueItem(itemId, state.queue[index].id)
+                return
+            }
             val targetEndpoint = state.activeEndpoint
             val selectedId = state.queue[index].id
             val opEpoch = _sessionEpoch.get()
@@ -1248,7 +1399,7 @@ class PlaybackSessionManager(
                     _sessionState.value.activeEndpoint.id == targetEndpoint.id &&
                     _sessionState.value.lastRemoteCommand?.commandId == cmd.commandId
                 if (!stillCurrent()) return@launch
-                val client = connectionManager.getClient(targetEndpoint.id)
+                val client = currentClient(targetEndpoint.id)
                 val itemId = state.queueItemIds.getOrNull(index)
                 val result = if (!itemId.isNullOrBlank()) {
                     client?.jumpQueueToItem(itemId, state.remoteQueueVersion)
@@ -1324,11 +1475,98 @@ class PlaybackSessionManager(
         }
     }
 
+    /** MIM-08: delete the exact queue instance captured by the gesture. */
+    fun removeQueueItem(itemId: String, expectedTrackId: String) {
+        if (!isRemotePlaybackHost) return
+        val targetEndpoint = _sessionState.value.activeEndpoint
+        val opEpoch = _sessionEpoch.get()
+        val cmd = RemoteCommandRecord(
+            endpointId = targetEndpoint.id,
+            epoch = opEpoch,
+            action = "remove_queue_item",
+            param = itemId,
+            status = RemoteCommandStatus.PENDING,
+        )
+        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
+        scope.launch {
+            val client = currentClient(targetEndpoint.id)
+            val snapshot = client?.getQueue()?.getOrNull()
+            if (snapshot == null || snapshot.queueDegraded || !snapshot.hasStableItemIds()) {
+                _sessionState.value = _sessionState.value.copy(
+                    lastRemoteCommand = cmd.copy(
+                        status = RemoteCommandStatus.UNSUPPORTED,
+                        resultMessage = when {
+                            snapshot == null -> "No se pudo leer la cola remota; no se eliminó nada"
+                            snapshot.queueDegraded -> "Cola remota degradada; no se eliminó nada"
+                            else -> "El servidor no informa IDs únicos de elemento; no se eliminó nada"
+                        },
+                    ),
+                )
+                return@launch
+            }
+            val index = snapshot.itemIds.indexOf(itemId)
+            val observedTrackId = snapshot.tracks.getOrNull(index)?.trackId
+            if (index < 0 || observedTrackId != expectedTrackId ||
+                snapshot.itemIds.count { it == itemId } != 1) {
+                _sessionState.value = _sessionState.value.copy(
+                    lastRemoteCommand = cmd.copy(
+                        status = RemoteCommandStatus.CONFLICT,
+                        resultMessage = "La cola remota ya no contiene esa instancia; no se eliminó nada",
+                    ),
+                )
+                return@launch
+            }
+            val result = client.removeQueueItem(itemId)
+            if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+            val outcome = if (result.isSuccess) {
+                val fresh = client.getQueue().getOrNull()
+                if (fresh == null) {
+                    cmd.copy(
+                        status = RemoteCommandStatus.UNKNOWN_OUTCOME,
+                        epoch = opEpoch,
+                        resultMessage = "El host aceptó el borrado pero no se pudo releer la cola",
+                    )
+                } else {
+                    val tracks = fresh.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                    _sessionState.value = _sessionState.value.copy(
+                        queue = tracks,
+                        queueIndex = fresh.currentIndex,
+                        queueItemIds = fresh.itemIds,
+                        remoteQueueVersion = fresh.queueVersion,
+                        queueDegraded = fresh.queueDegraded,
+                        queueDegradedReason = fresh.queueDegradedReason,
+                    )
+                    if (itemId !in fresh.itemIds) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    } else {
+                        cmd.copy(
+                            status = RemoteCommandStatus.CONFLICT,
+                            epoch = opEpoch,
+                            resultMessage = "El host respondió OK pero la instancia sigue en la cola",
+                        )
+                    }
+                }
+            } else {
+                val (failure, reason) = resolveFailureStatus(client, result)
+                cmd.copy(status = failure, epoch = opEpoch, resultMessage = reason)
+            }
+            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+            }
+        }
+    }
+
     fun removeFromQueue(index: Int) {
         if (isRemotePlaybackHost) {
+            val state = _sessionState.value
+            val itemId = state.queueItemIds.getOrNull(index)
+            if (itemId != null && index in state.queue.indices) {
+                removeQueueItem(itemId, state.queue[index].id)
+                return
+            }
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val currentQ = _sessionState.value.queue
             if (index !in currentQ.indices) return
             val expectedTrackId = currentQ[index].id
@@ -1413,7 +1651,7 @@ class PlaybackSessionManager(
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,
@@ -1603,7 +1841,7 @@ class PlaybackSessionManager(
 
         // Authority 2: Remote Playback Host
         if (isRemotePlaybackHost) {
-            val client = connectionManager.getClient(activeEp.id)
+            val client = currentClient(activeEp.id)
             if (client == null) {
                 val cmd = RemoteCommandRecord(
                     commandId = opId,
@@ -2091,7 +2329,7 @@ class PlaybackSessionManager(
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,
@@ -2195,7 +2433,7 @@ class PlaybackSessionManager(
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,
@@ -2244,11 +2482,92 @@ class PlaybackSessionManager(
         }
     }
 
+    /** MIM-08: reorder the exact instance; direction is -1 (up) or +1 (down). */
+    fun moveQueueItem(itemId: String, direction: Int) {
+        if (!isRemotePlaybackHost) return
+        if (direction !in -1..1) return
+        val targetEndpoint = _sessionState.value.activeEndpoint
+        val opEpoch = _sessionEpoch.get()
+        val cmd = RemoteCommandRecord(
+            endpointId = targetEndpoint.id,
+            epoch = opEpoch,
+            action = "reorder_queue",
+            param = "$itemId:${if (direction < 0) "up" else "down"}",
+            status = RemoteCommandStatus.PENDING,
+        )
+        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
+        scope.launch {
+            val client = currentClient(targetEndpoint.id)
+            val snapshot = client?.getQueue()?.getOrNull()
+            if (snapshot == null || snapshot.queueDegraded || !snapshot.hasStableItemIds()) {
+                _sessionState.value = _sessionState.value.copy(
+                    lastRemoteCommand = cmd.copy(
+                        status = RemoteCommandStatus.UNSUPPORTED,
+                        resultMessage = "La cola remota no expone IDs de elemento estables; no se reordenó",
+                    ),
+                )
+                return@launch
+            }
+            val from = snapshot.itemIds.indexOf(itemId)
+            val to = from + direction
+            if (from < 0 || to !in snapshot.itemIds.indices) {
+                _sessionState.value = _sessionState.value.copy(
+                    lastRemoteCommand = cmd.copy(
+                        status = RemoteCommandStatus.CONFLICT,
+                        resultMessage = "La instancia ya no está en esa posición; no se reordenó",
+                    ),
+                )
+                return@launch
+            }
+            val order = snapshot.itemIds.toMutableList().apply {
+                val moved = removeAt(from)
+                add(to, moved)
+            }
+            val result = client.reorderQueueItems(order, snapshot.queueId.ifBlank { null })
+            if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+            val outcome = if (result.isSuccess) {
+                val fresh = client.getQueue().getOrNull()
+                if (fresh == null) {
+                    cmd.copy(
+                        status = RemoteCommandStatus.UNKNOWN_OUTCOME,
+                        epoch = opEpoch,
+                        resultMessage = "El host aceptó el reorden pero no se pudo releer la cola",
+                    )
+                } else {
+                    val tracks = fresh.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
+                    _sessionState.value = _sessionState.value.copy(
+                        queue = tracks,
+                        queueIndex = fresh.currentIndex,
+                        queueItemIds = fresh.itemIds,
+                        remoteQueueVersion = fresh.queueVersion,
+                        queueDegraded = fresh.queueDegraded,
+                        queueDegradedReason = fresh.queueDegradedReason,
+                    )
+                    if (fresh.itemIds == order) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    } else {
+                        cmd.copy(
+                            status = RemoteCommandStatus.CONFLICT,
+                            epoch = opEpoch,
+                            resultMessage = "El host respondió OK pero la secuencia observada difiere",
+                        )
+                    }
+                }
+            } else {
+                val (failure, reason) = resolveFailureStatus(client, result)
+                cmd.copy(status = failure, epoch = opEpoch, resultMessage = reason)
+            }
+            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+            }
+        }
+    }
+
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,
@@ -2315,7 +2634,7 @@ class PlaybackSessionManager(
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,
@@ -2397,7 +2716,7 @@ class PlaybackSessionManager(
         if (_sessionState.value.isRemoteActive) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val repeatStr = when (mode) { 1 -> "one"; 2 -> "all"; else -> "off" }
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
@@ -2443,7 +2762,7 @@ class PlaybackSessionManager(
         if (_sessionState.value.isRemoteActive) {
             val targetEndpoint = _sessionState.value.activeEndpoint
             val opEpoch = _sessionEpoch.get()
-            val client = connectionManager.getClient(targetEndpoint.id)
+            val client = currentClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
                 epoch = opEpoch,

@@ -164,6 +164,17 @@ class HomeQueueContractTest {
     }
 
     @Test
+    fun `addQueueItems preserves intentional duplicate track occurrences`() = runTest {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = request.body.toByteArray().decodeToString()
+            respond("""{"status":"ok","added":2}""", HttpStatusCode.OK, jsonHeaders())
+        }
+        assertTrue(client(engine = engine).addQueueItems(listOf("t1", "t1")).isSuccess)
+        assertTrue(body.contains("\"track_ids\":[\"t1\",\"t1\"]"))
+    }
+
+    @Test
     fun `set_volume sends the canonical integer without a conflicting empty value`() = runTest {
         var body = ""
         val engine = MockEngine { request ->
@@ -247,7 +258,25 @@ class HomeQueueContractTest {
     fun `home session token is published only after explicit verification and respects TTL`() {
         val client = client(engine = MockEngine { respond("{}") })
         assertFalse(client.isHomeSessionValid(nowMillis = 1_000))
-        client.acceptVerifiedHomeSession("michi_home_abc", expiresInSeconds = 60, nowMillis = 1_000)
+        val verified = org.michimusic.link.home.VerifiedHomeSession(
+            homeId = "h".repeat(43),
+            serverMichiId = "s".repeat(43),
+            clientMichiId = "c".repeat(43),
+            sessionToken = "michi_home_abcdef",
+            expiresInSeconds = 60,
+            challengeId = "550e8400-e29b-41d4-a716-446655440111",
+            serverMembership = org.michimusic.link.home.HomeMembershipDto(
+                homeId = "h".repeat(43),
+                deviceMichiId = "s".repeat(43),
+                devicePublicKey = "p".repeat(43),
+                deviceType = "server",
+                roles = listOf("music_server"),
+                issuedAt = "2026-11-18T12:00:00Z",
+                serial = 1,
+                signature = "x".repeat(86),
+            ),
+        )
+        client.acceptVerifiedHomeSession(verified, nowMillis = 1_000)
         assertTrue(client.isHomeSessionValid(nowMillis = 59_000))
         assertFalse(client.isHomeSessionValid(nowMillis = 61_001))
         client.clearHomeSession()

@@ -8,6 +8,8 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.michimusic.core.models.DeviceAuthorization
+import org.michimusic.core.models.DeviceAvailability
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.link.PairedDevice
@@ -163,6 +165,97 @@ class LinkDeviceRosterProjectorTest {
         )
         val roster = LinkDeviceRosterProjector(registry).project(emptyList(), emptyMap())
         assertNull(roster.first { it.isPaired }.canonicalMichiId)
+    }
+
+
+    @Test fun reachableLegacyPeerIsNotHomeAuthorized() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "micro", deviceName = "Micro", deviceToken = "secret",
+                michiId = "pinned", lastUrl = "https://10.0.0.2:8400",
+                featuresMap = mapOf("playback" to kotlinx.serialization.json.JsonPrimitive(true))),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(
+            emptyList(), mapOf("micro" to SyncConnectionState.CONNECTED),
+        ).single()
+        assertEquals(DeviceAvailability.REACHABLE, device.accessState.availability)
+        assertTrue(device.accessState.identityVerified)
+        assertFalse(device.accessState.homeAuthorized)
+        assertTrue(device.accessState.authenticated)
+        assertTrue(device.accessState.capabilitiesVerified)
+        assertEquals(DeviceAuthorization.LEGACY_PAIRED, device.accessState.authorization)
+    }
+
+    @Test fun homeEnrolledWithoutSessionIsNotAuthenticated() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "micro", deviceName = "Micro", deviceToken = "",
+                michiId = "pinned", lastUrl = "https://10.0.0.2:8400"),
+        )
+        val device = LinkDeviceRosterProjector(
+            registry,
+            homeAuthorized = { it == "pinned" },
+            homeAuthenticated = { false },
+        ).project(emptyList(), mapOf("micro" to SyncConnectionState.CONNECTED)).single()
+        assertTrue(device.accessState.homeAuthorized)
+        assertFalse(device.accessState.authenticated)
+        assertEquals(DeviceAuthorization.HOME_ENROLLED, device.accessState.authorization)
+    }
+
+    @Test fun homeAuthenticatedRequiresTheAuthorityLease() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "micro", deviceName = "Micro", deviceToken = "",
+                michiId = "pinned", lastUrl = "https://10.0.0.2:8400"),
+        )
+        val device = LinkDeviceRosterProjector(
+            registry,
+            homeAuthorized = { it == "pinned" },
+            homeAuthenticated = { it == "pinned" },
+        ).project(emptyList(), mapOf("micro" to SyncConnectionState.CONNECTED)).single()
+        assertTrue(device.accessState.authenticated)
+        assertEquals(DeviceAuthorization.HOME_AUTHENTICATED, device.accessState.authorization)
+    }
+
+    @Test fun verifiedDiscoveryIsIdentityOnlyNeverHomeOrCapabilities() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns emptyList()
+        val peer = LinkDeviceRosterProjector(registry).project(
+            listOf(DiscoveredPeer(alias = "Peer", ip = "10.0.0.9", port = 8400,
+                deviceId = "peer", michiId = "peer-michi", identityTrust = "VERIFIED")),
+            emptyMap(),
+        ).single()
+        assertEquals(DeviceAvailability.DISCOVERED, peer.accessState.availability)
+        assertTrue(peer.accessState.identityVerified)
+        assertFalse(peer.accessState.homeAuthorized)
+        assertFalse(peer.accessState.authenticated)
+        assertFalse(peer.accessState.capabilitiesVerified)
+        assertEquals(DeviceAuthorization.DISCOVERED_IDENTITY, peer.accessState.authorization)
+    }
+
+    @Test fun unsignedDiscoveryHasNoVerifiedIdentityOrAuthorization() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns emptyList()
+        val peer = LinkDeviceRosterProjector(registry).project(
+            listOf(DiscoveredPeer(alias = "Peer", ip = "10.0.0.9", port = 8400,
+                deviceId = "peer", identityTrust = "UNTRUSTED")),
+            emptyMap(),
+        ).single()
+        assertFalse(peer.accessState.identityVerified)
+        assertEquals(DeviceAuthorization.NONE, peer.accessState.authorization)
+    }
+
+    @Test fun revokedPairedPeerStaysRevokedEvenWhenConnected() {
+        val registry = mockk<PairedDeviceRegistry>()
+        every { registry.getAllDevices() } returns listOf(
+            PairedDevice(deviceId = "micro", deviceName = "Micro", deviceToken = "secret",
+                michiId = "pinned", lastUrl = "https://10.0.0.2:8400", isRevoked = true),
+        )
+        val device = LinkDeviceRosterProjector(registry).project(
+            emptyList(), mapOf("micro" to SyncConnectionState.CONNECTED),
+        ).single()
+        assertEquals(DeviceAuthorization.REVOKED, device.accessState.authorization)
+        assertFalse(device.accessState.authenticated)
     }
 
     @Test fun verifiedDiscoveryCannotInventACanonicalIdentity() {

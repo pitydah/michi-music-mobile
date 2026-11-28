@@ -421,7 +421,12 @@ fun QueueScreen(
                                 actOnSelection(selection) {
                                     queueNotice = null
                                     // Jump within this queue; NEVER transfer/rebuild it.
-                                    sessionManager.skipToQueueIndex(idx)
+                                    val itemId = sessionState.queueItemIds.getOrNull(idx)
+                                    if (itemId != null) {
+                                        sessionManager.skipToQueueItem(itemId, track.id)
+                                    } else {
+                                        sessionManager.skipToQueueIndex(idx)
+                                    }
                                 }
                             }) else null,
                         ) {
@@ -502,7 +507,12 @@ fun QueueScreen(
                                             contentDescription = "Subir ${track.title} en la cola",
                                             onClick = { actOnSelection(selection) {
                                                 queueNotice = null
-                                                sessionManager.moveQueueItem(idx, idx - 1)
+                                                val itemId = sessionState.queueItemIds.getOrNull(idx)
+                                                if (itemId != null) {
+                                                    sessionManager.moveQueueItem(itemId, -1)
+                                                } else {
+                                                    sessionManager.moveQueueItem(idx, idx - 1)
+                                                }
                                             } },
                                             enabled = canEditQueue,
                                             testTag = "queue_move_up_$idx",
@@ -517,7 +527,12 @@ fun QueueScreen(
                                             contentDescription = "Bajar ${track.title} en la cola",
                                             onClick = { actOnSelection(selection) {
                                                 queueNotice = null
-                                                sessionManager.moveQueueItem(idx, idx + 1)
+                                                val itemId = sessionState.queueItemIds.getOrNull(idx)
+                                                if (itemId != null) {
+                                                    sessionManager.moveQueueItem(itemId, 1)
+                                                } else {
+                                                    sessionManager.moveQueueItem(idx, idx + 1)
+                                                }
                                             } },
                                             enabled = canEditQueue,
                                             testTag = "queue_move_down_$idx",
@@ -536,7 +551,12 @@ fun QueueScreen(
                                             if (!isRemote || remoteQueueHasStableItems ||
                                                 remoteQueueRemovalUnambiguous(queueTrackIds, idx)) {
                                                 queueNotice = null
-                                                sessionManager.removeFromQueue(idx)
+                                                val itemId = sessionState.queueItemIds.getOrNull(idx)
+                                                if (itemId != null) {
+                                                    sessionManager.removeQueueItem(itemId, track.id)
+                                                } else {
+                                                    sessionManager.removeFromQueue(idx)
+                                                }
                                             }
                                         } },
                                         enabled = canEditQueue && (!isRemote || remoteQueueHasStableItems ||
@@ -608,7 +628,12 @@ fun QueueScreen(
                 onPlayNow = {
                     actOnSelection(selected) {
                         queueNotice = null
-                        sessionManager.skipToQueueIndex(selected.index)
+                        val itemId = sessionState.queueItemIds.getOrNull(selected.index)
+                        if (itemId != null) {
+                            sessionManager.skipToQueueItem(itemId, track.id)
+                        } else {
+                            sessionManager.skipToQueueIndex(selected.index)
+                        }
                     }
                 },
                 onPlayNext = {

@@ -85,6 +85,9 @@ data class PlaybackSessionState(
     val remoteQueueVersion: Long = 0L,
     val queueDegraded: Boolean = false,
     val queueDegradedReason: String? = null,
+    /** Server playback generation; never used to infer a local track. */
+    val remotePlaybackGeneration: Long = 0L,
+    val remoteLifecycle: String = "",
     val repeatMode: Int = 0, // 0 = off, 1 = all, 2 = one
     val shuffleMode: Int = 0, // 0 = off, 1 = all
     val isRemoteActive: Boolean = false,

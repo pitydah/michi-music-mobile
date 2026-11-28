@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.screens.devices
 
+import org.michimusic.core.models.DeviceAuthorization
+import org.michimusic.core.models.DeviceAvailability
 import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.mobile.sync.DeviceAction
 
@@ -13,6 +15,8 @@ enum class DeviceTrustStatus {
     UNKNOWN,
     PENDING,
     TRUSTED,
+    HOME_ENROLLED,
+    HOME_AUTHENTICATED,
     REVOKED,
     IDENTITY_MISMATCH
 }
@@ -35,6 +39,10 @@ data class DeviceUiItem(
     val trustStatus: DeviceTrustStatus = DeviceTrustStatus.UNKNOWN,
     val connectionStatus: DeviceConnectionStatus = DeviceConnectionStatus.DISCONNECTED,
     val capabilities: Set<String> = emptySet(),
+    val availability: DeviceAvailability = DeviceAvailability.UNKNOWN,
+    val homeAuthorized: Boolean = false,
+    val authenticated: Boolean = false,
+    val capabilitiesVerified: Boolean = false,
     val primaryAction: DeviceAction? = null,
     val secondaryActions: List<DeviceAction> = emptyList(),
     val underlyingDevice: UnifiedDevice? = null,
@@ -66,11 +74,21 @@ data class DeviceUiItem(
                 }
             }
 
-            val trust = when {
-                device.isRevoked -> DeviceTrustStatus.REVOKED
-                device.isPaired -> DeviceTrustStatus.TRUSTED
-                device.connectionState == org.michimusic.core.models.SyncConnectionState.PAIRING -> DeviceTrustStatus.PENDING
-                else -> DeviceTrustStatus.UNKNOWN
+            val trust = when (device.accessState.authorization) {
+                DeviceAuthorization.REVOKED -> DeviceTrustStatus.REVOKED
+                DeviceAuthorization.HOME_AUTHENTICATED -> DeviceTrustStatus.HOME_AUTHENTICATED
+                DeviceAuthorization.HOME_ENROLLED -> DeviceTrustStatus.HOME_ENROLLED
+                DeviceAuthorization.LEGACY_PAIRED -> DeviceTrustStatus.TRUSTED
+                DeviceAuthorization.DISCOVERED_IDENTITY ->
+                    if (device.identityVerifiedForUi()) DeviceTrustStatus.PENDING
+                    else DeviceTrustStatus.IDENTITY_MISMATCH
+                DeviceAuthorization.NONE -> when {
+                    device.isRevoked -> DeviceTrustStatus.REVOKED
+                    device.isPaired -> DeviceTrustStatus.TRUSTED
+                    device.connectionState == org.michimusic.core.models.SyncConnectionState.PAIRING ->
+                        DeviceTrustStatus.PENDING
+                    else -> DeviceTrustStatus.UNKNOWN
+                }
             }
 
             val caps = mutableSetOf<String>()
@@ -91,10 +109,17 @@ data class DeviceUiItem(
                 trustStatus = trust,
                 connectionStatus = connStatus,
                 capabilities = caps,
+                availability = device.accessState.availability,
+                homeAuthorized = device.accessState.homeAuthorized,
+                authenticated = device.accessState.authenticated,
+                capabilitiesVerified = device.accessState.capabilitiesVerified,
                 primaryAction = primary,
                 secondaryActions = secondaries,
                 underlyingDevice = device,
             )
         }
+
+        private fun UnifiedDevice.identityVerifiedForUi(): Boolean =
+            accessState.identityVerified || !canonicalMichiId.isNullOrBlank()
     }
 }

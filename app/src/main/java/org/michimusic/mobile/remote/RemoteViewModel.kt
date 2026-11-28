@@ -179,17 +179,28 @@ class RemoteViewModel(
     fun stop() { sessionManager.stop() }
     fun seek(positionMs: Long) { sessionManager.seekTo(positionMs) }
     
+    /** Last non-zero volume actually observed, never a fabricated default. */
+    private var lastAudibleVolume: Int? = null
+
     fun setVolume(volume: Int) {
+        if (volume !in 0..100) return
+        if (volume > 0) lastAudibleVolume = volume
         val activeEndpoint = sessionManager.sessionState.value.activeEndpoint
         if (!activeEndpoint.isLocal) {
             viewModelScope.launch(ioDispatcher) {
-                connectionManager.getClient(activeEndpoint.id)?.sendSetVolume(volume.coerceIn(0, 100))
+                connectionManager.getClient(activeEndpoint.id)?.sendSetVolume(volume)
             }
         }
     }
 
     fun mute() { setVolume(0) }
-    fun unmute() { setVolume(70) }
+
+    fun unmute() {
+        val target = lastAudibleVolume
+            ?: sessionManager.sessionState.value.remoteVolume.takeIf { it in 1..100 }
+            ?: return
+        setVolume(target)
+    }
 
     fun handoffToLocal(onResult: (Boolean, String) -> Unit) {
         sessionManager.handoffTo(org.michimusic.mobile.playback.PlaybackEndpoint.LocalPhone, onResult)

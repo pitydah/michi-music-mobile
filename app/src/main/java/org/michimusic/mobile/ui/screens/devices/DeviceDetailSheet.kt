@@ -399,6 +399,8 @@ private fun TechnicalDetailItem(label: String, value: String) {
 private fun TrustBadge(status: DeviceTrustStatus) {
     val (color, text) = when (status) {
         DeviceTrustStatus.TRUSTED -> TertiaryCyan to "Vinculado"
+        DeviceTrustStatus.HOME_ENROLLED -> PrimaryPinkContainer to "Membresía Home"
+        DeviceTrustStatus.HOME_AUTHENTICATED -> TertiaryCyan to "Home autenticado"
         DeviceTrustStatus.PENDING -> PrimaryPinkContainer to "Pendiente"
         DeviceTrustStatus.REVOKED -> ErrorColor to "Revocado"
         DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "Clave inválida"
