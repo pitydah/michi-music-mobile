@@ -1,7 +1,7 @@
 # UI8-KILLCRITIC — Refinamiento de Playlists post-merge
 
 Fecha: 2026-11-20. Repo: `pitydah/michi-music-mobile`. Base: `master` `341c706b`.
-Rama de corrección: `fix/ui8-playlists-card-parity`. Estado: **commiteada localmente, sin push, sin PR** (el brief lo exige).
+Rama de corrección: `fix/ui8-playlists-card-parity`, publicada como PR #26 y **mergeada** a `master` en `13469381` con CI verde. Ver §F para el cierre.
 
 ---
 
@@ -166,7 +166,7 @@ Secuencia de rotación cubierta por dos tests nuevos: `aFullForwardCycleReturnsT
 | P5 matriz visual | **100 % de la matriz pedida** (18 configs, 77 PNG); arte fotográfico real **NOT_CERTIFIED** |
 | Suite JVM completa | **verde** (`:app:testNormalDebugUnitTest`, run 0014) |
 | Arnés instrumentado de Playlists | **verde** (7/7) |
-| Push / PR | **0 % — no autorizado por el brief** |
+| Push / PR | **100 %** — PR #26 mergeado a `master` (`13469381`) con CI 9/9; ver §F |
 
 ### Comandos de reproducción
 ```bash
@@ -185,3 +185,49 @@ adb -s emulator-5554 pull \
   /sdcard/Android/data/org.michimusic.mobile.debug/files/ui8-matrix/. \
   /tmp/opencode/ui8-playlists-matrix-final/
 ```
+
+---
+
+## §F — Cierre: PR, merge y CI
+
+### PR #26
+https://github.com/pitydah/michi-music-mobile/pull/26 — `fix(ui8): give the playlist card one geometry and a measured caption scrim`, base `master`, head `a56c5907`, **4 commits**, `MERGEABLE` / `CLEAN`. Diff contra `341c706b`: **11 archivos, +796 / −69**.
+
+| Archivo | Líneas |
+|---|---|
+| `UI8_KILLCRITIC_PLAYLISTS_REPORT.md` | 187 (nuevo) |
+| `UI8PlaylistGeometryParityTest.kt` | 208 (nuevo) |
+| `UI8PlaylistModeSelectorTest.kt` | 149 (nuevo) |
+| `PlaylistScreen.kt` | 85 |
+| `UI8VisualMatrixCaptureTest.kt` | 83 |
+| `PlaylistCatalogComponents.kt` | 51 |
+| `UI8PlaylistDeckComposeTest.kt` | 51 |
+| `UI8VisualSpec.kt` | 20 |
+| `PlaylistSwipingDeck.kt` | 20 |
+| `UI8DeckFrameMetricsTest.kt` | 6 |
+| `UI8VisualSpecTest.kt` | 5 |
+
+### CI y merge
+
+| Evento | Run | Head | Resultado |
+|---|---|---|---|
+| PR #26 | `44722468992` | `a56c5907` | **9/9 success, intento 1** |
+| Merge | — | — | **`13469381fbd05756bcc7071b17c98d7cf25e8ac0`**, `2026-11-20T16:13:51Z` |
+| `master` post-merge | `44771253455` | `13469381` | **9/9 success, intento 1** |
+
+Job A Lint, B Unit Normal, C Unit F-Droid, D Room, E Build Normal, F Build F-Droid, G Instrumented API 36, H UI7 Release Gate, Quality Gate — todos verdes en ambos heads. Merge con `--merge` (merge commit normal): sin squash y sin force push, igual que #22, #23, #24 y #25.
+
+### Verificación en hardware
+La app equivalente a `a56c5907` se instaló en el teléfono físico `26dfb91d` (`25010PN30G`, API 36) con `adb install -r -t` sobre la instalación previa: `Success`, `versionName=0.1.0-alpha`, datos intactos (`firstInstallTime` 2026-11-15, `lastUpdateTime` 2026-11-20 07:51). Arrancó sin crash (`topResumedActivity=org.michimusic.mobile.debug/MainActivity`) y muestra la biblioteca real: selección «p: Machinery / Propaganda / 61 canciones», Recientemente Escuchadas con carátulas reales y la barra de 5 destinos.
+
+**Limitación declarada:** no se pudo navegar a Playlists por automation. `adb shell input tap` falla en ese dispositivo con `java.lang.SecurityException: Injecting input events requires the caller … to have the INJECT_EVENTS permission` (restricción MIUI; se habilita con «Depuración USB (Ajustes de seguridad)»), y la app no expone deep links (`grep` de `android:scheme` / `navDeepLink` en `AndroidManifest.xml` sin resultados). La pantalla en hardware quedó verificada en su arranque y biblioteca, no navegada hasta Playlists.
+
+### Corrección de registro
+El run `44663513883` sobre `341c706b` (push de `master` tras #25) terminó en **failure**, no en verde. Ninguna de las dos causas fue código:
+- **Job A Lint**: `Execution failed for task ':app:checkFdroidDebugAarMetadata'` → `Could not resolve all files for configuration ':app:fdroidDebugRuntimeClasspath'` → `Could not find com.google.zxing:core:3.5.3` y `Could not find com.google.dagger:dagger:2.59` (dependencia transitiva de `androidx.camera:camera-camera2:1.6.2`). Fue un hipo de resolución de repositorios del runner: runs posteriores sin cambios de dependencias pasaron.
+- **Job G Instrumented**: `There were failing tests`, 1 fallo, con la firma ya documentada del flake de los tests de **Géneros UI7** (vistas que este trabajo no toca).
+
+### Lo que sigue sin certificar
+- **Contraste del caption sobre arte fotográfico real**: medido 18/18 sobre banners sintéticos lisos; con fotos de alto detalle la sombra tipográfica está puesta para eso pero no se midió.
+- **Pantalla completa de Playlists en captura**: el arnés de matriz renderiza componentes; el selector se certifica por semántica en JVM.
+
